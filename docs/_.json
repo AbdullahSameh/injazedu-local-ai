@@ -1,0 +1,22 @@
+{
+    "multiple_choice": {
+        "question_details": {
+            "allow_multiple_select": false,
+            "options": [
+                {
+                    "id": "opt_xxxx1",
+                    "text": "Option text"
+                },
+                {
+                    "id": "opt_xxxx2",
+                    "text": "Option text"
+                }
+            ]
+        },
+        "answer_key": {
+            "correct_option_ids": [
+                "opt_xxxx1"
+            ]
+        }
+    }
+}
