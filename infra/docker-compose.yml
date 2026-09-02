@@ -1,0 +1,99 @@
+name: injazedu-local-ai
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      AI_MIGRATOR_PASSWORD: ${AI_MIGRATOR_PASSWORD}
+      AI_APP_PASSWORD: ${AI_APP_PASSWORD}
+      AI_CONTROL_PASSWORD: ${AI_CONTROL_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    mem_limit: 1500m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    mem_limit: 384m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ai-api:
+    build: ../apps/ai-api
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+      API_PORT: ${API_PORT}
+      LOG_LEVEL: ${LOG_LEVEL}
+      WORKER_HEARTBEAT_INTERVAL_S: ${WORKER_HEARTBEAT_INTERVAL_S}
+      WORKER_HEARTBEAT_TTL_S: ${WORKER_HEARTBEAT_TTL_S}
+    ports:
+      - "${API_PORT}:8000"
+    mem_limit: 768m
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live', timeout=2)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ai-worker:
+    build: ../apps/ai-api
+    command: ["dramatiq", "app.workers.main", "--processes", "${WORKER_PROCESSES}", "--threads", "${WORKER_THREADS}"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL}
+      WORKER_HEARTBEAT_INTERVAL_S: ${WORKER_HEARTBEAT_INTERVAL_S}
+      WORKER_HEARTBEAT_TTL_S: ${WORKER_HEARTBEAT_TTL_S}
+    mem_limit: 1g
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  migrate:
+    build: ../apps/ai-api
+    profiles: ["tools"]
+    environment:
+      MIGRATOR_DATABASE_URL: ${MIGRATOR_DATABASE_URL}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  n8n:
+    image: n8nio/n8n:latest
+    profiles: ["automation"]
+    mem_limit: 768m
+    depends_on:
+      - postgres
+
+volumes:
+  postgres-data:

@@ -1,1 +1,21 @@
 injazedu/
+
+# Secrets — never commit a real value (FR-033)
+.env
+.env.*
+!.env.example
+!.env.testing.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# PHP
+vendor/
+
+# Node
+node_modules/
+
+# macOS
+.DS_Store
