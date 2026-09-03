@@ -17,6 +17,7 @@ never a stack trace, never a silent default that works locally and surprises som
 |---|---|---|---|
 | `POSTGRES_DB` | postgres | `injaz_ai` | Container refuses to start |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` | postgres | `postgres` / `CHANGE_ME` | Container refuses to start |
+| `POSTGRES_HOST_PORT` | postgres (host port publish only) | `5434` | `make up` fails to bind the port. **Not 5432 by default** — that port is frequently already held by a native Postgres install or another project's container; containers still reach Postgres internally at `postgres:5432` regardless of this value (research D-20) |
 | `AI_MIGRATOR_PASSWORD` | postgres init, `migrate` | `CHANGE_ME_MIGRATOR` | Roles not created; migrations cannot run |
 | `AI_APP_PASSWORD` | postgres init, api, worker | `CHANGE_ME_APP` | Startup exits naming the variable |
 | `AI_CONTROL_PASSWORD` | postgres init, control panel | `CHANGE_ME_CONTROL` | Panel cannot connect |
@@ -29,7 +30,7 @@ never a stack trace, never a silent default that works locally and surprises som
 
 | Variable | Example | Rule |
 |---|---|---|
-| `TEST_DATABASE_URL` | `postgresql+psycopg://ai_migrator:…@localhost:5432/injaz_ai_test` | **Database name must contain `_test`**, must differ from `DATABASE_URL`, and must be a local host — otherwise the test session aborts before collection finishes (FR-028, SC-010) |
+| `TEST_DATABASE_URL` | `postgresql+psycopg://ai_migrator:…@localhost:5434/injaz_ai_test` | **Database name must contain `_test`**, must differ from `DATABASE_URL`, and must be a local host — otherwise the test session aborts before collection finishes (FR-028, SC-010). The port must match `POSTGRES_HOST_PORT` |
 
 This is the mechanical form of Constitution Principle II. The predicate is a plain function with its
 own unit tests covering both the accepted and the rejected shapes.

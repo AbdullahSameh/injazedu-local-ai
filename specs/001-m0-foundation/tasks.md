@@ -138,14 +138,14 @@ and confirm the failure and its reason are recorded while the worker stays avail
 
 ### Tests for User Story 3
 
-- [ ] T041 [P] [US3] Integration-test the success round trip in `apps/ai-api/tests/integration/test_diagnostics_task.py`: enqueue, then observe `completed` with its result (FR-017, SC-007)
-- [ ] T042 [P] [US3] Integration-test the failure path in `apps/ai-api/tests/integration/test_diagnostics_failure.py`: the outcome is `failed` carrying `error_type` and `error_message`, and the worker processes a subsequent task successfully (FR-018)
+- [X] T041 [P] [US3] Integration-test the success round trip in `apps/ai-api/tests/integration/test_diagnostics_task.py`: enqueue, then observe `completed` with its result (FR-017, SC-007)
+- [X] T042 [P] [US3] Integration-test the failure path in `apps/ai-api/tests/integration/test_diagnostics_failure.py`: the outcome is `failed` carrying `error_type` and `error_message`, and the worker processes a subsequent task successfully (FR-018)
 
 ### Implementation for User Story 3
 
-- [ ] T043 [US3] Implement `apps/ai-api/app/workers/tasks/diagnostics.py` — a `ping(nonce, should_fail)` actor with `max_retries=0` that writes `ai:diag:{nonce}` (`SETEX`, TTL 300 s) with `completed` + result, or `failed` + exception type and message, and logs either way (research D-10, data-model.md §4)
-- [ ] T044 [US3] Implement `apps/ai-api/app/api/v1/diagnostics.py` — `POST /v1/diagnostics/ping` returning 202 with a nonce, and `GET /v1/diagnostics/ping/{nonce}` returning `pending|completed|failed`, matching `contracts/openapi.yaml`; enqueueing must fail visibly with 503 when the broker is unreachable rather than silently dropping the task (FR-017, spec edge case)
-- [ ] T045 [US3] Confirm the queued-while-no-worker path in `apps/ai-api/tests/integration/test_diagnostics_pending.py`: with the worker stopped the endpoint reports `pending`, and the task executes once the worker starts (FR-019)
+- [X] T043 [US3] Implement `apps/ai-api/app/workers/tasks/diagnostics.py` — a `ping(nonce, should_fail)` actor with `max_retries=0` that writes `ai:diag:{nonce}` (`SETEX`, TTL 300 s) with `completed` + result, or `failed` + exception type and message, and logs either way (research D-10, data-model.md §4)
+- [X] T044 [US3] Implement `apps/ai-api/app/api/v1/diagnostics.py` — `POST /v1/diagnostics/ping` returning 202 with a nonce, and `GET /v1/diagnostics/ping/{nonce}` returning `pending|completed|failed`, matching `contracts/openapi.yaml`; enqueueing must fail visibly with 503 when the broker is unreachable rather than silently dropping the task (FR-017, spec edge case)
+- [X] T045 [US3] Confirm the queued-while-no-worker path in `apps/ai-api/tests/integration/test_diagnostics_pending.py`: with the worker stopped the endpoint reports `pending`, and the task executes once the worker starts (FR-019)
 
 **Checkpoint**: The enqueue → execute → observe loop every later milestone depends on is proven.
 
@@ -162,18 +162,18 @@ confirm a wrong password and an unauthenticated URL are both refused.
 
 ### Tests for User Story 4
 
-- [ ] T046 [P] [US4] Write `apps/ai-control/tests/Feature/PanelAccessTest.php`: an unauthenticated request to `/admin` redirects to sign-in rather than being served, and an incorrect password establishes no session (FR-023)
+- [X] T046 [P] [US4] Write `apps/ai-control/tests/Feature/PanelAccessTest.php`: an unauthenticated request to `/admin` redirects to sign-in rather than being served, and an incorrect password establishes no session (FR-023)
 
 ### Implementation for User Story 4
 
-- [ ] T047 [US4] Scaffold Laravel 12 + Filament 5 in `apps/ai-control/`, with the `pgsql` connection configured for the `ai_control` identity against `injaz_ai` (research D-13)
-- [ ] T048 [US4] Make `apps/ai-control/app/Models/User.php` implement `Filament\Models\Contracts\FilamentUser`, with `canAccessPanel()` returning the `is_panel_operator` flag — mandatory outside local environments (FR-021, research D-14)
-- [ ] T049 [US4] Call `DB::prohibitDestructiveCommands()` for every non-testing environment in `apps/ai-control/app/Providers/AppServiceProvider.php`, blocking `migrate:fresh`, `migrate:refresh`, `migrate:reset`, and `db:wipe` (Principle II)
-- [ ] T050 [US4] Configure `SESSION_DRIVER=file`, `CACHE_STORE=file`, `QUEUE_CONNECTION=sync`, and leave `apps/ai-control/database/migrations/` empty with a `README.md` stating that Alembic owns this schema (FR-014, research D-07)
-- [ ] T051 [US4] Implement the `seed-admin` console command in `apps/ai-control/app/Console/Commands/SeedAdmin.php` — idempotent by email, bcrypt-hashed, reading `ADMIN_EMAIL`/`ADMIN_PASSWORD` from the environment, with **no default credential anywhere** (FR-022, FR-033)
-- [ ] T052 [US4] Write `apps/ai-control/Dockerfile` (a `node:22-alpine` stage building Filament's Tailwind 4 assets, then a `php:8.2-cli` runtime serving on 8080), add the `ai-control` service (`mem_limit: 640m`) to `infra/docker-compose.yml`, and fill the `seed-admin` Makefile target (research D-15)
-- [ ] T053 [US4] Create `apps/ai-control/.env.testing.example` pointing at `injaz_ai_test` (FR-027)
-- [ ] T054 [US4] Verify `apps/ai-control/config/database.php` and the `ai-control` service block in `infra/docker-compose.yml` define no MySQL connection and carry no InjazEdu credential of any kind (FR-024, architecture rule 1)
+- [X] T047 [US4] Scaffold Laravel 12 + Filament 5 in `apps/ai-control/`, with the `pgsql` connection configured for the `ai_control` identity against `injaz_ai` (research D-13)
+- [X] T048 [US4] Make `apps/ai-control/app/Models/User.php` implement `Filament\Models\Contracts\FilamentUser`, with `canAccessPanel()` returning the `is_panel_operator` flag — mandatory outside local environments (FR-021, research D-14)
+- [X] T049 [US4] Call `DB::prohibitDestructiveCommands()` for every non-testing environment in `apps/ai-control/app/Providers/AppServiceProvider.php`, blocking `migrate:fresh`, `migrate:refresh`, `migrate:reset`, and `db:wipe` (Principle II)
+- [X] T050 [US4] Configure `SESSION_DRIVER=file`, `CACHE_STORE=file`, `QUEUE_CONNECTION=sync`, and leave `apps/ai-control/database/migrations/` empty with a `README.md` stating that Alembic owns this schema (FR-014, research D-07)
+- [X] T051 [US4] Implement the `seed-admin` console command in `apps/ai-control/app/Console/Commands/SeedAdmin.php` — idempotent by email, bcrypt-hashed, reading `ADMIN_EMAIL`/`ADMIN_PASSWORD` from the environment, with **no default credential anywhere** (FR-022, FR-033)
+- [X] T052 [US4] Write `apps/ai-control/Dockerfile` (a `node:22-alpine` stage building Filament's Tailwind 4 assets, then a `php:8.2-cli` runtime serving on 8080), add the `ai-control` service (`mem_limit: 640m`) to `infra/docker-compose.yml`, and fill the `seed-admin` Makefile target (research D-15)
+- [X] T053 [US4] Create `apps/ai-control/.env.testing.example` pointing at `injaz_ai_test` (FR-027)
+- [X] T054 [US4] Verify `apps/ai-control/config/database.php` and the `ai-control` service block in `infra/docker-compose.yml` define no MySQL connection and carry no InjazEdu credential of any kind (FR-024, architecture rule 1)
 
 **Checkpoint**: The operator can sign in. The shell is intentionally empty — review screens are M5.
 
@@ -192,16 +192,16 @@ of the last story). This phase proves it and assembles the gate around it.
 
 ### Tests for User Story 5
 
-- [ ] T055 [P] [US5] Unit-test the guard predicate in `apps/ai-api/tests/unit/test_test_safety.py` against a table of URLs: accepted (`injaz_ai_test` on localhost) and rejected (no `_test` marker, identical to `DATABASE_URL`, non-local host) (FR-028, SC-010, research D-21)
+- [X] T055 [P] [US5] Unit-test the guard predicate in `apps/ai-api/tests/unit/test_test_safety.py` against a table of URLs: accepted (`injaz_ai_test` on localhost) and rejected (no `_test` marker, identical to `DATABASE_URL`, non-local host) (FR-028, SC-010, research D-21)
 
 ### Implementation for User Story 5
 
-- [ ] T056 [US5] Configure ruff and mypy in `apps/ai-api/pyproject.toml`, with mypy **strict** on `app/domain/` and `app/application/` per plan §19
-- [ ] T057 [US5] Add a secret scan step in `scripts/scan_secrets.sh` that fails when a credential-shaped value appears in any version-controlled file (FR-033, SC-011)
-- [ ] T058 [US5] Fill the `check` target in `Makefile` to run ruff, mypy, pytest, the PHP feature test, and the secret scan in one command (FR-025)
-- [ ] T059 [US5] Fill the `test-db-reset` target in `Makefile` — recreates `injaz_ai_test` from migrations and **refuses** any database name lacking the `_test` marker (FR-029, FR-030)
-- [ ] T060 [US5] Verify `make check` passes with Ollama quit and no network egress, in under 3 minutes (FR-026, SC-009)
-- [ ] T061 [US5] Verify the abort: run `TEST_DATABASE_URL=…/injaz_ai make check` and confirm the `apps/ai-api/tests/conftest.py` guard exits the session before any test runs and before any data is modified (SC-010)
+- [X] T056 [US5] Configure ruff and mypy in `apps/ai-api/pyproject.toml`, with mypy **strict** on `app/domain/` and `app/application/` per plan §19
+- [X] T057 [US5] Add a secret scan step in `scripts/scan_secrets.sh` that fails when a credential-shaped value appears in any version-controlled file (FR-033, SC-011)
+- [X] T058 [US5] Fill the `check` target in `Makefile` to run ruff, mypy, pytest, the PHP feature test, and the secret scan in one command (FR-025)
+- [X] T059 [US5] Fill the `test-db-reset` target in `Makefile` — recreates `injaz_ai_test` from migrations and **refuses** any database name lacking the `_test` marker (FR-029, FR-030)
+- [X] T060 [US5] Verify `make check` passes with Ollama quit and no network egress, in under 3 minutes (FR-026, SC-009)
+- [X] T061 [US5] Verify the abort: run `TEST_DATABASE_URL=…/injaz_ai make check` and confirm the `apps/ai-api/tests/conftest.py` guard exits the session before any test runs and before any data is modified (SC-010)
 
 **Checkpoint**: Every milestone from here can be called done on evidence rather than assertion.
 
@@ -209,12 +209,12 @@ of the last story). This phase proves it and assembles the gate around it.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T062 [P] Write `docs/runbooks/m0-foundation.md` — prerequisites, the required Docker memory value, the Ollama settings, start/stop/health commands, and the known-limitations list from `quickstart.md` (FR-034)
-- [ ] T063 Run the full `quickstart.md` walkthrough end to end and correct any step that does not work exactly as written (SC-001)
-- [ ] T064 [P] Verify the memory budget with `make mem-report`: the default stack idles within 5 GB and leaves ≥ 6 GB free (SC-004) — note this requires the operator to have reduced Docker Desktop from its current 7.8 GiB
-- [ ] T065 [P] Verify data survives a restart: `make down` then `make up` leaves the schema and the operator account intact (FR-002, SC-013)
-- [ ] T066 [P] Verify `git status` reports **zero** changes under `injazedu/` (Principle III, FR-032, SC-012)
-- [ ] T067 Record M0's known limitations in the runbook: no AI, no InjazEdu integration, an empty panel shell, no password reset or in-app notifications (research D-07), host `pg_dump` version mismatch (D-20), and no backups yet (research §7)
+- [X] T062 [P] Write `docs/runbooks/m0-foundation.md` — prerequisites, the required Docker memory value, the Ollama settings, start/stop/health commands, and the known-limitations list from `quickstart.md` (FR-034)
+- [X] T063 Run the full `quickstart.md` walkthrough end to end and correct any step that does not work exactly as written (SC-001) — fixed: raw `docker compose -f infra/docker-compose.yml ...` calls in the US1 failure-injection steps need `--env-file .env` (compose resolves its default `.env` relative to the `-f` file's directory, not the shell's cwd); all five user-story acceptance blocks reproduced successfully otherwise
+- [X] T064 [P] Verify the memory budget with `make mem-report`: measured **0.27 GiB** for the running stack, well within the 5 GB container budget — Docker Desktop's own VM allocation is still 7.8 GiB on this machine, so the machine-wide "≥ 6 GB free" criterion (SC-004) still needs the operator's one-time Settings change from the quickstart prerequisites
+- [X] T065 [P] Verify data survives a restart: `make down` then `make up` leaves the schema and the operator account intact (FR-002, SC-013) — confirmed
+- [X] T066 [P] Verify `git status` reports **zero** changes under `injazedu/` (Principle III, FR-032, SC-012) — **FAILS today**: `git status` shows `injazedu` with modified content (`app/Models/Course.php` reindented, two `.DS_Store` files) predating this M0 work; no M0 task touches `injazedu/`, confirmed by re-checking after this session's changes. Left unresolved — deciding whether to discard or commit inside that project is an operator call (Principle IV), documented in the runbook's verification log
+- [X] T067 Record M0's known limitations in the runbook: no AI, no InjazEdu integration, an empty panel shell, no password reset or in-app notifications (research D-07), host `pg_dump` version mismatch (D-20), and no backups yet (research §7)
 - [ ] T068 **Operator action** (Constitution IV — not the agent's): rename the branch to `001-m0-foundation` or keep using `SPECIFY_FEATURE=…`, then commit M0
 
 ---

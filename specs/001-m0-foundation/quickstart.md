@@ -111,14 +111,19 @@ Expect `"status": "ok"` and **four** named components: `database`, `broker`, `wo
 `model_runtime`. Then prove it reports failure honestly:
 
 ```bash
-docker compose -f infra/docker-compose.yml stop postgres
+docker compose -f infra/docker-compose.yml --env-file .env stop postgres
 make health          # → 503, database "down", the other three still reported
-docker compose -f infra/docker-compose.yml start postgres
+docker compose -f infra/docker-compose.yml --env-file .env start postgres
 
 # and that the model runtime is informational, not fatal (FR-008):
 # quit Ollama from the menu bar, then:
 make health          # → still "ok" overall, model_runtime "down"
 ```
+
+> `--env-file .env` is required on raw `docker compose` calls here: compose resolves its default
+> `.env` search relative to the `-f` file's directory (`infra/`), not your shell's working
+> directory, so omitting it silently blanks every variable (harmless for `stop`/`start` on
+> already-created containers, but not for anything that recreates one).
 
 ### US2 — the schema has exactly one owner
 
@@ -165,7 +170,7 @@ your setup.
 Then prove the guard that protects your data:
 
 ```bash
-TEST_DATABASE_URL='postgresql+psycopg://ai_migrator:x@localhost:5432/injaz_ai' make check
+TEST_DATABASE_URL='postgresql+psycopg://ai_migrator:x@localhost:5434/injaz_ai' make check
 # → aborts before any test runs, because the database name has no _test marker
 ```
 
@@ -210,7 +215,8 @@ verifying once, deliberately, so you trust it later.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `make up` fails naming a variable | `.env` incomplete | Fill the named placeholder; the message tells you which |
-| `make up` fails on a port | Something already owns 8000 / 8080 / 5432 / 6379 | Stop it, or change `API_PORT` / `CONTROL_PORT` in `.env` |
+| `make up` fails on a port | Something already owns 8000 / 8080 / 5434 / 6379 | Stop it, or change `API_PORT` / `CONTROL_PORT` / `POSTGRES_HOST_PORT` in `.env` |
+| Postgres connects but to the wrong data (or "role does not exist") | A native Postgres install (e.g. Homebrew) is bound to `127.0.0.1:5432`/`::1:5432` and shadows Docker's published port for host connections | Confirm with `lsof -nP -iTCP:5432 -sTCP:LISTEN`; this is exactly why `POSTGRES_HOST_PORT` defaults to `5434`, not `5432` — leave it changed rather than reusing 5432 |
 | `make migrate` errors on the `vector` extension | The volume predates the init SQL | `make down-hard` then `make up` — this recreates the volume, so only do it when the data is disposable |
 | `worker` reads `down` while the container is running | Heartbeat TTL shorter than the interval | Check `WORKER_HEARTBEAT_INTERVAL_S` < `WORKER_HEARTBEAT_TTL_S`; startup validates this |
 | Panel shows "403 / cannot access" after signing in | `is_panel_operator` is false on that account | Re-run `make seed-admin` for that email |

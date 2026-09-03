@@ -14,7 +14,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT}:5432"
     mem_limit: 1500m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -76,6 +76,31 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  ai-control:
+    build: ../apps/ai-control
+    environment:
+      APP_NAME: "InjazEdu AI Control Center"
+      APP_ENV: production
+      APP_KEY: ${APP_KEY}
+      APP_URL: http://localhost:${CONTROL_PORT}
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${POSTGRES_DB}
+      DB_USERNAME: ai_control
+      DB_PASSWORD: ${AI_CONTROL_PASSWORD}
+      SESSION_DRIVER: file
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    ports:
+      - "${CONTROL_PORT}:8080"
+    mem_limit: 640m
+    depends_on:
+      postgres:
         condition: service_healthy
 
   migrate:

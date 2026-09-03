@@ -57,7 +57,7 @@ migrate-down: ## Roll back one revision (FR-011, SC-006)
 	$(COMPOSE) --profile tools run --rm migrate alembic downgrade -1
 
 seed-admin: ## Create or update the panel account (FR-022)
-	@echo "TODO: seed-admin — filled in Phase 6 (US4)"
+	$(COMPOSE) exec ai-control php artisan app:seed-admin
 
 psql: ## Open psql inside the postgres container (research D-20)
 	@user=$$(grep '^POSTGRES_USER=' .env | cut -d= -f2); \
@@ -65,10 +65,10 @@ psql: ## Open psql inside the postgres container (research D-20)
 	$(COMPOSE) exec postgres psql -U "$$user" -d "$$db"
 
 check: ## Quality gate: ruff, mypy, pytest, PHP feature test, secret scan (FR-025)
-	@echo "TODO: check — filled in Phase 7 (US5)"
+	@scripts/check.sh
 
 test-db-reset: ## Recreate injaz_ai_test from migrations; refuses non-_test names (FR-029)
-	@echo "TODO: test-db-reset — filled in Phase 7 (US5)"
+	@scripts/test_db_reset.sh
 
 mem-report: ## docker stats against the 5 GB budget (SC-004)
 	@scripts/mem_report.sh

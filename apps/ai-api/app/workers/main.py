@@ -11,3 +11,5 @@ from app.infrastructure.queue import make_broker
 settings = load_settings()
 configure_logging(settings.log_level)
 dramatiq.set_broker(make_broker(settings))
+
+from app.workers.tasks import diagnostics as _diagnostics  # noqa: E402,F401
