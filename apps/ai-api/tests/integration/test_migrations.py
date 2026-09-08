@@ -13,10 +13,10 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, text
 
 APP_DIR = Path(__file__).resolve().parents[2]
-BASELINE_REVISION = "0001"
 
 
 def _alembic_config(sqlalchemy_url: str) -> Config:
@@ -24,6 +24,12 @@ def _alembic_config(sqlalchemy_url: str) -> Config:
     cfg.set_main_option("script_location", str(APP_DIR / "alembic"))
     cfg.set_main_option("sqlalchemy.url", sqlalchemy_url)
     return cfg
+
+
+def _head_revision(cfg: Config) -> str:
+    head = ScriptDirectory.from_config(cfg).get_current_head()
+    assert head is not None
+    return head
 
 
 def _current_revision(sqlalchemy_url: str) -> str | None:
@@ -53,6 +59,8 @@ def _empty_schema(test_url: str) -> Iterator[None]:
         engine = create_engine(test_url)
         try:
             with engine.begin() as conn:
+                conn.execute(text("DROP TABLE IF EXISTS model_runs"))
+                conn.execute(text("DROP TABLE IF EXISTS model_profiles"))
                 conn.execute(text("DROP TABLE IF EXISTS users"))
                 conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
         finally:
@@ -66,9 +74,10 @@ def _empty_schema(test_url: str) -> Iterator[None]:
 def test_empty_to_head(test_url: str) -> None:
     assert _current_revision(test_url) is None
 
-    command.upgrade(_alembic_config(test_url), "head")
+    cfg = _alembic_config(test_url)
+    command.upgrade(cfg, "head")
 
-    assert _current_revision(test_url) == BASELINE_REVISION
+    assert _current_revision(test_url) == _head_revision(cfg)
 
 
 def test_reapplying_head_is_a_no_op(test_url: str) -> None:
@@ -77,10 +86,10 @@ def test_reapplying_head_is_a_no_op(test_url: str) -> None:
 
     command.upgrade(cfg, "head")  # must not raise
 
-    assert _current_revision(test_url) == BASELINE_REVISION
+    assert _current_revision(test_url) == _head_revision(cfg)
 
 
-def test_head_down_one_up_returns_to_the_identical_version_with_no_manual_repair(
+def test_head_down_to_empty_up_returns_to_the_identical_version_with_no_manual_repair(
     test_url: str,
 ) -> None:
     cfg = _alembic_config(test_url)
@@ -88,7 +97,7 @@ def test_head_down_one_up_returns_to_the_identical_version_with_no_manual_repair
     head_revision = _current_revision(test_url)
     assert head_revision is not None
 
-    command.downgrade(cfg, "-1")
+    command.downgrade(cfg, "base")
     assert _current_revision(test_url) is None
 
     command.upgrade(cfg, "head")

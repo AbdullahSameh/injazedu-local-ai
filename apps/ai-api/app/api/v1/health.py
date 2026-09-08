@@ -40,7 +40,9 @@ async def readiness(request: Request) -> JSONResponse:
         ProbeSpec(
             "model_runtime",
             model_runtime_probe.REQUIRED,
-            lambda: model_runtime_probe.check(settings.ollama_base_url),
+            lambda: model_runtime_probe.check(
+                settings.ollama_base_url, engine, settings.gateway_capture_payloads
+            ),
         ),
     ]
 

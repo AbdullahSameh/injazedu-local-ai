@@ -1,4 +1,4 @@
-.PHONY: doctor up down down-hard logs health migrate migrate-down seed-admin psql check test-db-reset mem-report automation-up
+.PHONY: doctor up down down-hard logs health migrate migrate-down seed-profiles profiles seed-admin psql check test-db-reset mem-report automation-up smoke-llm test-llm check-lane
 
 COMPOSE := docker compose -f infra/docker-compose.yml --env-file .env
 
@@ -29,6 +29,14 @@ doctor: ## Check prerequisites: Docker memory, Ollama, .env completeness (FR-034
 	fi
 	@echo "== Ollama environment variables =="
 	@scripts/check_ollama_env.sh || true
+	@echo "== Model profiles (M1) =="
+	@if ! docker info >/dev/null 2>&1; then \
+		echo "  SKIPPED: Docker not running"; \
+	elif ! $(COMPOSE) exec -T postgres pg_isready -q >/dev/null 2>&1; then \
+		echo "  SKIPPED: Postgres not reachable (run 'make up' first)"; \
+	else \
+		$(COMPOSE) --profile tools run --rm migrate python -m app.scripts.check_profiles_pulled || true; \
+	fi
 
 up: ## Start the default services (FR-001)
 	$(COMPOSE) up -d --build
@@ -56,6 +64,12 @@ migrate: ## Run Alembic to head via the one-shot migrate container (FR-011)
 migrate-down: ## Roll back one revision (FR-011, SC-006)
 	$(COMPOSE) --profile tools run --rm migrate alembic downgrade -1
 
+seed-profiles: ## Seed the model roster into model_profiles, idempotent (FR-010, research D-36)
+	$(COMPOSE) --profile tools run --rm migrate python -m app.scripts.seed_profiles
+
+profiles: ## Print the roster: name, role, model, endpoint, dim, active (FR-049)
+	$(COMPOSE) --profile tools run --rm migrate python -m app.scripts.print_profiles
+
 seed-admin: ## Create or update the panel account (FR-022)
 	$(COMPOSE) exec ai-control php artisan app:seed-admin
 
@@ -72,6 +86,15 @@ test-db-reset: ## Recreate injaz_ai_test from migrations; refuses non-_test name
 
 mem-report: ## docker stats against the 5 GB budget (SC-004)
 	@scripts/mem_report.sh
+
+smoke-llm: ## One real structured generation + one real embedding; requires Ollama (FR-028, SC-015)
+	$(COMPOSE) --profile tools run --rm migrate python -m app.scripts.smoke_llm $(ARGS)
+
+test-llm: ## Run only @pytest.mark.llm tests — the ones `make check` excludes (FR-027)
+	(cd apps/ai-api && uv run pytest -m llm)
+
+check-lane: ## Prove the llm lane admits at most one caller at a time (FR-029, research D-33)
+	$(COMPOSE) --profile tools run --rm migrate python -m app.scripts.check_lane
 
 automation-up: ## Start n8n deliberately (FR-003)
 	$(COMPOSE) --profile automation up -d n8n

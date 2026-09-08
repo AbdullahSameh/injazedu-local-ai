@@ -12,6 +12,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_serializer
 
@@ -31,6 +32,9 @@ class ComponentReport(BaseModel):
     required: bool
     latency_ms: int = 0
     detail: str = ""
+    # `model_runtime`'s only — active profile names and `capture_payloads` state (M1
+    # contracts/gateway-interface.md §8). `None` for every other component.
+    gateway: dict[str, Any] | None = None
 
 
 class HealthReport(BaseModel):

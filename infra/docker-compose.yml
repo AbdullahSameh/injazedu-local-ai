@@ -108,6 +108,8 @@ services:
     profiles: ["tools"]
     environment:
       MIGRATOR_DATABASE_URL: ${MIGRATOR_DATABASE_URL}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
     restart: "no"
     depends_on:
       postgres:
