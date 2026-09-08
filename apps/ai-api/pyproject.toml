@@ -9,6 +9,7 @@ dependencies = [
     "dramatiq[redis]>=1.17",
     "redis>=5.0",
     "sqlalchemy>=2.0",
+    "greenlet>=3.0",
     "psycopg[binary]>=3.2",
     "alembic>=1.13",
     "pydantic-settings>=2.6",
@@ -33,6 +34,10 @@ packages = ["app"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+addopts = "-m 'not llm'"
+markers = [
+    "llm: exercises a real model runtime; excluded by default (research D-40)",
+]
 
 [tool.ruff]
 line-length = 100

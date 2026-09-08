@@ -42,7 +42,9 @@ async def _client(monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[AsyncClient
     async def _ok_worker(redis_client: object, ttl_s: int) -> ComponentReport:
         return _ok("1 worker")
 
-    async def _ok_model_runtime(base_url: str) -> ComponentReport:
+    async def _ok_model_runtime(
+        base_url: str, engine: object, capture_payloads: bool
+    ) -> ComponentReport:
         return ComponentReport(status=ComponentState.OK, required=False, detail="Ollama 0.33")
 
     monkeypatch.setattr(database_probe, "check", _ok_db)
@@ -109,7 +111,9 @@ async def test_a_failing_model_runtime_probe_still_yields_200(
 ) -> None:
     client = await _client(monkeypatch)
 
-    async def _down_model_runtime(base_url: str) -> ComponentReport:
+    async def _down_model_runtime(
+        base_url: str, engine: object, capture_payloads: bool
+    ) -> ComponentReport:
         return ComponentReport(status=ComponentState.DOWN, required=False, detail="unreachable")
 
     monkeypatch.setattr(model_runtime_probe, "check", _down_model_runtime)
