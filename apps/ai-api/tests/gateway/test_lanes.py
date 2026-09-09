@@ -82,7 +82,7 @@ async def test_waiting_is_fifo(gateway_redis_namespace: str) -> None:
     order: list[int] = []
 
     try:
-        held_token = await holder.lane.acquire(timeout_s=5.0)
+        held_lease = await holder.lane.acquire(timeout_s=5.0)
 
         async def wait_and_record(index: int, acquirer: _Acquirer) -> None:
             async with acquirer.lane.hold(timeout_s=5.0):
@@ -94,7 +94,7 @@ async def test_waiting_is_fifo(gateway_redis_namespace: str) -> None:
             await asyncio.sleep(0.1)  # let each waiter start blocking before the next queues up
 
         await asyncio.sleep(0.1)
-        await holder.lane.release(held_token)
+        await holder.lane.release(held_lease)
 
         await asyncio.gather(*tasks)
         assert order == [0, 1, 2]
@@ -157,9 +157,9 @@ async def test_orphan_holder_frees_the_lane_within_the_lease_ttl(
         await acquirer.lane.acquire(timeout_s=5.0)
 
         started = time.monotonic()
-        recovered_token = await acquirer.lane.acquire(timeout_s=lease_ttl_s + 5.0)
+        recovered_lease = await acquirer.lane.acquire(timeout_s=lease_ttl_s + 5.0)
         recovered_within = time.monotonic() - started
-        await acquirer.lane.release(recovered_token)
+        await acquirer.lane.release(recovered_lease)
 
         assert recovered_within <= lease_ttl_s + 2.0
     finally:

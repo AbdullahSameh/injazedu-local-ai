@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sys
 
-from pydantic import Field, ValidationError, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,6 +37,27 @@ class Settings(BaseSettings):
     gateway_lane_renew_s: int = Field(default=10, alias="GATEWAY_LANE_RENEW_S")
     gateway_profile_cache_ttl_s: int = Field(default=30, alias="GATEWAY_PROFILE_CACHE_TTL_S")
     gateway_capture_payloads: bool = Field(default=False, alias="GATEWAY_CAPTURE_PAYLOADS")
+
+    # --- Moderation Intelligence (TG-M0, all optional, all defaulted) ---
+    # `str | None`, not `str = ""`: "not configured" and "configured empty" are the same state
+    # (D-TG-26). Never validated here — carried, unread until TG-M1 (D-TG-27).
+    telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
+    telegram_allowed_updates: str = Field(
+        default="message,edited_message,my_chat_member,chat_member,message_reaction,"
+        "callback_query",
+        alias="TELEGRAM_ALLOWED_UPDATES",
+    )
+    moderation_burst_gap_s: int = Field(default=90, alias="MODERATION_BURST_GAP_S")
+    moderation_item_max_age_s: int = Field(default=86400, alias="MODERATION_ITEM_MAX_AGE_S")
+    moderation_text_retention_days: int = Field(default=90, alias="MODERATION_TEXT_RETENTION_DAYS")
+
+    @field_validator("telegram_bot_token", mode="before")
+    @classmethod
+    def _empty_telegram_bot_token_is_absent(cls, value: object) -> object:
+        # "" and unset are one state (D-TG-26) — pydantic does not coerce this on its own.
+        if value == "":
+            return None
+        return value
 
     @model_validator(mode="after")
     def _heartbeat_ttl_exceeds_interval(self) -> Settings:
@@ -71,6 +92,42 @@ class Settings(BaseSettings):
         if self.gateway_max_retries < 0:
             raise ValueError(
                 f"GATEWAY_MAX_RETRIES must be non-negative (got {self.gateway_max_retries})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _telegram_allowed_updates_is_non_empty(self) -> Settings:
+        if not self.telegram_allowed_updates.strip():
+            raise ValueError("TELEGRAM_ALLOWED_UPDATES must not be empty")
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_burst_gap_is_positive(self) -> Settings:
+        # A data-safety check, not config hygiene: MODERATION_BURST_GAP_S=0 would make every
+        # message its own burst, silently inflating the attention-item count TG-M3 measures.
+        if self.moderation_burst_gap_s <= 0:
+            raise ValueError(
+                f"MODERATION_BURST_GAP_S must be positive (got {self.moderation_burst_gap_s})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_item_max_age_is_positive(self) -> Settings:
+        if self.moderation_item_max_age_s <= 0:
+            raise ValueError(
+                "MODERATION_ITEM_MAX_AGE_S must be positive "
+                f"(got {self.moderation_item_max_age_s})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_text_retention_is_positive(self) -> Settings:
+        # A data-safety check, not config hygiene: MODERATION_TEXT_RETENTION_DAYS=0 reaching
+        # TG-M10's purge_expired_text actor would null every message text on its first run.
+        if self.moderation_text_retention_days <= 0:
+            raise ValueError(
+                "MODERATION_TEXT_RETENTION_DAYS must be positive "
+                f"(got {self.moderation_text_retention_days})"
             )
         return self
 

@@ -736,6 +736,10 @@ through the pages above.
 
 ## 15. n8n workflows (after quality is proven)
 
+*The parallel Moderation Intelligence track (`docs/plan/telegram/telegram-moderation-intelligence.md`)
+keeps its own Telegram ingestion and alerting outside n8n; n8n's role there is limited to scheduled
+digests and external glue — see that plan's §8.*
+
 1. **Nightly book sync** — cron → `POST /v1/sync/books` → ingest new/changed textbooks → Telegram summary to the moderation channel.
 2. **Nightly answer pass** — cron → `POST /v1/answer-jobs` for un-answered `book_questions` → notify moderators how many are ready.
 3. **Quiz published → Telegram** — AI emits a webhook → n8n posts title, question count and the InjazEdu link to `courses.telegram_channel`.
@@ -908,6 +912,10 @@ manual smoke test succeeds · no unrelated scope added · known limitations writ
 | **M11** | n8n: Telegram | Publish → notification; per-question quiz polls with the Telegram length validator | 2–3 d |
 | **M12** | n8n: scheduled drafts | Cron creates drafts only; moderators notified; never auto-publishes | 2 d |
 | **M13** | Customer support (separate feature) | Telegram intent router, authorised RAG, confidence gate, human handoff; WhatsApp only via the official Cloud API | 8–10 d |
+
+*A second, parallel bounded domain — Moderation Intelligence (TG-M0…TG-M10) — runs alongside this
+table; see `docs/plan/telegram/telegram-moderation-intelligence.md` and
+`specs/003-tg-m0-moderation-foundation/`. It does not replace or renumber any milestone above.*
 
 **First real target (prove this before anything else):**
 ```
