@@ -23,8 +23,8 @@ case "$DB_NAME" in
     ;;
 esac
 
-MIGRATOR_PASSWORD="$(grep '^AI_MIGRATOR_PASSWORD=' .env | head -1 | cut -d= -f2-)"
-if [ -z "$MIGRATOR_PASSWORD" ]; then
+MIGRATOR_PW="$(grep '^AI_MIGRATOR_PASSWORD=' .env | head -1 | cut -d= -f2-)"
+if [ -z "$MIGRATOR_PW" ]; then
   echo "Refusing: AI_MIGRATOR_PASSWORD is not set in .env." >&2
   exit 1
 fi
@@ -33,12 +33,12 @@ COMPOSE="docker compose -f infra/docker-compose.yml --env-file .env"
 
 echo "Resetting \"$DB_NAME\" (dropping known tables, then migrating to head)..."
 
-$COMPOSE exec -T -e PGPASSWORD="$MIGRATOR_PASSWORD" postgres \
+$COMPOSE exec -T -e PGPASSWORD="$MIGRATOR_PW" postgres \
   psql -v ON_ERROR_STOP=1 -U ai_migrator -d "$DB_NAME" \
   -c "DROP TABLE IF EXISTS users, alembic_version CASCADE;"
 
 $COMPOSE --profile tools run --rm \
-  -e MIGRATOR_DATABASE_URL="postgresql+psycopg://ai_migrator:${MIGRATOR_PASSWORD}@postgres:5432/${DB_NAME}" \
+  -e MIGRATOR_DATABASE_URL="postgresql+psycopg://ai_migrator:${MIGRATOR_PW}@postgres:5432/${DB_NAME}" \
   migrate alembic upgrade head
 
 echo "\"$DB_NAME\" reset to head."
