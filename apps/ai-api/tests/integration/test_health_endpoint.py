@@ -1,8 +1,8 @@
 """GET /health and GET /health/live over real HTTP-shaped requests, probes stubbed.
 
-No real Postgres/Redis/Ollama is touched — each probe is monkeypatched so the test exercises the
-endpoint's own contract: complete four-component body, status-code mapping, model_runtime never
-affecting the overall verdict (FR-007, SC-003).
+No real Postgres/Redis/Ollama/Telegram is touched — each probe is monkeypatched so the test
+exercises the endpoint's own contract: complete component body, status-code mapping,
+model_runtime and telegram_ingestion never affecting the overall verdict (FR-007, SC-003).
 """
 
 from __future__ import annotations
@@ -11,11 +11,14 @@ from collections.abc import AsyncGenerator
 
 import pytest
 from app.application.health_service import ComponentReport, ComponentState
+from app.application.moderation import ingestion_probe
 from app.application.probes import broker as broker_probe
 from app.application.probes import database as database_probe
 from app.application.probes import model_runtime as model_runtime_probe
 from app.application.probes import worker as worker_probe
 from httpx import ASGITransport, AsyncClient
+
+_ALL_COMPONENTS = {"database", "broker", "worker", "model_runtime", "telegram_ingestion"}
 
 
 @pytest.fixture
@@ -47,10 +50,19 @@ async def _client(monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[AsyncClient
     ) -> ComponentReport:
         return ComponentReport(status=ComponentState.OK, required=False, detail="Ollama 0.33")
 
+    async def _ok_ingestion(**_kwargs: object) -> ComponentReport:
+        return ComponentReport(
+            status=ComponentState.OK,
+            required=False,
+            detail="no credential configured",
+            ingestion={"credential": "absent", "bot_identity": "not_attempted"},
+        )
+
     monkeypatch.setattr(database_probe, "check", _ok_db)
     monkeypatch.setattr(broker_probe, "check", _ok_broker)
     monkeypatch.setattr(worker_probe, "check", _ok_worker)
     monkeypatch.setattr(model_runtime_probe, "check", _ok_model_runtime)
+    monkeypatch.setattr(ingestion_probe, "check", _ok_ingestion)
 
     from app.main import create_app
 
@@ -70,7 +82,7 @@ async def test_liveness_always_returns_200(app_env: None, monkeypatch: pytest.Mo
 
 
 @pytest.mark.asyncio
-async def test_health_reports_all_four_components_when_everything_is_ok(
+async def test_health_reports_all_components_when_everything_is_ok(
     app_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = await _client(monkeypatch)
@@ -80,7 +92,7 @@ async def test_health_reports_all_four_components_when_everything_is_ok(
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    assert set(body["components"]) == {"database", "broker", "worker", "model_runtime"}
+    assert set(body["components"]) == _ALL_COMPONENTS
 
 
 @pytest.mark.asyncio
@@ -102,7 +114,7 @@ async def test_a_failing_required_probe_yields_503_naming_that_component(
     assert body["status"] == "down"
     assert body["components"]["database"]["status"] == "down"
     assert "connection refused" in body["components"]["database"]["detail"]
-    assert set(body["components"]) == {"database", "broker", "worker", "model_runtime"}
+    assert set(body["components"]) == _ALL_COMPONENTS
 
 
 @pytest.mark.asyncio

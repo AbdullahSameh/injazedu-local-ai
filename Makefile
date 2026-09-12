@@ -1,4 +1,4 @@
-.PHONY: doctor up down down-hard logs health migrate migrate-down seed-profiles profiles seed-admin psql check test-db-reset mem-report automation-up smoke-llm test-llm check-lane
+.PHONY: doctor up down down-hard logs health migrate migrate-down seed-profiles profiles seed-admin psql check test-db-reset mem-report automation-up smoke-llm test-llm check-lane tg-doctor
 
 COMPOSE := docker compose -f infra/docker-compose.yml --env-file .env
 
@@ -98,3 +98,6 @@ check-lane: ## Prove the llm lane admits at most one caller at a time (FR-029, r
 
 automation-up: ## Start n8n deliberately (FR-003)
 	$(COMPOSE) --profile automation up -d n8n
+
+tg-doctor: ## Report Telegram ingestion setup: credential, getMe, subscriptions, per-chat standing (FR-036)
+	$(COMPOSE) --profile tools run --rm migrate python -m app.scripts.tg_doctor

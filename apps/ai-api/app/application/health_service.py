@@ -35,6 +35,11 @@ class ComponentReport(BaseModel):
     # `model_runtime`'s only — active profile names and `capture_payloads` state (M1
     # contracts/gateway-interface.md §8). `None` for every other component.
     gateway: dict[str, Any] | None = None
+    # `telegram_ingestion`'s only (TG-M1 contracts/health-ingestion.md §1). `None` for every
+    # other component. Must be a declared field, not an ad-hoc keyword: `frozen=True` without
+    # `extra="forbid"` means pydantic v2 accepts and silently drops an undeclared one (probe 3,
+    # D-TG-32) — a health payload with no ingestion data in it, looking green throughout.
+    ingestion: dict[str, Any] | None = None
 
 
 class HealthReport(BaseModel):

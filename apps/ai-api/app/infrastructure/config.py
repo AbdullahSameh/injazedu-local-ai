@@ -51,6 +51,21 @@ class Settings(BaseSettings):
     moderation_item_max_age_s: int = Field(default=86400, alias="MODERATION_ITEM_MAX_AGE_S")
     moderation_text_retention_days: int = Field(default=90, alias="MODERATION_TEXT_RETENTION_DAYS")
 
+    # --- Telegram Event Ingestion (TG-M1, all optional, all defaulted) ---
+    telegram_api_base_url: str = Field(
+        default="https://api.telegram.org", alias="TELEGRAM_API_BASE_URL"
+    )
+    telegram_poll_timeout_s: int = Field(default=30, alias="TELEGRAM_POLL_TIMEOUT_S")
+    # The Bot API's own ceiling on getUpdates' limit parameter (D-TG-40).
+    telegram_poll_limit: int = Field(default=100, alias="TELEGRAM_POLL_LIMIT")
+    telegram_conflict_standdown_count: int = Field(
+        default=5, alias="TELEGRAM_CONFLICT_STANDDOWN_COUNT"
+    )
+    moderation_gap_min_silence_s: int = Field(default=300, alias="MODERATION_GAP_MIN_SILENCE_S")
+    # 691200s = 8 days: past Telegram's one-week retention, where a re-sync must omit `offset`
+    # rather than continue polling forward forever (D-TG-33, D-TG-39).
+    moderation_stall_resync_s: int = Field(default=691200, alias="MODERATION_STALL_RESYNC_S")
+
     @field_validator("telegram_bot_token", mode="before")
     @classmethod
     def _empty_telegram_bot_token_is_absent(cls, value: object) -> object:
@@ -128,6 +143,51 @@ class Settings(BaseSettings):
             raise ValueError(
                 "MODERATION_TEXT_RETENTION_DAYS must be positive "
                 f"(got {self.moderation_text_retention_days})"
+            )
+        return self
+
+
+    @model_validator(mode="after")
+    def _telegram_poll_timeout_is_positive(self) -> Settings:
+        if self.telegram_poll_timeout_s <= 0:
+            raise ValueError(
+                f"TELEGRAM_POLL_TIMEOUT_S must be positive (got {self.telegram_poll_timeout_s})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _telegram_poll_limit_is_in_bot_api_range(self) -> Settings:
+        # The Bot API rejects getUpdates(limit=...) outside 1-100 (D-TG-40).
+        if not 1 <= self.telegram_poll_limit <= 100:
+            raise ValueError(
+                f"TELEGRAM_POLL_LIMIT must be between 1 and 100 (got {self.telegram_poll_limit})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _telegram_conflict_standdown_count_is_positive(self) -> Settings:
+        if self.telegram_conflict_standdown_count <= 0:
+            raise ValueError(
+                "TELEGRAM_CONFLICT_STANDDOWN_COUNT must be positive "
+                f"(got {self.telegram_conflict_standdown_count})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_gap_min_silence_is_positive(self) -> Settings:
+        if self.moderation_gap_min_silence_s <= 0:
+            raise ValueError(
+                "MODERATION_GAP_MIN_SILENCE_S must be positive "
+                f"(got {self.moderation_gap_min_silence_s})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_stall_resync_is_positive(self) -> Settings:
+        if self.moderation_stall_resync_s <= 0:
+            raise ValueError(
+                "MODERATION_STALL_RESYNC_S must be positive "
+                f"(got {self.moderation_stall_resync_s})"
             )
         return self
 

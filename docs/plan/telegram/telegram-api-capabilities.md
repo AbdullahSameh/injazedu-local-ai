@@ -20,8 +20,9 @@ TG-M1 ships an ingester, not discovered mid-pilot.
 | `message_reaction` updates | Requires admin and explicit `allowed_updates`. Carries the reacting user. Reactions set by *bots* are not delivered. | A human moderator's ✅ is a clean, timestamped, attributable "handled" signal a bot could never forge. |
 | `update_id` semantics | Increases sequentially; lets a consumer ignore repeats or detect out-of-order delivery. | A natural idempotency key and an ordering key. |
 | `getUpdates` | Long polling; single-consumer — a second concurrent poller on the same token gets `409 Conflict: terminated by other getUpdates request`. | Outbound-only ingestion with server-enforced single-consumer semantics. One bot token = one ingester. |
+| `getUpdates` `limit` | Accepts only values **1–100**; there is no larger page size to request. Re-verified 2026-09-09 (TG-M1 research probe 6), Bot API 10.3. | The batch ceiling every later milestone reads is the API's own maximum, not a policy choice (`specs/004-tg-m1-telegram-ingestion/`, D-TG-40). |
 
-## 2. Two permanent limitations — inherited from Telegram, not fixable here
+## 2. Limitations inherited from Telegram
 
 **No update is emitted when a message is deleted in a group, and no way exists to learn who
 deleted it.** The only deletion update Telegram sends (`deleted_business_messages`) is scoped to
@@ -32,7 +33,16 @@ is an MTProto feature; a bot cannot read it and cannot become an MTProto client.
 the bot joins a group can ever be recovered, and an ingester offline longer than a day loses that
 window permanently — a gap that looks identical to "nothing happened."
 
-Every later milestone that measures moderator responsiveness must design around both. The
+**⚠ After at least a week with no updates at all, the next `update_id` is chosen randomly instead
+of sequentially, and it can be *lower* than the last one ever delivered.** Re-verified 2026-09-09
+(TG-M1 research probe 7), Bot API 10.3. Unlike the two limitations above, this one is not left
+unfixed: a consumer that always sends a strictly increasing `offset` would never receive the
+renumbered identifier and would poll forever, succeeding and returning nothing, while every health
+signal stayed green. TG-M1 detects the stall and recovers by omitting `offset` entirely rather than
+sending a negative one — see `specs/004-tg-m1-telegram-ingestion/contracts/telegram-provider.md`
+§5 and D-TG-33.
+
+Every later milestone that measures moderator responsiveness must design around the first two. The
 consequence worth stating plainly: **a fast, quiet moderator who deletes a problem message
 silently will look worse than a slow, loud one who replies first and deletes later** — the reply is
 observable and the silent deletion is not. No metric in this track may imply deletion visibility it

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Request
 from starlette.responses import JSONResponse
 
@@ -15,6 +17,17 @@ SERVICE_NAME = "ai-api"
 SERVICE_VERSION = "0.1.0"
 
 router = APIRouter()
+
+
+def _optional_probes(state: Any) -> list[ProbeSpec]:
+    """Adds a `ProbeSpec` for each composition-root-wired optional component — currently just
+    Telegram ingestion — only when its state attribute is present (D-TG-31). This file imports
+    nothing from moderation: the probe itself is an opaque callable read off `app.state`."""
+    probes: list[ProbeSpec] = []
+    ingestion_probe = getattr(state, "ingestion_probe", None)
+    if ingestion_probe is not None:
+        probes.append(ProbeSpec("telegram_ingestion", False, ingestion_probe))
+    return probes
 
 
 @router.get("/health/live")
@@ -44,6 +57,7 @@ async def readiness(request: Request) -> JSONResponse:
                 settings.ollama_base_url, engine, settings.gateway_capture_payloads
             ),
         ),
+        *_optional_probes(request.app.state),
     ]
 
     report = await run_health_check(probes)
