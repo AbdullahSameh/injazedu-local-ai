@@ -43,6 +43,12 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       WORKER_HEARTBEAT_INTERVAL_S: ${WORKER_HEARTBEAT_INTERVAL_S}
       WORKER_HEARTBEAT_TTL_S: ${WORKER_HEARTBEAT_TTL_S}
+      # The /health block's telegram_ingestion component reads these directly (D-TG-31) — without
+      # this passthrough it would report "credential absent" regardless of .env (a real gap found
+      # and fixed at T084: this container never received TELEGRAM_BOT_TOKEN before).
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL}
+      TELEGRAM_ALLOWED_UPDATES: ${TELEGRAM_ALLOWED_UPDATES}
     ports:
       - "${API_PORT}:8000"
     mem_limit: 768m
@@ -72,6 +78,31 @@ services:
       WORKER_HEARTBEAT_INTERVAL_S: ${WORKER_HEARTBEAT_INTERVAL_S}
       WORKER_HEARTBEAT_TTL_S: ${WORKER_HEARTBEAT_TTL_S}
     mem_limit: 1g
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  ai-telegram:
+    build: ../apps/ai-api
+    command: ["python", "-m", "app.telegram_main"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      LOG_LEVEL: ${LOG_LEVEL}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL}
+      TELEGRAM_ALLOWED_UPDATES: ${TELEGRAM_ALLOWED_UPDATES}
+      TELEGRAM_POLL_TIMEOUT_S: ${TELEGRAM_POLL_TIMEOUT_S}
+      TELEGRAM_POLL_LIMIT: ${TELEGRAM_POLL_LIMIT}
+      TELEGRAM_CONFLICT_STANDDOWN_COUNT: ${TELEGRAM_CONFLICT_STANDDOWN_COUNT}
+      MODERATION_BURST_GAP_S: ${MODERATION_BURST_GAP_S}
+      MODERATION_ITEM_MAX_AGE_S: ${MODERATION_ITEM_MAX_AGE_S}
+      MODERATION_TEXT_RETENTION_DAYS: ${MODERATION_TEXT_RETENTION_DAYS}
+      MODERATION_GAP_MIN_SILENCE_S: ${MODERATION_GAP_MIN_SILENCE_S}
+      MODERATION_STALL_RESYNC_S: ${MODERATION_STALL_RESYNC_S}
+    mem_limit: 256m
     depends_on:
       postgres:
         condition: service_healthy
@@ -110,6 +141,11 @@ services:
       MIGRATOR_DATABASE_URL: ${MIGRATOR_DATABASE_URL}
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
+      # tg-doctor runs in this container and reads these directly (FR-036) — without this
+      # passthrough it would report "credential absent" regardless of .env.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL}
+      TELEGRAM_ALLOWED_UPDATES: ${TELEGRAM_ALLOWED_UPDATES}
     restart: "no"
     depends_on:
       postgres:

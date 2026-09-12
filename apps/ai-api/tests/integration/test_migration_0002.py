@@ -56,6 +56,10 @@ def _empty_schema(test_url: str) -> Iterator[None]:
         engine = create_engine(test_url)
         try:
             with engine.begin() as conn:
+                conn.execute(text("DROP TABLE IF EXISTS telegram_chats"))
+                conn.execute(text("DROP TABLE IF EXISTS ingestion_gaps"))
+                conn.execute(text("DROP TABLE IF EXISTS ingestion_state"))
+                conn.execute(text("DROP TABLE IF EXISTS telegram_updates"))
                 conn.execute(text("DROP TABLE IF EXISTS model_runs"))
                 conn.execute(text("DROP TABLE IF EXISTS model_profiles"))
                 conn.execute(text("DROP TABLE IF EXISTS users"))
@@ -96,7 +100,7 @@ def _insert_profile(conn: object, **overrides: object) -> int:
 def test_empty_to_head(test_url: str) -> None:
     assert _current_revision(test_url) is None
 
-    command.upgrade(_alembic_config(test_url), "head")
+    command.upgrade(_alembic_config(test_url), HEAD_REVISION)
 
     assert _current_revision(test_url) == HEAD_REVISION
 
@@ -105,21 +109,21 @@ def test_head_down_one_up_returns_to_the_identical_version_with_no_manual_repair
     test_url: str,
 ) -> None:
     cfg = _alembic_config(test_url)
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
     head_revision = _current_revision(test_url)
     assert head_revision is not None
 
     command.downgrade(cfg, "-1")
     assert _current_revision(test_url) == BASELINE_REVISION
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, HEAD_REVISION)
     assert _current_revision(test_url) == head_revision
 
 
 def test_partial_unique_index_refuses_a_second_active_profile_for_one_role(
     test_url: str,
 ) -> None:
-    command.upgrade(_alembic_config(test_url), "head")
+    command.upgrade(_alembic_config(test_url), HEAD_REVISION)
 
     engine = create_engine(test_url)
     try:
@@ -142,7 +146,7 @@ def test_partial_unique_index_refuses_a_second_active_profile_for_one_role(
 def test_ck_model_profiles_dim_refuses_an_embedding_profile_with_a_null_dim(
     test_url: str,
 ) -> None:
-    command.upgrade(_alembic_config(test_url), "head")
+    command.upgrade(_alembic_config(test_url), HEAD_REVISION)
 
     engine = create_engine(test_url)
     try:

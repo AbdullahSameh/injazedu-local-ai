@@ -27,7 +27,7 @@ Run `make doctor` to check all of the above.
 ```bash
 cp .env.example .env        # fill in every CHANGE_ME... placeholder (5 passwords)
 make doctor                  # must be all green
-make up                      # starts postgres, redis, ai-api, ai-worker, ai-control
+make up                      # starts postgres, redis, ai-api, ai-worker, ai-control, ai-telegram
 make migrate                 # Alembic → head
 make seed-admin               # creates your panel account from ADMIN_EMAIL / ADMIN_PASSWORD
 make health                  # confirm all four components report "ok"
@@ -50,6 +50,17 @@ Full first-time walkthrough: [`specs/001-m0-foundation/quickstart.md`](specs/001
 | `make check` | Quality gate: ruff, mypy, pytest, PHP tests, secret scan — offline, under 3 min |
 | `make mem-report` | Container memory usage vs. the 5 GB budget |
 | `make logs` | Tail all service logs |
+| `make tg-doctor` | Telegram ingestion setup check: credential, `getMe`, subscriptions, per-chat standing |
 
 See [`docs/runbooks/m0-foundation.md`](docs/runbooks/m0-foundation.md) for the complete command
 reference, the standalone scripts, and known limitations.
+
+## Telegram event ingestion (`ai-telegram`)
+
+An optional service that captures every Telegram update the bot sees into Postgres — no message
+parsing, no bot replies, no inbound port (`specs/004-tg-m1-telegram-ingestion/`). With no
+`TELEGRAM_BOT_TOKEN` configured it starts and exits cleanly; this is a supported state, not an
+error. Two platform facts drive its design, re-verified 2026-09-09 against Bot API 10.3:
+`getUpdates`'s `limit` accepts only **1–100**, and after at least a week with no updates at all
+Telegram picks the next `update_id` **randomly** rather than sequentially — see
+[`docs/plan/telegram/telegram-api-capabilities.md`](docs/plan/telegram/telegram-api-capabilities.md).

@@ -38,3 +38,11 @@ def configure_logging(level: str = "INFO") -> None:
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(level)
+
+    # httpx logs every request's full URL at INFO (its own documented behaviour, not a bug in
+    # this codebase) — and Telegram's Bot API puts the credential *in the URL path*
+    # (`/bot<TOKEN>/<method>`), unlike a bearer header. At the default INFO level that would
+    # print the token verbatim on every call. The JsonFormatter's `_EXTRA_KEYS` whitelist only
+    # guards structured `extra=` fields (D-TG-24); it does nothing for a third-party logger's own
+    # message string, so the credential must never reach this logger's INFO level at all.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
