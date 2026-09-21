@@ -56,7 +56,17 @@ def _empty_schema(test_url: str) -> Iterator[None]:
         engine = create_engine(test_url)
         try:
             with engine.begin() as conn:
-                for table in (*_NEW_TABLES, "model_runs", "model_profiles", "users"):
+                # TG-M2's tables FK into telegram_chats/telegram_users, so they must drop first.
+                for table in (
+                    "moderator_group_assignments",
+                    "telegram_messages",
+                    "moderators",
+                    "telegram_users",
+                    *_NEW_TABLES,
+                    "model_runs",
+                    "model_profiles",
+                    "users",
+                ):
                     conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
                 conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
         finally:

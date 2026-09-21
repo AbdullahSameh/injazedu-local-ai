@@ -19,12 +19,14 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
+import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
 from app.infrastructure.models_moderation import (
     ingestion_gaps,
     ingestion_state,
     telegram_chats,
+    telegram_messages,
     telegram_updates,
 )
 from redis.asyncio import Redis
@@ -251,9 +253,22 @@ async def ingest_cleanup(
     """Deletes only the rows this test's `ingest_bot_id` created — the ingestion tables are
     shared, disposable test-DB state, not something any one test owns outright. Requested
     explicitly by tests that write through `ingest_bot_id`, not autoused, so tests with no
-    database dependency (identity resolution, provider errors) stay database-free."""
+    database dependency (identity resolution, provider errors) stay database-free.
+
+    `telegram_messages` first, since TG-M2's `source_update_id` FK would otherwise block
+    deleting the `telegram_updates` row a test's own `process_update_row` call derived it from
+    — 0 rows for every test that never interprets anything."""
     yield
     async with ingest_session_factory() as session:
+        await session.execute(
+            telegram_messages.delete().where(
+                telegram_messages.c.source_update_id.in_(
+                    sa.select(telegram_updates.c.id).where(
+                        telegram_updates.c.bot_id == ingest_bot_id
+                    )
+                )
+            )
+        )
         for table in (telegram_updates, ingestion_state, ingestion_gaps):
             await session.execute(table.delete().where(table.c.bot_id == ingest_bot_id))
         await session.commit()

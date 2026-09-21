@@ -1100,6 +1100,11 @@ incidents · acknowledged / resolved / missed · median acknowledgement and hand
 RTL: the panel has no `ar` locale today. v1 sets `direction: rtl` and Arabic labels for this
 navigation group only; a full panel localisation is not in scope.
 
+**Correction (TG-M2, research Finding 1).** Filament v5.7.8 writes `dir` once onto `<html>` from a
+single locale-driven translation key, panel-wide — there is no per-navigation-group direction to set.
+TG-M2 implements this instead as `dir="auto"` on each Arabic-content field, with the panel locale and
+chrome left English/LTR throughout.
+
 ---
 
 ## 18. Metrics — exact definitions

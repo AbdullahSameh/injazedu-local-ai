@@ -27,6 +27,7 @@ from redis.asyncio import Redis
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.application.moderation.assignments import repoint_for_migration
 from app.infrastructure.models_moderation import (
     ingestion_gaps,
     ingestion_state,
@@ -59,7 +60,7 @@ GAP_REASON_CONFLICT_409 = "conflict_409"
 # is the cross-machine half, handled by `handle_conflict` below. A fixed, literal key — not built
 # from a name/prefix pair like `gateway/lanes.py`'s `Lane`, because there is exactly one of these
 # per machine, never a family of named lanes.
-_POLL_LEASE_KEY = "ai:tg:poll:lease"
+_POLL_LEASE_REDIS_NAME = "ai:tg:poll:lease"
 
 # Compare-and-delete / compare-and-renew — the same fencing-token pattern proved in
 # `app/application/gateway/lanes.py`: only the current holder's own release or renewal can touch
@@ -91,7 +92,7 @@ async def _renew_poll_lease(
     ttl_ms = int(ttl_s * 1000)
     while True:
         await asyncio.sleep(interval_s)
-        await redis.eval(_RENEW_POLL_LEASE_SCRIPT, 1, _POLL_LEASE_KEY, token, ttl_ms)
+        await redis.eval(_RENEW_POLL_LEASE_SCRIPT, 1, _POLL_LEASE_REDIS_NAME, token, ttl_ms)
 
 
 @asynccontextmanager
@@ -112,10 +113,10 @@ async def hold_poll_lease(
     """
     token = holder or uuid.uuid4().hex
     ttl_ms = int(ttl_s * 1000)
-    claimed = await redis.set(_POLL_LEASE_KEY, token, px=ttl_ms, nx=True)
+    claimed = await redis.set(_POLL_LEASE_REDIS_NAME, token, px=ttl_ms, nx=True)
     if not claimed:
         raise PollLeaseHeldElsewhereError(
-            f"{_POLL_LEASE_KEY} is already held by another process on this machine"
+            f"{_POLL_LEASE_REDIS_NAME} is already held by another process on this machine"
         )
 
     watchdog = asyncio.create_task(
@@ -127,7 +128,7 @@ async def hold_poll_lease(
         watchdog.cancel()
         with suppress(asyncio.CancelledError):
             await watchdog
-        await redis.eval(_RELEASE_POLL_LEASE_SCRIPT, 1, _POLL_LEASE_KEY, token)
+        await redis.eval(_RELEASE_POLL_LEASE_SCRIPT, 1, _POLL_LEASE_REDIS_NAME, token)
 
 
 async def resolve_bot_identity(
@@ -654,7 +655,11 @@ async def apply_chat_migration_if_any(
     chat's stream) or its mirror `migrate_from_chat_id` (on the **new** chat's stream) — "the
     classic Telegram footgun" is that the mirror does not always land, so either one alone must
     be enough: each carries both identifiers, letting this function write both linking columns
-    from a single observed event. No derived state is re-pointed — none exists until TG-M2.
+    from a single observed event. No derived state was re-pointed here in TG-M1 — that arrives in
+    TG-M2 as `repoint_for_migration`, called below once both rows exist: it moves the promoted
+    group's ownership assignments to the surviving row and carries `is_monitored` /
+    `injaz_course_id` forward (D-TG-54), which this function's own upserts leave at the table's
+    defaults on the new row.
     """
     body = update.raw.get(update.kind)
     if not isinstance(body, dict):
@@ -668,6 +673,9 @@ async def apply_chat_migration_if_any(
         old_chat_id, new_chat_id = update.chat_id, migrate_to
     else:
         old_chat_id, new_chat_id = migrate_from, update.chat_id
+    # The chat stream carrying this service message always names its own chat; the other side
+    # comes from the payload's own migrate_to/migrate_from field, checked non-None above.
+    assert old_chat_id is not None and new_chat_id is not None
 
     async with session_factory() as session:
         old_stmt = pg_insert(telegram_chats).values(
@@ -689,3 +697,5 @@ async def apply_chat_migration_if_any(
             )
         )
         await session.commit()
+
+    await repoint_for_migration(session_factory, old_chat_id=old_chat_id, new_chat_id=new_chat_id)
