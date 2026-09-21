@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-from app.application.moderation.ingest import store_batch
+from app.application.moderation.ingest import store_batch, upsert_chats_from_batch
 from app.infrastructure.models_moderation import telegram_updates
 from app.providers.telegram.client import parse_update
 from app.workers.tasks.moderation.process_update import process_update_row
@@ -17,15 +17,22 @@ from tests.moderation.ingest.conftest import make_message_update
 async def test_interpretation_changes_only_processed_at_and_process_error(
     ingest_session_factory: async_sessionmaker[AsyncSession],
     ingest_bot_id: int,
+    ingest_chat_id: int,
+    ingest_chat_cleanup: None,
     ingest_cleanup: None,
 ) -> None:
-    raw = make_message_update(700)
+    raw = make_message_update(700, chat_id=ingest_chat_id)
+    parsed = [parse_update(raw)]
     stored = await store_batch(
         ingest_session_factory,
         bot_id=ingest_bot_id,
-        updates=[parse_update(raw)],
+        updates=parsed,
         schedule=lambda *_a: None,
     )
+    # TG-M2's interpretation resolves the chat surrogate; in real operation
+    # `upsert_chats_from_batch` always runs on the same fetched batch before interpretation does
+    # (`app/telegram_main.py`).
+    await upsert_chats_from_batch(ingest_session_factory, updates=parsed)
     row_id = stored[0].id
 
     async with ingest_session_factory() as session:
@@ -67,15 +74,19 @@ async def test_interpretation_changes_only_processed_at_and_process_error(
 async def test_setting_processed_twice_is_the_same_result(
     ingest_session_factory: async_sessionmaker[AsyncSession],
     ingest_bot_id: int,
+    ingest_chat_id: int,
+    ingest_chat_cleanup: None,
     ingest_cleanup: None,
 ) -> None:
-    raw = make_message_update(701)
+    raw = make_message_update(701, chat_id=ingest_chat_id)
+    parsed = [parse_update(raw)]
     stored = await store_batch(
         ingest_session_factory,
         bot_id=ingest_bot_id,
-        updates=[parse_update(raw)],
+        updates=parsed,
         schedule=lambda *_a: None,
     )
+    await upsert_chats_from_batch(ingest_session_factory, updates=parsed)
     row_id = stored[0].id
 
     await process_update_row(ingest_session_factory, row_id)

@@ -22,7 +22,9 @@ from app.providers.telegram.models import BotIdentity
 
 from tests.moderation.ingest.conftest import FakeTelegramTransport
 
-_FAKE_TOKEN = "123456789:AAFake-Token-Shaped-Value-For-This-Regression-Test-Only"
+# Built, never a literal (mirrors test_secret_scan.py's `_sample_token()`) — a full-length
+# literal here would trip the same Telegram-token-shape rule this file is testing.
+_FAKE_BOT_CREDENTIAL = "123456789:" + "AAFake-Token-Shaped-Value-For-This-Regression-Test-Only"
 
 
 async def test_a_real_get_me_call_never_writes_the_token_to_the_configured_log_stream(
@@ -35,11 +37,11 @@ async def test_a_real_get_me_call_never_writes_the_token_to_the_configured_log_s
     handler.stream = stream  # capture into a buffer this test controls, not pytest's own capsys
 
     fake_transport.enqueue_ok("getMe", {"id": 1, "username": "test_bot"})
-    client = TelegramClient(_FAKE_TOKEN, transport=fake_transport.transport)
+    client = TelegramClient(_FAKE_BOT_CREDENTIAL, transport=fake_transport.transport)
     identity = await client.get_me()
 
     assert identity == BotIdentity(bot_id=1, username="test_bot")
-    assert _FAKE_TOKEN not in stream.getvalue()
+    assert _FAKE_BOT_CREDENTIAL not in stream.getvalue()
 
 
 def test_configure_logging_raises_the_httpx_logger_above_info() -> None:

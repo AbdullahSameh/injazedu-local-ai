@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     # rather than continue polling forward forever (D-TG-33, D-TG-39).
     moderation_stall_resync_s: int = Field(default=691200, alias="MODERATION_STALL_RESYNC_S")
 
+    # --- Groups, Users, Messages and Moderator Ownership (TG-M2, optional, defaulted) ---
+    moderation_rederive_batch_size: int = Field(
+        default=500, alias="MODERATION_REDERIVE_BATCH_SIZE"
+    )
+
     @field_validator("telegram_bot_token", mode="before")
     @classmethod
     def _empty_telegram_bot_token_is_absent(cls, value: object) -> object:
@@ -188,6 +193,15 @@ class Settings(BaseSettings):
             raise ValueError(
                 "MODERATION_STALL_RESYNC_S must be positive "
                 f"(got {self.moderation_stall_resync_s})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_rederive_batch_size_is_positive(self) -> Settings:
+        if self.moderation_rederive_batch_size <= 0:
+            raise ValueError(
+                "MODERATION_REDERIVE_BATCH_SIZE must be positive "
+                f"(got {self.moderation_rederive_batch_size})"
             )
         return self
 

@@ -131,3 +131,181 @@ sa.Index(
     telegram_chats.c.is_monitored,
     telegram_chats.c.last_event_at,
 )
+
+# --- TG-M2: Groups, Users, Messages, Moderator Ownership (data-model.md §1-§4, revision 0004) ---
+
+telegram_users = sa.Table(
+    "telegram_users",
+    metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+    sa.Column("tg_user_id", sa.BigInteger(), nullable=False),
+    sa.Column("username", sa.String(length=100), nullable=True),
+    sa.Column("display_name", sa.String(length=300), nullable=True),
+    sa.Column("is_bot", sa.Boolean(), nullable=False, server_default=sa.false()),
+    # NULL means placeholder — mapped but never observed (D-TG-52). Deliberately nullable,
+    # unlike telegram_chats: it is how a placeholder is distinguishable without a second flag.
+    sa.Column("first_seen_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("identity_purged_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
+    sa.Column(
+        "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
+    sa.UniqueConstraint("tg_user_id", name="uq_telegram_users_tg_user_id"),
+)
+
+telegram_messages = sa.Table(
+    "telegram_messages",
+    metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+    sa.Column(
+        "telegram_chat_id",
+        sa.BigInteger(),
+        sa.ForeignKey("telegram_chats.id"),
+        nullable=False,
+    ),
+    sa.Column("message_id", sa.BigInteger(), nullable=False),
+    sa.Column(
+        "telegram_user_id",
+        sa.BigInteger(),
+        sa.ForeignKey("telegram_users.id"),
+        nullable=True,
+    ),
+    sa.Column("sender_chat_id", sa.BigInteger(), nullable=True),
+    sa.Column("sent_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("edited_at", sa.DateTime(timezone=True), nullable=True),
+    # The platform's own identifier, deliberately not a FK — the target may predate
+    # measurement or predate the bot joining (FR-004).
+    sa.Column("reply_to_message_id", sa.BigInteger(), nullable=True),
+    sa.Column("message_thread_id", sa.BigInteger(), nullable=True),
+    sa.Column("is_service", sa.Boolean(), nullable=False, server_default=sa.false()),
+    # Written once, at insert, never recomputed (FR-032, FR-033). §2(a)'s insert-only write
+    # mode is the mechanism that keeps this true.
+    sa.Column("is_from_moderator", sa.Boolean(), nullable=False, server_default=sa.false()),
+    sa.Column("original_text", sa.Text(), nullable=True),
+    sa.Column("normalized_text", sa.Text(), nullable=True),
+    sa.Column("text_purged_at", sa.DateTime(timezone=True), nullable=True),
+    # No CHECK: the platform adds media kinds it controls, not this domain (D-TG-46).
+    sa.Column("media_kind", sa.String(length=20), nullable=True),
+    sa.Column(
+        "entity_flags", JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")
+    ),
+    sa.Column(
+        "source_update_id",
+        sa.BigInteger(),
+        sa.ForeignKey("telegram_updates.id"),
+        nullable=False,
+    ),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
+    sa.UniqueConstraint(
+        "telegram_chat_id", "message_id", name="uq_telegram_messages_chat_msg"
+    ),
+    sa.CheckConstraint(
+        "NOT (telegram_user_id IS NOT NULL AND sender_chat_id IS NOT NULL)",
+        name="ck_telegram_messages_sender",
+    ),
+    sa.CheckConstraint(
+        "is_from_moderator = false OR telegram_user_id IS NOT NULL",
+        name="ck_telegram_messages_moderator_needs_user",
+    ),
+    sa.CheckConstraint(
+        "edited_at IS NULL OR edited_at >= sent_at",
+        name="ck_telegram_messages_edit_order",
+    ),
+)
+
+sa.Index(
+    "ix_messages_chat_sent",
+    telegram_messages.c.telegram_chat_id,
+    sa.desc(telegram_messages.c.sent_at),
+)
+sa.Index(
+    "ix_messages_chat_moderator_sent",
+    telegram_messages.c.telegram_chat_id,
+    telegram_messages.c.is_from_moderator,
+    telegram_messages.c.sent_at,
+)
+sa.Index(
+    "ix_messages_reply",
+    telegram_messages.c.telegram_chat_id,
+    telegram_messages.c.reply_to_message_id,
+)
+
+moderators = sa.Table(
+    "moderators",
+    metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+    sa.Column(
+        "telegram_user_id",
+        sa.BigInteger(),
+        sa.ForeignKey("telegram_users.id", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    sa.Column("display_name", sa.String(length=200), nullable=False),
+    # Free reference; no FK — that database is on another host (Principle III).
+    sa.Column("injaz_user_id", sa.BigInteger(), nullable=True),
+    sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
+    sa.Column("notes", sa.Text(), nullable=True),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
+    sa.Column(
+        "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
+    sa.UniqueConstraint("telegram_user_id", name="uq_moderators_telegram_user_id"),
+)
+
+moderator_group_assignments = sa.Table(
+    "moderator_group_assignments",
+    metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+    sa.Column(
+        "telegram_chat_id",
+        sa.BigInteger(),
+        sa.ForeignKey("telegram_chats.id"),
+        nullable=False,
+    ),
+    sa.Column(
+        "moderator_id",
+        sa.BigInteger(),
+        sa.ForeignKey("moderators.id"),
+        nullable=False,
+    ),
+    sa.Column("assignment_role", sa.String(length=20), nullable=False),
+    sa.Column("valid_from", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("valid_to", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("note", sa.Text(), nullable=True),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
+    sa.CheckConstraint(
+        "assignment_role IN ('primary', 'backup')", name="ck_assignment_role"
+    ),
+    # Strictly greater, not >=, so a zero-width interval is impossible (moderator-ownership.md §1).
+    sa.CheckConstraint(
+        "valid_to IS NULL OR valid_to > valid_from", name="ck_assignment_interval"
+    ),
+)
+
+# Exactly one current primary per chat. Cannot be deferred (probe 2), which is what forces
+# close-before-open in every handover (data-model.md §4.1).
+sa.Index(
+    "uq_assignment_one_current_primary",
+    moderator_group_assignments.c.telegram_chat_id,
+    unique=True,
+    postgresql_where=sa.text("assignment_role = 'primary' AND valid_to IS NULL"),
+)
+sa.Index(
+    "ix_assignment_chat_from",
+    moderator_group_assignments.c.telegram_chat_id,
+    sa.desc(moderator_group_assignments.c.valid_from),
+)
+sa.Index(
+    "ix_assignment_moderator",
+    moderator_group_assignments.c.moderator_id,
+    sa.desc(moderator_group_assignments.c.valid_from),
+)

@@ -56,6 +56,10 @@ def _empty_schema(test_url: str) -> Iterator[None]:
         engine = create_engine(test_url)
         try:
             with engine.begin() as conn:
+                conn.execute(text("DROP TABLE IF EXISTS moderator_group_assignments"))
+                conn.execute(text("DROP TABLE IF EXISTS telegram_messages"))
+                conn.execute(text("DROP TABLE IF EXISTS moderators"))
+                conn.execute(text("DROP TABLE IF EXISTS telegram_users"))
                 conn.execute(text("DROP TABLE IF EXISTS telegram_chats"))
                 conn.execute(text("DROP TABLE IF EXISTS ingestion_gaps"))
                 conn.execute(text("DROP TABLE IF EXISTS ingestion_state"))

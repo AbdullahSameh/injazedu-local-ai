@@ -17,6 +17,14 @@ async def test_a_backlog_of_100_rows_drains_in_update_id_order_with_no_duplicate
     ingest_bot_id: int,
     ingest_cleanup: None,
 ) -> None:
+    # `drain_pending_updates_all` claims the whole `ix_telegram_updates_pending` index — every
+    # bot, not just this test's — because that is its real job (a worker-startup reconciliation
+    # sweep). Other tests in the shared `injaz_ai_test` database legitimately leave pending rows
+    # behind (they exercise derivation directly, bypassing `process_update_row`), so this test
+    # clears whatever is already pending before planting its own 100, making the assertions below
+    # deterministic regardless of suite order.
+    await drain_pending_updates_all(ingest_session_factory, batch_size=200)
+
     update_ids = list(range(2000, 2100))
     updates = [parse_update(make_message_update(uid)) for uid in update_ids]
 
