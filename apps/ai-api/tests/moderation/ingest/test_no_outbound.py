@@ -25,6 +25,15 @@ _FORBIDDEN_METHODS = (
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 _APP_SOURCE_DIR = _REPO_ROOT / "apps" / "ai-api" / "app"
+_CONTROL_SOURCE_DIR = _REPO_ROOT / "apps" / "ai-control" / "app"
+_CONTROL_VIEWS_DIR = _REPO_ROOT / "apps" / "ai-control" / "resources" / "views"
+
+# TG-M3's four new actors (`app/workers/tasks/moderation/`) and the Live Attention Queue panel
+# page are already inside `_APP_SOURCE_DIR`'s glob below for the Python side; these two directories
+# extend the same check to the PHP side, which the pre-existing scan never reached (SC-020).
+_OUTBOUND_INDICATOR_PATTERN = re.compile(
+    "|".join(_FORBIDDEN_METHODS) + r"|Http::|GuzzleHttp|curl_"
+)
 
 
 def test_no_forbidden_method_exists_on_the_provider() -> None:
@@ -70,3 +79,31 @@ def _ai_telegram_service_block() -> str:
 def test_ai_telegram_service_declares_no_ports() -> None:
     block = _ai_telegram_service_block()
     assert "ports:" not in block
+
+
+def test_no_new_worker_actor_references_an_outbound_call() -> None:
+    """TG-M3's four new actors (`evaluate_attention`, `match_response`, `sweep_unjudged_bursts`,
+    `expire_stale_items`) — this milestone opens, matches, ages and expires items, and posts
+    nothing (FR-071, SC-020)."""
+    actors_dir = _APP_SOURCE_DIR / "workers" / "tasks" / "moderation"
+    offenders = [
+        path
+        for path in actors_dir.glob("*.py")
+        if _OUTBOUND_INDICATOR_PATTERN.search(path.read_text(encoding="utf-8"))
+    ]
+    assert offenders == [], f"forbidden method referenced in: {offenders}"
+
+
+def test_the_live_attention_queue_panel_makes_no_outbound_call() -> None:
+    """FR-072, SC-020: the Live Attention Queue is a read screen plus two guarded writes to
+    `attention_items` — dismiss and hand-open. Neither, nor anything else on the page, may call
+    the Bot API or any other outbound HTTP client."""
+    offenders = [
+        path
+        for directory in (_CONTROL_SOURCE_DIR, _CONTROL_VIEWS_DIR)
+        for path in directory.rglob("*")
+        if path.is_file()
+        and path.suffix == ".php"
+        and _OUTBOUND_INDICATOR_PATTERN.search(path.read_text(encoding="utf-8"))
+    ]
+    assert offenders == [], f"forbidden method referenced in: {offenders}"

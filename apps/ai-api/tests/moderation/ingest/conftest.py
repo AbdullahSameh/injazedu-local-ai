@@ -297,6 +297,21 @@ async def ingest_chat_cleanup(
 
 
 @pytest_asyncio.fixture
+async def tick_lease_redis() -> AsyncIterator[Redis]:
+    """A real Redis client for `tick_lease` / `_poll_once` tests (TG-M3, T062, T066,
+    D-TG-86) — same shape as `poll_lease_redis`, its own key (`ai:tg:tick:lease`), deleted
+    before *and* after each test so a prior run's admitted lease never leaks into the next."""
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    client: Redis = Redis.from_url(redis_url, decode_responses=True)
+    await client.delete("ai:tg:tick:lease")
+    try:
+        yield client
+    finally:
+        await client.delete("ai:tg:tick:lease")
+        await client.aclose()
+
+
+@pytest_asyncio.fixture
 async def poll_lease_redis() -> AsyncIterator[Redis]:
     """A real Redis client for `hold_poll_lease` tests (US6, D-TG-37).
 

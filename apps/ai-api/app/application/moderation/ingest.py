@@ -62,6 +62,13 @@ GAP_REASON_CONFLICT_409 = "conflict_409"
 # per machine, never a family of named lanes.
 _POLL_LEASE_REDIS_NAME = "ai:tg:poll:lease"
 
+# TG-M3's tick lease (`tasks.md` T013, D-TG-86, research Finding 4): one admission per interval,
+# across however many capture processes are running. Unlike `_POLL_LEASE_REDIS_NAME` above, this
+# is never renewed and never released — expiry *is* the interval, so a crashed or slow winner
+# simply lets the next iteration's claim succeed once the TTL lapses, with no watchdog and no
+# release script to get wrong.
+_TICK_LEASE_REDIS_NAME = "ai:tg:tick:lease"
+
 # Compare-and-delete / compare-and-renew — the same fencing-token pattern proved in
 # `app/application/gateway/lanes.py`: only the current holder's own release or renewal can touch
 # its lease, never a stale holder's delayed call racing a reclaim by someone else.
@@ -129,6 +136,18 @@ async def hold_poll_lease(
         with suppress(asyncio.CancelledError):
             await watchdog
         await redis.eval(_RELEASE_POLL_LEASE_SCRIPT, 1, _POLL_LEASE_REDIS_NAME, token)
+
+
+async def tick_lease(redis: Redis, *, ttl_s: float) -> bool:
+    """Claims `ai:tg:tick:lease` with `SET … EX … NX` for one poll-loop iteration
+    (`tasks.md` T013, D-TG-86): returns whether *this* caller won. No actor is referenced here —
+    the caller (`app/telegram_main.py`, T066) sends `expire_stale_items` and
+    `sweep_unjudged_bursts` only when this returns `True`, which is what turns the poll loop's
+    already-bounded ~30 s period into the stack's first periodic execution without adding a
+    scheduler dependency (research Finding 4, §7.3's boundary preserved).
+    """
+    claimed = await redis.set(_TICK_LEASE_REDIS_NAME, "1", ex=int(ttl_s), nx=True)
+    return bool(claimed)
 
 
 async def resolve_bot_identity(
