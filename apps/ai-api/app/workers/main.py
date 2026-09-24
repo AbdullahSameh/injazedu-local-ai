@@ -16,4 +16,16 @@ from app.workers.tasks import diagnostics as _diagnostics  # noqa: E402,F401
 from app.workers.tasks.moderation import (  # noqa: E402,F401
     drain_pending_updates as _drain_pending_updates,
 )
+from app.workers.tasks.moderation import (  # noqa: E402,F401
+    evaluate_attention as _evaluate_attention,
+)
+from app.workers.tasks.moderation import (  # noqa: E402,F401
+    expire_stale_items as _expire_stale_items,
+)
+from app.workers.tasks.moderation import (  # noqa: E402,F401
+    match_response as _match_response,
+)
 from app.workers.tasks.moderation import process_update as _process_update  # noqa: E402,F401
+from app.workers.tasks.moderation import (  # noqa: E402,F401
+    sweep_unjudged_bursts as _sweep_unjudged_bursts,
+)

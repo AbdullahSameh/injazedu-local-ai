@@ -137,6 +137,19 @@ async def repoint_for_migration(
     discarding an ownership fact — the caller surfaces that as a coverage problem for the operator
     to resolve.
 
+    **Deliberately does not move `attention_items`** (TG-M3, FR-081, SC-022), unlike assignments.
+    `attention_items` carries `fk_attention_message`, a *composite* FK on `(telegram_chat_id,
+    telegram_message_id)` into `telegram_messages` — and `telegram_message_id` is Telegram's own
+    per-chat counter, which restarts at 1 under the new supergroup id (research Finding 2,
+    D-TG-71). Messages themselves are never re-pointed (`group_history_chat_ids`'s own docstring),
+    so reassigning an item's `telegram_chat_id` alone would either violate that FK outright (the
+    anchor message never existed under the surviving chat's own numbering) or, worse, silently
+    resolve to a coincidentally-numbered but unrelated message there. An item's own row —
+    `status`, every timing, its attribution — is never touched by a migration either way, which is
+    what SC-022 actually requires: nothing here deletes or mutates an existing item. What an item
+    "follows the surviving chat" means for *reading* a group's items across a promotion is a
+    `group_history_chat_ids`-shaped concern for whichever screen needs it, not a stored column.
+
     `old_chat_id` / `new_chat_id` are the platform's own chat identifiers, matching
     `apply_chat_migration_if_any`'s parameters — not the surrogate `telegram_chats.id`.
     """

@@ -201,6 +201,16 @@ telegram_messages = sa.Table(
     sa.Column(
         "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     ),
+    # TG-M3 (revision 0005, data-model.md §2). Two columns, not one: a NULL
+    # `attention_item_id` cannot distinguish *not yet judged* from *judged and correctly
+    # declined*, and most messages are the second (D-TG-72).
+    sa.Column(
+        "attention_item_id",
+        sa.BigInteger(),
+        sa.ForeignKey("attention_items.id"),
+        nullable=True,
+    ),
+    sa.Column("attention_evaluated_at", sa.DateTime(timezone=True), nullable=True),
     sa.UniqueConstraint(
         "telegram_chat_id", "message_id", name="uq_telegram_messages_chat_msg"
     ),
@@ -233,6 +243,18 @@ sa.Index(
     "ix_messages_reply",
     telegram_messages.c.telegram_chat_id,
     telegram_messages.c.reply_to_message_id,
+)
+# TG-M3 (revision 0005). Partial and empty in steady state — the sweep's authoritative work
+# list (D-TG-72, research Finding 3).
+sa.Index(
+    "ix_messages_unjudged",
+    telegram_messages.c.sent_at,
+    postgresql_where=telegram_messages.c.attention_evaluated_at.is_(None),
+)
+sa.Index(
+    "ix_messages_attention_item",
+    telegram_messages.c.attention_item_id,
+    postgresql_where=telegram_messages.c.attention_item_id.is_not(None),
 )
 
 moderators = sa.Table(
@@ -308,4 +330,111 @@ sa.Index(
     "ix_assignment_moderator",
     moderator_group_assignments.c.moderator_id,
     sa.desc(moderator_group_assignments.c.valid_from),
+)
+
+# --- TG-M3: Deterministic Response Tracking (data-model.md §1-§2, revision 0005) ---
+
+attention_items = sa.Table(
+    "attention_items",
+    metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+    sa.Column(
+        "telegram_chat_id",
+        sa.BigInteger(),
+        sa.ForeignKey("telegram_chats.id"),
+        nullable=False,
+    ),
+    # The burst's earliest message, not any later one (data-model.md §1).
+    sa.Column("telegram_message_id", sa.BigInteger(), nullable=False),
+    # Denormalised from the anchor message, deliberately (D-TG-83) — rule (b)'s "oldest open
+    # item in this chat and thread" would otherwise join back to telegram_messages on every
+    # moderator message, making the hot path a join (data-model.md §1 Indexes).
+    sa.Column("message_thread_id", sa.BigInteger(), nullable=True),
+    sa.Column("opened_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("source", sa.String(length=20), nullable=False),
+    sa.Column("rule_version", sa.SmallInteger(), nullable=True),
+    # Shaped for TG-M5, always NULL here. No FK until 0007 creates message_classifications.
+    sa.Column("message_classification_id", sa.BigInteger(), nullable=True),
+    sa.Column(
+        "responsible_moderator_id",
+        sa.BigInteger(),
+        sa.ForeignKey("moderators.id"),
+        nullable=True,
+    ),
+    sa.Column(
+        "status", sa.String(length=20), nullable=False, server_default=sa.text("'open'")
+    ),
+    sa.Column("first_response_message_id", sa.BigInteger(), nullable=True),
+    sa.Column("first_response_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column(
+        "first_response_moderator_id",
+        sa.BigInteger(),
+        sa.ForeignKey("moderators.id"),
+        nullable=True,
+    ),
+    sa.Column("first_response_kind", sa.String(length=20), nullable=True),
+    sa.Column("closed_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("closed_by_user_id", sa.BigInteger(), nullable=True),
+    sa.Column("close_reason", sa.String(length=40), nullable=True),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
+    # Finding 2 (D-TG-71): the chat id is load-bearing here, not decoration — Telegram numbers
+    # messages per chat from 1, so `telegram_message_id` alone collides across groups.
+    sa.UniqueConstraint(
+        "telegram_chat_id", "telegram_message_id", name="uq_attention_anchor"
+    ),
+    sa.ForeignKeyConstraint(
+        ["telegram_chat_id", "telegram_message_id"],
+        ["telegram_messages.telegram_chat_id", "telegram_messages.message_id"],
+        name="fk_attention_message",
+    ),
+    sa.CheckConstraint(
+        "source IN ('rule', 'operator', 'ai')", name="ck_attention_source"
+    ),
+    sa.CheckConstraint(
+        "status IN ('open', 'answered', 'dismissed', 'expired')",
+        name="ck_attention_status",
+    ),
+    sa.CheckConstraint(
+        "first_response_kind IS NULL OR first_response_kind IN "
+        "('direct_reply', 'group_message')",
+        name="ck_attention_response_kind",
+    ),
+    sa.CheckConstraint(
+        "status <> 'answered' OR (first_response_at IS NOT NULL "
+        "AND first_response_message_id IS NOT NULL AND first_response_kind IS NOT NULL)",
+        name="ck_attention_answered_complete",
+    ),
+    sa.CheckConstraint(
+        "first_response_at IS NULL OR first_response_at > opened_at",
+        name="ck_attention_response_order",
+    ),
+    sa.CheckConstraint(
+        "(source = 'rule') = (rule_version IS NOT NULL)",
+        name="ck_attention_rule_version",
+    ),
+)
+
+sa.Index(
+    "ix_attention_open",
+    attention_items.c.opened_at,
+    postgresql_where=attention_items.c.status == "open",
+)
+sa.Index(
+    "ix_attention_chat_thread_open",
+    attention_items.c.telegram_chat_id,
+    attention_items.c.message_thread_id,
+    attention_items.c.opened_at,
+    postgresql_where=attention_items.c.status == "open",
+)
+sa.Index(
+    "ix_attention_chat",
+    attention_items.c.telegram_chat_id,
+    sa.desc(attention_items.c.opened_at),
+)
+sa.Index(
+    "ix_attention_moderator",
+    attention_items.c.responsible_moderator_id,
+    sa.desc(attention_items.c.opened_at),
 )

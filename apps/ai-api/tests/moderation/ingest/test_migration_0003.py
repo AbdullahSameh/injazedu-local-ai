@@ -56,7 +56,13 @@ def _empty_schema(test_url: str) -> Iterator[None]:
         engine = create_engine(test_url)
         try:
             with engine.begin() as conn:
-                # TG-M2's tables FK into telegram_chats/telegram_users, so they must drop first.
+                # TG-M2's and TG-M3's tables FK into telegram_chats/telegram_users/
+                # telegram_messages, so they must drop first (data-model.md §0). attention_items
+                # and telegram_messages FK into *each other* (attention_item_id / fk_attention_
+                # message) — a genuine cycle — so attention_items alone needs CASCADE (it only
+                # detaches that one reverse constraint, leaving telegram_messages itself intact);
+                # every other drop below stays plain.
+                conn.execute(text("DROP TABLE IF EXISTS attention_items CASCADE"))
                 for table in (
                     "moderator_group_assignments",
                     "telegram_messages",

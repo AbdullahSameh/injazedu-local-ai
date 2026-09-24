@@ -71,6 +71,12 @@ class Settings(BaseSettings):
         default=500, alias="MODERATION_REDERIVE_BATCH_SIZE"
     )
 
+    # --- Deterministic Response Tracking (TG-M3, optional, defaulted) ---
+    moderation_tick_interval_s: int = Field(default=30, alias="MODERATION_TICK_INTERVAL_S")
+    moderation_percentile_min_samples: int = Field(
+        default=10, alias="MODERATION_PERCENTILE_MIN_SAMPLES"
+    )
+
     @field_validator("telegram_bot_token", mode="before")
     @classmethod
     def _empty_telegram_bot_token_is_absent(cls, value: object) -> object:
@@ -202,6 +208,24 @@ class Settings(BaseSettings):
             raise ValueError(
                 "MODERATION_REDERIVE_BATCH_SIZE must be positive "
                 f"(got {self.moderation_rederive_batch_size})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_tick_interval_is_positive(self) -> Settings:
+        if self.moderation_tick_interval_s <= 0:
+            raise ValueError(
+                "MODERATION_TICK_INTERVAL_S must be positive "
+                f"(got {self.moderation_tick_interval_s})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_percentile_min_samples_is_positive(self) -> Settings:
+        if self.moderation_percentile_min_samples <= 0:
+            raise ValueError(
+                "MODERATION_PERCENTILE_MIN_SAMPLES must be positive "
+                f"(got {self.moderation_percentile_min_samples})"
             )
         return self
 

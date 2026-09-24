@@ -13,6 +13,7 @@ from app.infrastructure.config import Settings
 from app.infrastructure.models_moderation import ingestion_gaps, ingestion_state, telegram_chats
 from app.providers.telegram.client import TelegramClient
 from app.telegram_main import _poll_once
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tests.moderation.ingest.conftest import (
@@ -37,6 +38,7 @@ async def test_a_normal_poll_stores_discovers_the_chat_and_advances_the_position
     ingest_cleanup: None,
     ingest_chat_cleanup: None,
     fake_transport: FakeTelegramTransport,
+    tick_lease_redis: Redis,
 ) -> None:
     fake_transport.enqueue_ok(
         "getUpdates",
@@ -54,6 +56,7 @@ async def test_a_normal_poll_stores_discovers_the_chat_and_advances_the_position
         bot_username="injaz_test_bot",
         allowed_updates=["message", "my_chat_member"],
         settings=_settings(),
+        redis=tick_lease_redis,
     )
 
     assert stood_down is False
@@ -76,6 +79,7 @@ async def test_five_consecutive_409s_stand_down_via_the_same_poll_loop(
     ingest_cleanup: None,
     fake_transport: FakeTelegramTransport,
     recording_sleep: RecordingSleep,
+    tick_lease_redis: Redis,
 ) -> None:
     for _ in range(5):
         fake_transport.enqueue_error(
@@ -91,6 +95,7 @@ async def test_five_consecutive_409s_stand_down_via_the_same_poll_loop(
             bot_username=None,
             allowed_updates=["message"],
             settings=_settings(),
+            redis=tick_lease_redis,
             sleep=recording_sleep,
         )
         for _ in range(5)

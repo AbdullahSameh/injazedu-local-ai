@@ -56,6 +56,12 @@ def _empty_schema(test_url: str) -> Iterator[None]:
         engine = create_engine(test_url)
         try:
             with engine.begin() as conn:
+                # TG-M3's attention_items FKs into telegram_chats/telegram_messages/moderators
+                # (revision 0005), and telegram_messages FKs back into it (attention_item_id) —
+                # a genuine cycle, so this one drop alone needs CASCADE (it only detaches that
+                # one reverse constraint, leaving telegram_messages itself intact); every other
+                # drop below stays plain.
+                conn.execute(text("DROP TABLE IF EXISTS attention_items CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS moderator_group_assignments"))
                 conn.execute(text("DROP TABLE IF EXISTS telegram_messages"))
                 conn.execute(text("DROP TABLE IF EXISTS moderators"))

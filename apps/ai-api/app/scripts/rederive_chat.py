@@ -24,10 +24,17 @@ from datetime import UTC, datetime
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.application.moderation.attention import assemble_burst, open_item
 from app.application.moderation.messages import apply_edit, derive_message
 from app.infrastructure.config import load_settings
 from app.infrastructure.db import make_engine, make_session_factory
-from app.infrastructure.models_moderation import telegram_chats, telegram_updates
+from app.infrastructure.models_moderation import (
+    attention_items,
+    telegram_chats,
+    telegram_messages,
+    telegram_updates,
+)
+from app.workers.tasks.moderation.expire_stale_items import expire_stale_items_once
 
 _DERIVABLE_KINDS = ("message", "edited_message")
 
@@ -49,6 +56,23 @@ class RederiveReport:
     examined: int
     derived: int
     skipped: int
+
+
+@dataclass(frozen=True)
+class AttentionRederiveReport:
+    """`--with-attention`'s three counts (D-TG-89, FR-083): opened, answered and expired."""
+
+    opened: int
+    answered: int
+    expired: int
+
+
+async def _chat_surrogate(session: AsyncSession, chat_id: int) -> int:
+    result = await session.execute(
+        sa.select(telegram_chats.c.id).where(telegram_chats.c.chat_id == chat_id)
+    )
+    surrogate: int = result.scalar_one()
+    return surrogate
 
 
 async def _is_monitored(session: AsyncSession, chat_id: int) -> bool:
@@ -136,6 +160,116 @@ async def rederive_chat(
     return RederiveReport(examined=examined, derived=derived, skipped=skipped)
 
 
+async def rederive_chat_attention(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    chat_id: int,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    gap_s: int,
+    max_age_s: int,
+) -> AttentionRederiveReport:
+    """`--with-attention`, default off (D-TG-89, FR-083, FR-082): clears `attention_evaluated_at`
+    for every message of `chat_id` inside `[since, until)` — by `sent_at`, never `received_at` —
+    and re-judges each affected burst inline through the **same** `assemble_burst`/`open_item` the
+    live sweep uses (D-TG-88's "one judgement path, not two"), then runs the ageing sweep
+    (`contracts/attention-rules.md` §6 G2) scoped to this chat so a catch-up run does not leave a
+    newly-opened item artificially fresh past its own ceiling.
+
+    Never called from a screen (§7 R2) and never scheduled — this is an operator's explicit,
+    manual step. Running it twice over the same range reports zero the second time and changes no
+    status: the guarded writes underneath (`ON CONFLICT DO NOTHING`, `UPDATE … WHERE status =
+    'open'`) are idempotent by construction, and ordinary derivation (without this flag) opens
+    items only for messages derived from now on — this is the only path that backfills.
+    """
+    async with session_factory() as session:
+        chat_pk = await _chat_surrogate(session, chat_id)
+        before_rows = (
+            await session.execute(
+                sa.select(attention_items.c.id, attention_items.c.status).where(
+                    attention_items.c.telegram_chat_id == chat_pk
+                )
+            )
+        ).all()
+        before_status: dict[int, str] = {row.id: row.status for row in before_rows}
+
+        conditions = [telegram_messages.c.telegram_chat_id == chat_pk]
+        if since is not None:
+            conditions.append(telegram_messages.c.sent_at >= since)
+        if until is not None:
+            conditions.append(telegram_messages.c.sent_at < until)
+        await session.execute(
+            telegram_messages.update().where(*conditions).values(attention_evaluated_at=None)
+        )
+        await session.commit()
+
+    while True:
+        async with session_factory() as session:
+            claimed = (
+                await session.execute(
+                    sa.select(
+                        telegram_messages.c.id,
+                        telegram_messages.c.telegram_user_id,
+                        telegram_messages.c.message_thread_id,
+                        telegram_messages.c.sent_at,
+                    )
+                    .where(
+                        telegram_messages.c.telegram_chat_id == chat_pk,
+                        telegram_messages.c.attention_evaluated_at.is_(None),
+                    )
+                    .order_by(telegram_messages.c.sent_at)
+                    .limit(200)
+                )
+            ).all()
+            if not claimed:
+                break
+
+            covered: set[int] = set()
+            for row in claimed:
+                if row.id in covered:
+                    continue
+                if row.telegram_user_id is None:
+                    await session.execute(
+                        telegram_messages.update()
+                        .where(telegram_messages.c.id == row.id)
+                        .values(attention_evaluated_at=sa.func.now())
+                    )
+                    continue
+                burst = await assemble_burst(
+                    session,
+                    telegram_chat_id=chat_pk,
+                    telegram_user_id=row.telegram_user_id,
+                    message_thread_id=row.message_thread_id,
+                    around=row.sent_at,
+                    gap_s=gap_s,
+                )
+                covered.update(member["id"] for member in burst)
+                await open_item(session, burst)
+            await session.commit()
+
+    expired = await expire_stale_items_once(
+        session_factory, max_age_s=max_age_s, telegram_chat_id=chat_pk
+    )
+
+    async with session_factory() as session:
+        after_status = (
+            await session.execute(
+                sa.select(attention_items.c.id, attention_items.c.status).where(
+                    attention_items.c.telegram_chat_id == chat_pk
+                )
+            )
+        ).all()
+
+    opened = sum(1 for item_id, _status in after_status if item_id not in before_status)
+    answered = sum(
+        1
+        for item_id, status in after_status
+        if status == "answered" and before_status.get(item_id) != "answered"
+    )
+
+    return AttentionRederiveReport(opened=opened, answered=answered, expired=expired)
+
+
 def _parse_datetime(value: str) -> datetime:
     parsed = datetime.fromisoformat(value)
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
@@ -152,6 +286,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--batch-size", type=int, default=None, help="Overrides MODERATION_REDERIVE_BATCH_SIZE."
+    )
+    parser.add_argument(
+        "--with-attention",
+        action="store_true",
+        default=False,
+        help=(
+            "Also clears attention_evaluated_at for this chat and window and re-judges every "
+            "affected burst inline (D-TG-89). Default off — this is the only path that backfills "
+            "attention items; ordinary derivation never does."
+        ),
     )
     return parser.parse_args(argv)
 
@@ -176,6 +320,21 @@ async def _run(argv: list[str]) -> int:
         return 1
 
     print(f"examined={report.examined} derived={report.derived} skipped={report.skipped}")
+
+    if args.with_attention:
+        attention_report = await rederive_chat_attention(
+            session_factory,
+            chat_id=args.chat,
+            since=args.since,
+            until=args.until,
+            gap_s=settings.moderation_burst_gap_s,
+            max_age_s=settings.moderation_item_max_age_s,
+        )
+        print(
+            f"attention: opened={attention_report.opened} "
+            f"answered={attention_report.answered} expired={attention_report.expired}"
+        )
+
     return 0
 
 

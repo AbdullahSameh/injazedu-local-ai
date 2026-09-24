@@ -18,6 +18,7 @@ import logging
 from collections.abc import Awaitable, Callable
 
 import dramatiq
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.infrastructure.config import Settings, load_settings
@@ -45,6 +46,7 @@ async def _poll_once(
     bot_username: str | None,
     allowed_updates: list[str],
     settings: Settings,
+    redis: Redis,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> bool:
     """One poll cycle. Returns `True` when the caller must stop entirely — a conflict
@@ -54,6 +56,12 @@ async def _poll_once(
     poll: cheap when nothing is wrong (one read of `ingestion_state`), and the only place a
     strictly-forward offset would otherwise poll forever without ever receiving Telegram's
     renumbered identifier.
+
+    TG-M3 (T066, D-TG-86, research Finding 4): once per iteration, unconditionally, `tick_lease`
+    admits at most one caller per `MODERATION_TICK_INTERVAL_S` — across however many capture
+    processes are running — and only the winner enqueues `expire_stale_items` and
+    `sweep_unjudged_bursts`. **Enqueue only**: this container writes no derived state itself,
+    exactly as it already only sends `drain_pending_updates` (§7.3's boundary preserved).
     """
     from app.application.moderation.ingest import (
         apply_chat_migration_if_any,
@@ -64,8 +72,15 @@ async def _poll_once(
         record_reset_outcome,
         resync_after_stall,
         store_batch,
+        tick_lease,
         upsert_chats_from_batch,
     )
+    from app.workers.tasks.moderation.expire_stale_items import expire_stale_items
+    from app.workers.tasks.moderation.sweep_unjudged_bursts import sweep_unjudged_bursts
+
+    if await tick_lease(redis, ttl_s=settings.moderation_tick_interval_s):
+        expire_stale_items.send()
+        sweep_unjudged_bursts.send()
 
     try:
         resynced = await resync_after_stall(
@@ -171,6 +186,7 @@ async def _run(settings: Settings) -> None:
                     bot_username=identity.username,
                     allowed_updates=allowed_updates,
                     settings=settings,
+                    redis=redis,
                 )
                 if stood_down:
                     logger.warning(

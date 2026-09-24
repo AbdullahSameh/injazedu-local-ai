@@ -35,6 +35,11 @@ _PRIOR_TABLES = (
     "model_profiles",
     "users",
 )
+# TG-M3's `attention_items` FKs into telegram_chats/telegram_messages/moderators (revision
+# 0005) — this file's own tests never migrate past 0004, but a leftover row from whatever ran
+# before this file must still be dropped, or the next lazy re-migration to "head" collides with
+# a table `CASCADE`-detaching from, rather than dropping, its referenced tables.
+_LATER_TABLES = ("attention_items",)
 _NEW_INDEXES = (
     "ix_messages_chat_sent",
     "ix_messages_chat_moderator_sent",
@@ -79,7 +84,7 @@ def _empty_schema(test_url: str) -> Iterator[None]:
         engine = create_engine(test_url)
         try:
             with engine.begin() as conn:
-                for table in (*_NEW_TABLES, *_PRIOR_TABLES):
+                for table in (*_LATER_TABLES, *_NEW_TABLES, *_PRIOR_TABLES):
                     conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
         finally:

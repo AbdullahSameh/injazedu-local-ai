@@ -7,7 +7,15 @@ import logging
 import sys
 from datetime import UTC, datetime
 
-_EXTRA_KEYS = ("update_id", "chat_id", "message_id", "incident_id", "alert_id", "actor")
+_EXTRA_KEYS = (
+    "update_id",
+    "chat_id",
+    "message_id",
+    "item_id",
+    "incident_id",
+    "alert_id",
+    "actor",
+)
 
 
 class JsonFormatter(logging.Formatter):

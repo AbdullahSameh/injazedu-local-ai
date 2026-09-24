@@ -22,12 +22,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.moderation.identities import upsert_identity
 from app.application.moderation.text import normalize
+from app.infrastructure.config import load_settings
 from app.infrastructure.models_moderation import (
     moderators,
     telegram_chats,
     telegram_messages,
     telegram_updates,
 )
+from app.workers.tasks.moderation.evaluate_attention import evaluate_attention
+from app.workers.tasks.moderation.match_response import match_response
 
 # Coarse, in priority order. An entry here is stored as its own key name; anything present that
 # isn't one of these, isn't text/a caption, and isn't a recognised service field is content this
@@ -250,7 +253,24 @@ async def derive_message(
         result = await session.execute(insert_stmt)
         inserted_id = result.scalar_one_or_none()
         await session.commit()
-        return inserted_id
+
+    # Scheduled only for a newly-inserted, non-moderator message from a real person (TG-M3,
+    # T029, contract §1) — after the insert has committed, so the delayed judgement can always
+    # see the row it was scheduled for (mirrors `store_batch`'s D-TG-36). A duplicate delivery
+    # (`inserted_id is None`) and a moderator's or a sender_chat's message schedule nothing: the
+    # burst key needs a real `telegram_user_id`, and a moderator's own words never open an item.
+    if inserted_id is not None and not is_from_moderator and telegram_user_id is not None:
+        settings = load_settings()
+        evaluate_attention.send_with_options(
+            args=(chat_pk, telegram_user_id, body.get("message_thread_id"), sent_at.timestamp()),
+            delay=settings.moderation_burst_gap_s * 1000,
+        )
+    # A moderator message closes on the live path, with no delay (T046, contract §4) — an answer
+    # should never wait for a settle window that judgement needs and matching does not.
+    elif inserted_id is not None and is_from_moderator:
+        match_response.send(inserted_id)
+
+    return inserted_id
 
 
 async def group_history_chat_ids(session: AsyncSession, *, telegram_chat_id: int) -> list[int]:
@@ -300,6 +320,12 @@ async def apply_edit(
     (`contracts/message-derivation.md` §2(b), D-TG-50). `sent_at`, `is_from_moderator`,
     `telegram_user_id` and `source_update_id` are untouched.
 
+    Also clears `attention_evaluated_at` (`contracts/attention-rules.md` §3 E5, D-TG-88): this is
+    the *only* mechanism that re-triggers judgement on an edit — the ordinary sweep
+    (`sweep_unjudged_bursts`) picks the row up from its own authoritative work list and re-judges
+    the burst through `open_item`, exactly as it would for any other unjudged message. One
+    judgement path, not two.
+
     Returns the number of rows matched — `0` when the message was never derived (it predates
     measurement, or its `payload` was purged), which is a no-op, not an error.
     """
@@ -321,6 +347,7 @@ async def apply_edit(
                 original_text=original_text,
                 normalized_text=normalized_text,
                 edited_at=edited_at,
+                attention_evaluated_at=None,
             )
         )
         await session.commit()
