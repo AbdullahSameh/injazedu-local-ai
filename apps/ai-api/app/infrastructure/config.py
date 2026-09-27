@@ -77,6 +77,11 @@ class Settings(BaseSettings):
         default=10, alias="MODERATION_PERCENTILE_MIN_SAMPLES"
     )
 
+    # --- Policy Incidents (TG-M4, optional, defaulted) ---
+    moderation_incident_max_age_s: int = Field(
+        default=86400, alias="MODERATION_INCIDENT_MAX_AGE_S"
+    )
+
     @field_validator("telegram_bot_token", mode="before")
     @classmethod
     def _empty_telegram_bot_token_is_absent(cls, value: object) -> object:
@@ -226,6 +231,15 @@ class Settings(BaseSettings):
             raise ValueError(
                 "MODERATION_PERCENTILE_MIN_SAMPLES must be positive "
                 f"(got {self.moderation_percentile_min_samples})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_incident_max_age_is_positive(self) -> Settings:
+        if self.moderation_incident_max_age_s <= 0:
+            raise ValueError(
+                "MODERATION_INCIDENT_MAX_AGE_S must be positive "
+                f"(got {self.moderation_incident_max_age_s})"
             )
         return self
 

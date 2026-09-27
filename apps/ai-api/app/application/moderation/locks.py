@@ -37,3 +37,27 @@ async def chat_lock(session: AsyncSession, chat_id: int) -> AsyncIterator[None]:
     key = f"{_LOCK_KEY_PREFIX}{chat_id}"
     await session.execute(sa.select(sa.func.pg_advisory_xact_lock(sa.func.hashtext(key))))
     yield
+
+
+# TG-M4 (`contracts/incident-lifecycle.md` H4, D-TG-114). One global key, not per-chat: the
+# guarantee it protects — a false-positive closure cannot land over a resolved incident — is
+# global to the lifecycle, not scoped to a chat. `App\Models\ModerationIncident`'s guard takes the
+# identical literal, `pg_advisory_xact_lock(hashtext('moderation:incidents'))`, so the two
+# languages serialise against each other, not just against themselves.
+_INCIDENT_LOCK_KEY = "moderation:incidents"
+
+
+@asynccontextmanager
+async def incident_lock(session: AsyncSession) -> AsyncIterator[None]:
+    """Acquires the shared incident-lifecycle advisory lock for the rest of `session`'s
+    transaction. Taken by every membership-change evidence insert (`derive_membership_evidence`)
+    before its `ON CONFLICT ... DO NOTHING` insert, so it never races a panel closure. Reaction
+    inserts do not take it (H4): two acknowledgements racing are two harmless rows.
+
+    `session` must be the session the caller goes on to commit or roll back — transaction-scoped,
+    like `chat_lock`, so a failing test releases it on rollback with no cleanup path to get wrong.
+    """
+    await session.execute(
+        sa.select(sa.func.pg_advisory_xact_lock(sa.func.hashtext(_INCIDENT_LOCK_KEY)))
+    )
+    yield

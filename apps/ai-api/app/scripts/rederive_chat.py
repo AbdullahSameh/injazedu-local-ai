@@ -25,11 +25,17 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.moderation.attention import assemble_burst, open_item
+from app.application.moderation.evidence import (
+    derive_membership_evidence,
+    derive_reaction_evidence,
+)
+from app.application.moderation.incidents import incident_state
 from app.application.moderation.messages import apply_edit, derive_message
 from app.infrastructure.config import load_settings
 from app.infrastructure.db import make_engine, make_session_factory
 from app.infrastructure.models_moderation import (
     attention_items,
+    moderation_incidents,
     telegram_chats,
     telegram_messages,
     telegram_updates,
@@ -37,6 +43,7 @@ from app.infrastructure.models_moderation import (
 from app.workers.tasks.moderation.expire_stale_items import expire_stale_items_once
 
 _DERIVABLE_KINDS = ("message", "edited_message")
+_EVIDENCE_KINDS = ("chat_member", "message_reaction")
 
 # Mirrors config.py's MODERATION_REDERIVE_BATCH_SIZE default. `rederive_chat` itself takes a
 # plain int rather than calling `load_settings()` so it stays callable without the full app
@@ -65,6 +72,15 @@ class AttentionRederiveReport:
     opened: int
     answered: int
     expired: int
+
+
+@dataclass(frozen=True)
+class EvidenceRederiveReport:
+    """`--with-evidence`'s two counts (TG-M4, D-TG-128, lifecycle contract R3-R5): evidence rows
+    recorded and incidents whose derived status changed as a result."""
+
+    recorded: int
+    incidents_changed: int
 
 
 async def _chat_surrogate(session: AsyncSession, chat_id: int) -> int:
@@ -270,6 +286,103 @@ async def rederive_chat_attention(
     return AttentionRederiveReport(opened=opened, answered=answered, expired=expired)
 
 
+async def rederive_chat_evidence(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    chat_id: int,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> EvidenceRederiveReport:
+    """`--with-evidence`, default off (TG-M4, D-TG-128, lifecycle contract R3-R5): walks the
+    chat's captured `chat_member` and `message_reaction` events in `update_id` order — regardless
+    of whether each was already marked `processed_at` before this milestone's derivation code
+    existed (FR-083) — through the **same** `derive_membership_evidence` /
+    `derive_reaction_evidence` the live actor calls (R3): a second derivation code path is a
+    second set of bugs. Skips a purged payload. `ON CONFLICT ... DO NOTHING` on both functions'
+    own inserts makes a second run over the same range report zero and change nothing (R4, R5) —
+    this reads the state view before and after only to report `incidents_changed`, never to
+    decide what to write.
+
+    Refuses a chat that is not measured, exactly as `rederive_chat`. Never opens, alters or
+    removes an incident, a label or a panel act — evidence derivation inserts rows in
+    `moderation_actions` only; the incidents it may resolve or acknowledge already exist.
+    """
+    async with session_factory() as session:
+        if not await _is_monitored(session, chat_id):
+            raise ChatNotMonitoredError(f"chat {chat_id} is not measured — refusing to re-derive")
+        chat_pk = await _chat_surrogate(session, chat_id)
+        incident_ids = (
+            (
+                await session.execute(
+                    sa.select(moderation_incidents.c.id).where(
+                        moderation_incidents.c.telegram_chat_id == chat_pk
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        before_status = {
+            incident_id: (await incident_state(session, incident_id))
+            for incident_id in incident_ids
+        }
+        before_status = {
+            incident_id: (state["status"] if state is not None else None)
+            for incident_id, state in before_status.items()
+        }
+
+    conditions = [
+        telegram_updates.c.chat_id == chat_id,
+        telegram_updates.c.update_type.in_(_EVIDENCE_KINDS),
+    ]
+    if since is not None:
+        conditions.append(telegram_updates.c.received_at >= since)
+    if until is not None:
+        conditions.append(telegram_updates.c.received_at < until)
+
+    async with session_factory() as session:
+        rows = (
+            await session.execute(
+                sa.select(
+                    telegram_updates.c.id,
+                    telegram_updates.c.update_type,
+                    telegram_updates.c.payload_purged_at,
+                )
+                .where(*conditions)
+                .order_by(telegram_updates.c.update_id)
+            )
+        ).all()
+
+    recorded = 0
+    for row in rows:
+        if row.payload_purged_at is not None:
+            continue
+        if row.update_type == "chat_member":
+            inserted_id = await derive_membership_evidence(session_factory, update_row_id=row.id)
+        else:
+            inserted_id = await derive_reaction_evidence(session_factory, update_row_id=row.id)
+        if inserted_id is not None:
+            recorded += 1
+
+    async with session_factory() as session:
+        after_status = {
+            incident_id: (await incident_state(session, incident_id))
+            for incident_id in before_status
+        }
+        after_status = {
+            incident_id: (state["status"] if state is not None else None)
+            for incident_id, state in after_status.items()
+        }
+
+    incidents_changed = sum(
+        1
+        for incident_id, status in before_status.items()
+        if after_status.get(incident_id) != status
+    )
+
+    return EvidenceRederiveReport(recorded=recorded, incidents_changed=incidents_changed)
+
+
 def _parse_datetime(value: str) -> datetime:
     parsed = datetime.fromisoformat(value)
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
@@ -295,6 +408,17 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
             "Also clears attention_evaluated_at for this chat and window and re-judges every "
             "affected burst inline (D-TG-89). Default off — this is the only path that backfills "
             "attention items; ordinary derivation never does."
+        ),
+    )
+    parser.add_argument(
+        "--with-evidence",
+        action="store_true",
+        default=False,
+        help=(
+            "Also re-derives this chat's captured chat_member and message_reaction events "
+            "(TG-M4, D-TG-128). Default off — this is the only path that catches up evidence "
+            "captured before this milestone's derivation code existed; ordinary processing "
+            "never revisits an already-processed event."
         ),
     )
     return parser.parse_args(argv)
@@ -333,6 +457,15 @@ async def _run(argv: list[str]) -> int:
         print(
             f"attention: opened={attention_report.opened} "
             f"answered={attention_report.answered} expired={attention_report.expired}"
+        )
+
+    if args.with_evidence:
+        evidence_report = await rederive_chat_evidence(
+            session_factory, chat_id=args.chat, since=args.since, until=args.until
+        )
+        print(
+            f"evidence: recorded={evidence_report.recorded} "
+            f"incidents_changed={evidence_report.incidents_changed}"
         )
 
     return 0

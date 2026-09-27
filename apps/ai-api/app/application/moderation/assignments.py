@@ -152,6 +152,12 @@ async def repoint_for_migration(
 
     `old_chat_id` / `new_chat_id` are the platform's own chat identifiers, matching
     `apply_chat_migration_if_any`'s parameters — not the surrogate `telegram_chats.id`.
+
+    **Incidents, like items, are not re-pointed either** (TG-M4, D-TG-107): an incident anchors on
+    the same composite `(telegram_chat_id, telegram_message_id)` FK as an item, for the same
+    reason — `telegram_message_id` restarts at 1 under the new supergroup id — so
+    `moderation_incident_evidence` follows the promotion one hop forward instead, at read time,
+    rather than any row here moving.
     """
     async with session_factory() as session:
         old_row = (
