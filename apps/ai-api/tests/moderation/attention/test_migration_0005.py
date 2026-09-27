@@ -34,6 +34,12 @@ _PRIOR_TABLES = (
     "model_profiles",
     "users",
 )
+# TG-M4's `moderation_incidents`/`moderation_actions` (revision 0006) FK into telegram_chats/
+# telegram_messages/moderators/telegram_users/telegram_updates — this file's own tests never
+# migrate past 0005, but a leftover row from whatever ran before this file must still be dropped,
+# mirroring `tests/moderation/actors/test_migration_0004.py`'s `_LATER_TABLES`.
+_LATER_TABLES = ("moderation_actions", "moderation_incidents")
+_LATER_VIEWS = ("moderation_incident_state", "moderation_incident_evidence")
 _NEW_COLUMNS = ("attention_item_id", "attention_evaluated_at")
 _NEW_INDEXES = (
     "ix_attention_open",
@@ -79,7 +85,9 @@ def _empty_schema(test_url: str) -> Iterator[None]:
         engine = create_engine(test_url)
         try:
             with engine.begin() as conn:
-                for table in (*_NEW_TABLES, *_PRIOR_TABLES):
+                for view in _LATER_VIEWS:
+                    conn.execute(text(f"DROP VIEW IF EXISTS {view} CASCADE"))
+                for table in (*_LATER_TABLES, *_NEW_TABLES, *_PRIOR_TABLES):
                     conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
         finally:

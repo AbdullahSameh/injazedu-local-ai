@@ -36,10 +36,13 @@ _PRIOR_TABLES = (
     "users",
 )
 # TG-M3's `attention_items` FKs into telegram_chats/telegram_messages/moderators (revision
-# 0005) — this file's own tests never migrate past 0004, but a leftover row from whatever ran
-# before this file must still be dropped, or the next lazy re-migration to "head" collides with
-# a table `CASCADE`-detaching from, rather than dropping, its referenced tables.
-_LATER_TABLES = ("attention_items",)
+# 0005), and TG-M4's `moderation_incidents`/`moderation_actions` (revision 0006) FK into all
+# four of this file's own tables — this file's own tests never migrate past 0004, but a leftover
+# row from whatever ran before this file must still be dropped, or the next lazy re-migration to
+# "head" collides with a table `CASCADE`-detaching from, rather than dropping, its referenced
+# tables.
+_LATER_TABLES = ("attention_items", "moderation_actions", "moderation_incidents")
+_LATER_VIEWS = ("moderation_incident_state", "moderation_incident_evidence")
 _NEW_INDEXES = (
     "ix_messages_chat_sent",
     "ix_messages_chat_moderator_sent",
@@ -84,6 +87,8 @@ def _empty_schema(test_url: str) -> Iterator[None]:
         engine = create_engine(test_url)
         try:
             with engine.begin() as conn:
+                for view in _LATER_VIEWS:
+                    conn.execute(text(f"DROP VIEW IF EXISTS {view} CASCADE"))
                 for table in (*_LATER_TABLES, *_NEW_TABLES, *_PRIOR_TABLES):
                     conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS alembic_version"))

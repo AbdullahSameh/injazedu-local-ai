@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Pages\Concerns\AttentionMetrics;
+use App\Filament\Resources\Incidents\Actions\OpenIncidentAction;
 use App\Models\AttentionItem;
 use App\Models\Moderator;
 use App\Models\ModeratorGroupAssignment;
@@ -127,6 +128,10 @@ class LiveAttentionQueue extends Page implements HasTable
                     ->color('gray')
                     ->requiresConfirmation()
                     ->action(fn (AttentionItem $record) => self::dismiss($record, 'message_removed')),
+                // TG-M4 (FR-072, D-TG-125): opens against the item's own anchor message. The
+                // item itself is never touched — no attention-item write is any part of opening
+                // an incident (lifecycle contract I7).
+                OpenIncidentAction::forQueueRow(),
             ])
             ->headerActions([
                 // P6: prevented in the form — the option list already excludes a message that

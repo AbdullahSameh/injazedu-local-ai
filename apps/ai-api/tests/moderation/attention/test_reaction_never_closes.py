@@ -1,7 +1,9 @@
 """A reaction never closes an item (T038, contract §4 C5) — the milestone's most tempting wrong
-implementation. `message_reaction` updates are captured but never derived into `telegram_messages`
+implementation. `message_reaction` updates are never derived into `telegram_messages`
 (`app/workers/tasks/moderation/process_update.py`), so there is no row for any matcher to see;
-this test proves the whole pipeline leaves the item untouched end to end.
+this test proves the whole pipeline leaves the item untouched end to end. TG-M4 now interprets
+this same event for incident evidence (`evidence.derive_reaction_evidence`), but that is a
+separate lifecycle over separate tables — it still moves nothing here (FR-086, SC-016).
 """
 
 from __future__ import annotations
@@ -65,6 +67,8 @@ async def test_a_message_reaction_from_a_mapped_moderator_leaves_the_item_open_a
                             "chat": {"id": chat_id},
                             "message_id": 1,
                             "user": {"id": moderator["telegram_user_id"]},
+                            "date": int(attention_clock.now().timestamp()),
+                            "old_reaction": [],
                             "new_reaction": [{"type": "emoji", "emoji": "✅"}],
                         }
                     },

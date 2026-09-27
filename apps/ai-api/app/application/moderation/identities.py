@@ -76,6 +76,20 @@ async def upsert_identity(
     return surrogate_id
 
 
+async def moderator_id_for(session: AsyncSession, *, telegram_user_id: int) -> int | None:
+    """The `moderators.id` mapped to `telegram_user_id` (the `telegram_users` surrogate id), or
+    `None` when nobody is mapped. `is_active` is deliberately not checked: it gates availability
+    for new *assignments* only, not whether a past or present sender counts as a moderator
+    (`contracts/message-derivation.md` §5). The one lookup TG-M2's `is_from_moderator` flag and
+    TG-M4's reaction and membership evidence (D-TG-110, V5) all gate on, so it lives here rather
+    than being restated in each caller.
+    """
+    result = await session.execute(
+        sa.select(moderators.c.id).where(moderators.c.telegram_user_id == telegram_user_id)
+    )
+    return result.scalar_one_or_none()
+
+
 async def create_placeholder_identity(session: AsyncSession, *, tg_user_id: int) -> int:
     """Creates a placeholder `telegram_users` row for a moderator mapped before they have ever
     been observed (`data-model.md` §1, D-TG-52): `INSERT … ON CONFLICT (tg_user_id) DO NOTHING`,

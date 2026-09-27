@@ -612,6 +612,15 @@ Acknowledgement is **not** resolution: a reply or a reaction proves the moderato
 they *acted*. Resolution requires enforcement or an explicit human confirmation. **No transition is
 ever driven by an inferred deletion**, because Telegram exposes none.
 
+**Correction (TG-M4, research Finding 3).** The panel cannot run the Python matcher, so a status
+computed in one language and read in the other is a second definition of the lifecycle by
+construction — TG-M3's hand-open lookback gap already shows what that costs. `moderation_incidents`
+therefore carries **no** `status` column and no `acknowledged_*` / `resolved_*` / `closed_*` columns;
+those are computed once, in SQL, by the `moderation_incident_state` view over `moderation_actions`,
+and read identically by Python and PHP (state-as-views, operator item 1 — approved). The anchor is
+`UNIQUE (telegram_chat_id, telegram_message_id)`, not `telegram_message_id` alone — TG-M3's own
+Finding 2 (two groups' messages share the same platform numbering) applies unchanged here.
+
 ### 10.9 `moderation_actions` *(rev 0006)* — append-only
 
 `moderation_incident_id FK NULL`, `telegram_chat_id FK`, `actor_moderator_id FK NULL`,
@@ -630,6 +639,15 @@ ever driven by an inferred deletion**, because Telegram exposes none.
 
 Rows are never updated. This table **is** the audit trail, and the three timing metrics in §18 are
 each a `MIN(occurred_at)` over one `action_strength`.
+
+**Correction (TG-M4, research Finding 3).** Two narrowings of the kind table above, both recorded
+in TG-M4's spec as clarifying assumptions: `unban` (this table's row above) is recorded as
+`reversal`, carrying **no** `action_strength` — recorded and inert, never an incident's earliest
+enforcement or confirmation — and `dismiss_false_positive` likewise carries no strength, since a
+closure is not a handling. The member-removal kind (`member`/`administrator`/`restricted` → `left`,
+performed by someone else) is named `expulsion`, never `removal` — Telegram reports no message
+deletion in groups and no deleter, and this table's own vocabulary stays strict about that
+distinction so a later screen cannot accidentally imply one.
 
 ### 10.10 `message_classifications` *(rev 0007)* — immutable predictions
 

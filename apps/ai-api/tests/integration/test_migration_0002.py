@@ -59,8 +59,14 @@ def _empty_schema(test_url: str) -> Iterator[None]:
                 # TG-M3's attention_items FKs into telegram_chats/telegram_messages/moderators
                 # (revision 0005), and telegram_messages FKs back into it (attention_item_id) —
                 # a genuine cycle, so this one drop alone needs CASCADE (it only detaches that
-                # one reverse constraint, leaving telegram_messages itself intact); every other
-                # drop below stays plain.
+                # one reverse constraint, leaving telegram_messages itself intact). TG-M4's
+                # moderation_incidents/moderation_actions (revision 0006) and the two views built
+                # on them are later still and must drop before the tables they reference; every
+                # other drop below stays plain.
+                conn.execute(text("DROP VIEW IF EXISTS moderation_incident_state CASCADE"))
+                conn.execute(text("DROP VIEW IF EXISTS moderation_incident_evidence CASCADE"))
+                conn.execute(text("DROP TABLE IF EXISTS moderation_actions CASCADE"))
+                conn.execute(text("DROP TABLE IF EXISTS moderation_incidents CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS attention_items CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS moderator_group_assignments"))
                 conn.execute(text("DROP TABLE IF EXISTS telegram_messages"))

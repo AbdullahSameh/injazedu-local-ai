@@ -19,6 +19,14 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[4]
 CHECK_SH = REPO_ROOT / "scripts" / "check.sh"
 DOMAIN_ATTENTION = REPO_ROOT / "apps" / "ai-api" / "app" / "domain" / "moderation" / "attention.py"
+DOMAIN_INCIDENT = REPO_ROOT / "apps" / "ai-api" / "app" / "domain" / "moderation" / "incident.py"
+EVIDENCE_MODULE = (
+    REPO_ROOT / "apps" / "ai-api" / "app" / "application" / "moderation" / "evidence.py"
+)
+INCIDENTS_MODULE = (
+    REPO_ROOT / "apps" / "ai-api" / "app" / "application" / "moderation" / "incidents.py"
+)
+METRICS_MODULE = REPO_ROOT / "apps" / "ai-api" / "app" / "application" / "moderation" / "metrics.py"
 
 Plant = Callable[[str, str], Path]
 
@@ -138,3 +146,50 @@ def test_domain_attention_imports_nothing_but_the_standard_library() -> None:
                 offenders.append(node.module or "<relative import>")
 
     assert offenders == [], f"non-stdlib import(s) in {DOMAIN_ATTENTION}: {offenders}"
+
+
+def _non_stdlib_imports(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    stdlib_names = sys.stdlib_module_names
+    offenders: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            offenders.extend(
+                alias.name for alias in node.names if alias.name.split(".")[0] not in stdlib_names
+            )
+        elif isinstance(node, ast.ImportFrom):
+            if node.module is None or node.module.split(".")[0] not in stdlib_names:
+                offenders.append(node.module or "<relative import>")
+    return offenders
+
+
+def test_domain_incident_imports_nothing_but_the_standard_library() -> None:
+    """T067 (FR-080): `app/domain/moderation/incident.py`'s own docstring — no I/O, no clock, no
+    session, no import outside the standard library, exactly as `attention.py`'s own rule. Check
+    1's forward allowlist is looser than this, so it needs its own test rather than a planted
+    `check.sh` violation."""
+    offenders = _non_stdlib_imports(DOMAIN_INCIDENT)
+    assert offenders == [], f"non-stdlib import(s) in {DOMAIN_INCIDENT}: {offenders}"
+
+
+def test_evidence_incidents_and_metrics_import_no_telegram_client_or_model_gateway() -> None:
+    """T067 (FR-080): TG-M4 records what moderators observably did with **zero AI** — `evidence.py`,
+    `incidents.py` and `metrics.py` (which also carries TG-M3's own figures) never import the
+    Telegram client the ingestion actor calls, nor any model/LLM gateway, even though check 1's
+    allowlist would otherwise permit a moderation module to import `app.providers.telegram`. A
+    stricter rule than check.sh enforces mechanically, so it needs its own test."""
+    forbidden_prefixes = (
+        "app.providers.telegram",
+        "app.application.gateway",
+        "app.domain.model_profile",
+        "httpx",
+        "ollama",
+        "openai",
+    )
+    for module_path in (EVIDENCE_MODULE, INCIDENTS_MODULE, METRICS_MODULE):
+        offenders = [
+            name
+            for name in _non_stdlib_imports(module_path)
+            if any(name == prefix or name.startswith(f"{prefix}.") for prefix in forbidden_prefixes)
+        ]
+        assert offenders == [], f"forbidden import(s) in {module_path}: {offenders}"

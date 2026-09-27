@@ -14,13 +14,18 @@ from pathlib import Path
 from app.providers.telegram.client import TelegramClient, TelegramProvider
 
 # The Bot API's admin/send methods (`contracts/telegram-provider.md` §1, §8) — none may exist on
-# this provider in TG-M1, and none may be called anywhere in the application source.
+# this provider in TG-M1, and none may be called anywhere in the application source. TG-M4
+# (FR-078, FR-079, SC-022) adds the three channel/reversal admin methods its own lifecycle names
+# but never calls: `unbanChatMember`, `banChatSenderChat`, `unbanChatSenderChat`.
 _FORBIDDEN_METHODS = (
     "sendMessage",
     "setMessageReaction",
     "deleteMessage",
     "banChatMember",
     "restrictChatMember",
+    "unbanChatMember",
+    "banChatSenderChat",
+    "unbanChatSenderChat",
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]

@@ -20,11 +20,10 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.application.moderation.identities import upsert_identity
+from app.application.moderation.identities import moderator_id_for, upsert_identity
 from app.application.moderation.text import normalize
 from app.infrastructure.config import load_settings
 from app.infrastructure.models_moderation import (
-    moderators,
     telegram_chats,
     telegram_messages,
     telegram_updates,
@@ -163,14 +162,9 @@ async def _chat_surrogate_and_monitored(session: AsyncSession, chat_id: int) -> 
 async def _is_declared_moderator(session: AsyncSession, *, telegram_user_id: int) -> bool:
     """Whether `telegram_user_id` (the `telegram_users` surrogate id) is a declared, mapped
     moderator right now — `is_active` is deliberately not checked: it gates availability for new
-    *assignments* only (FR-030), not this flag (`contracts/message-derivation.md` §5)."""
-    result = await session.execute(
-        sa.select(sa.literal(True))
-        .select_from(moderators)
-        .where(moderators.c.telegram_user_id == telegram_user_id)
-        .limit(1)
-    )
-    return result.scalar_one_or_none() is not None
+    *assignments* only (FR-030), not this flag (`contracts/message-derivation.md` §5). Delegates
+    to `identities.moderator_id_for` (TG-M4, D-TG-110), the one shared lookup."""
+    return await moderator_id_for(session, telegram_user_id=telegram_user_id) is not None
 
 
 async def derive_message(
@@ -201,7 +195,16 @@ async def derive_message(
 
         sent_at = datetime.fromtimestamp(body["date"], tz=UTC)
 
-        from_user = body.get("from")
+        sender_chat = body.get("sender_chat")
+        sender_chat_id = sender_chat.get("id") if isinstance(sender_chat, dict) else None
+
+        # The platform puts a fake `from` (the Bot API's compatibility placeholder, e.g.
+        # `GroupAnonymousBot`) on every message sent on behalf of a chat, alongside the real
+        # `sender_chat` (research Finding 1, D-TG-99). Storing both would violate
+        # `ck_telegram_messages_sender`, which is exactly what makes the fix necessary: when
+        # `sender_chat` is present, `from` is never the message's personal sender — ignore it
+        # entirely, no identity upsert, no moderator flag.
+        from_user = body.get("from") if sender_chat_id is None else None
         telegram_user_id: int | None = None
         is_from_moderator = False
         if isinstance(from_user, dict):
@@ -220,9 +223,6 @@ async def derive_message(
                 is_from_moderator = await _is_declared_moderator(
                     session, telegram_user_id=telegram_user_id
                 )
-
-        sender_chat = body.get("sender_chat")
-        sender_chat_id = sender_chat.get("id") if isinstance(sender_chat, dict) else None
 
         reply_to = body.get("reply_to_message")
         reply_to_message_id = reply_to.get("message_id") if isinstance(reply_to, dict) else None
