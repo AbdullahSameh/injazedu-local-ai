@@ -953,6 +953,11 @@ Filament without touching the assessment generator — and `model_runs` slices p
 "how much does moderation classification cost us" is answerable on day one. Seed:
 `ollama-gemma4-e2b-moderation` (same model, `temperature: 0`, `num_predict: 128`, `num_ctx: 2048`).
 
+**Correction (TG-M5, research Finding 1).** The seed also sets `reasoning_effort: "none"` — the
+installed model reasons before answering, and at this plan's 128-token budget every answer was cut
+off before it completed. The seeded profile is **inactive**; an operator switches it on only after
+running the smoke test against real fixtures (quickstart.md §2–§4).
+
 The **lane stays `llm`** — it exists to stop three concurrent generations on a 16 GB machine, and a
 moderation call is still a generation. Lane selection is by operation, not by role; no change needed.
 
@@ -1005,6 +1010,14 @@ its version string is stored on every prediction. **No prompt text ever goes nea
 - `≥ 0.85` → normal.
 - Every prediction, correction, model profile, prompt version and reviewer is preserved (§10.10,
   §10.11). **The AI result is never overwritten.**
+
+**Correction (TG-M5, clarification 1 and Finding 2).** `0.60 … 0.85` opens **no** incident: the
+prediction is stored and the message is listed as a possible violation, for a person to act on — it
+does not open an attention item, and it does not cap an incident's severity as `low_confidence`. A
+prediction the model contradicts itself on (needs moderation with no violating category, or the
+reverse) is listed too, whatever its confidence. Because confidence barely moves in practice (0.90–
+1.00 on almost everything — research Finding 2), it is never treated as a safety signal; the
+**pilot false-positive rate of model-opened incidents is the operational gate** (operator item 3).
 
 ### 15.7 Reprocessing — D‑TG‑15
 
@@ -1606,6 +1619,14 @@ Ollama quit.
 profile, prompt version, taxonomy version and confidence. Ollama being down does not stop response
 tracking.
 **Non-goals.** No auto-moderation, no embeddings, no RAG, no model A/B.
+
+**Correction (TG-M5).** The pre-filter does **not** skip a bot account's message or a message that
+already has a response — both are classified (they are excluded only for the other seven reasons
+of `contracts/classification-pipeline.md` §3: retention, service, media, no text, a moderator's own
+message, the group speaking as itself, or an acknowledgement). It additionally excludes the group's
+own linked channel's automatic forwards, which this milestone's plan text above never named. And
+the model opens no question item anywhere in this pipeline: its needs-response judgement is
+measured against the rule set's own items, never acted on (the second clarification).
 
 ---
 

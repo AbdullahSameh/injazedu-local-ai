@@ -36,12 +36,19 @@ _PRIOR_TABLES = (
     "users",
 )
 # TG-M3's `attention_items` FKs into telegram_chats/telegram_messages/moderators (revision
-# 0005), and TG-M4's `moderation_incidents`/`moderation_actions` (revision 0006) FK into all
-# four of this file's own tables — this file's own tests never migrate past 0004, but a leftover
-# row from whatever ran before this file must still be dropped, or the next lazy re-migration to
-# "head" collides with a table `CASCADE`-detaching from, rather than dropping, its referenced
-# tables.
-_LATER_TABLES = ("attention_items", "moderation_actions", "moderation_incidents")
+# 0005), TG-M4's `moderation_incidents`/`moderation_actions` (revision 0006) FK into all
+# four of this file's own tables, and TG-M5's `message_classifications`/`_attempts` (revision
+# 0007) FK into telegram_chats/telegram_messages too — this file's own tests never migrate past
+# 0004, but a leftover row from whatever ran before this file must still be dropped, or the next
+# lazy re-migration to "head" collides with a table `CASCADE`-detaching from, rather than
+# dropping, its referenced tables.
+_LATER_TABLES = (
+    "attention_items",
+    "moderation_actions",
+    "moderation_incidents",
+    "message_classification_attempts",
+    "message_classifications",
+)
 _LATER_VIEWS = ("moderation_incident_state", "moderation_incident_evidence")
 _NEW_INDEXES = (
     "ix_messages_chat_sent",

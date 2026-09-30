@@ -12,7 +12,10 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 Provider = Literal["ollama", "vllm", "fake"]
-Role = Literal["llm", "embedding"]
+Role = Literal["llm", "embedding", "moderation"]
+# The generation subset of `Role` — every role a `Gateway.generate_text`/`generate_structured`
+# call may resolve, excluding `embedding` (D-TG-131).
+GenerationRole = Literal["llm", "moderation"]
 
 
 @dataclass(frozen=True, slots=True)

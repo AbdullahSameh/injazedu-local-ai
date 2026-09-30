@@ -3,7 +3,9 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Pages\Concerns\AttentionMetrics;
+use App\Filament\Pages\Concerns\ClassificationMetrics;
 use App\Filament\Resources\Incidents\Actions\OpenIncidentAction;
+use App\Filament\Support\ModelView;
 use App\Models\AttentionItem;
 use App\Models\Moderator;
 use App\Models\ModeratorGroupAssignment;
@@ -46,7 +48,16 @@ use UnitEnum;
 class LiveAttentionQueue extends Page implements HasTable
 {
     use AttentionMetrics;
+    use ClassificationMetrics;
     use InteractsWithTable;
+
+    /**
+     * Q1: the page's "Model's view" labels, keyed by item id — one query for every row on the
+     * page (`classificationLabelsForItems`, C6), never one per row.
+     *
+     * @var array<int, object>|null
+     */
+    private ?array $modelsViewLabels = null;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedQueueList;
 
@@ -109,6 +120,12 @@ class LiveAttentionQueue extends Page implements HasTable
                 TextColumn::make('opened_at')
                     ->label('Waiting')
                     ->since(),
+                // Q1-Q2: never filters, sorts or hides a row — a plain display column, read
+                // after the row set is already decided.
+                TextColumn::make('models_view')
+                    ->label("Model's view")
+                    ->getStateUsing(fn (AttentionItem $record): string => $this->modelsViewFor($record))
+                    ->extraAttributes(['dir' => 'auto']),
             ])
             ->recordActions([
                 // Both go through the same guarded write (contract §4 C8) — a double-submitted
@@ -185,6 +202,41 @@ class LiveAttentionQueue extends Page implements HasTable
             'closed_at' => now(),
             'closed_by_user_id' => Auth::id(),
         ]);
+    }
+
+    /**
+     * Q1: C6's label for the item — category and self-reported confidence for the earliest
+     * message the model judged needs an answer, or the earliest it classified at all; where the
+     * item has no classified message, the anchor's own §5 status. `$modelsViewLabels` is filled
+     * once, from every item id on the current page, the first time any row asks (T074).
+     */
+    private function modelsViewFor(AttentionItem $record): string
+    {
+        $this->modelsViewLabels ??= $this->classificationLabelsForItems(
+            $this->currentPageItemIds()
+        );
+
+        $label = $this->modelsViewLabels[$record->id] ?? null;
+
+        if ($label !== null) {
+            return $label->category.' · '.ModelView::confidence($label->confidence);
+        }
+
+        return ModelView::status($record->telegram_chat_id, $record->telegram_message_id);
+    }
+
+    /**
+     * The current page's item ids — a paginator's `toArray()` is its metadata, not its rows, so
+     * the underlying collection is unwrapped first (mirroring Filament's own `getTableRecords()`).
+     *
+     * @return array<int, int>
+     */
+    private function currentPageItemIds(): array
+    {
+        $records = $this->getTable()->getRecords();
+        $collection = method_exists($records, 'getCollection') ? $records->getCollection() : $records;
+
+        return $collection->pluck('id')->all();
     }
 
     /**

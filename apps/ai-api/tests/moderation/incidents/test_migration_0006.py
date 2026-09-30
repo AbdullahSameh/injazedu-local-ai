@@ -44,6 +44,14 @@ _NEW_INDEXES = (
     "ix_actions_subject",
     "ix_actions_incident",
 )
+# TG-M5's `message_classifications`/`_attempts` (revision 0007) FK into telegram_chats/
+# telegram_messages, and `moderation_incidents` itself gains a column and two FKs to
+# `message_classifications` in that revision — this file's own tests never migrate past 0006,
+# but a leftover row from whatever ran before this file must still be dropped, or the next lazy
+# re-migration to "head" collides with a table `CASCADE`-detaching from, rather than dropping,
+# its referenced tables (mirrors `tests/moderation/actors/test_migration_0004.py`'s
+# `_LATER_TABLES`).
+_LATER_TABLES = ("message_classification_attempts", "message_classifications")
 
 
 def _alembic_config(sqlalchemy_url: str) -> Config:
@@ -82,7 +90,7 @@ def _empty_schema(test_url: str) -> Iterator[None]:
             with engine.begin() as conn:
                 for view in _NEW_VIEWS:
                     conn.execute(text(f"DROP VIEW IF EXISTS {view} CASCADE"))
-                for table in (*_NEW_TABLES, *_PRIOR_TABLES):
+                for table in (*_LATER_TABLES, *_NEW_TABLES, *_PRIOR_TABLES):
                     conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
         finally:

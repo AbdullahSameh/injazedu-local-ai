@@ -26,7 +26,7 @@ class ModelProfilesTable
                 TextColumn::make('updated_at')->dateTime()->sortable()->toggleable(),
             ])
             ->filters([
-                SelectFilter::make('role')->options(['llm' => 'llm', 'embedding' => 'embedding']),
+                SelectFilter::make('role')->options(['llm' => 'llm', 'embedding' => 'embedding', 'moderation' => 'moderation']),
                 SelectFilter::make('is_active')->options([1 => 'Active', 0 => 'Inactive']),
             ])
             ->recordActions([

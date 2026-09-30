@@ -64,6 +64,13 @@ def _bound_params(
         if num_ctx is not None:
             payload["options"] = {"num_ctx": num_ctx}
 
+    # research Finding 1 (probe 3): `reasoning_effort: "none"` is the only lever this endpoint
+    # honours to skip the model's hidden reasoning; `think: false` is ignored. Forwarded only
+    # when a profile's params carry it, so every profile without it sends exactly what it does
+    # today (D-TG-130).
+    if "reasoning_effort" in profile.params:
+        payload["reasoning_effort"] = profile.params["reasoning_effort"]
+
     return payload
 
 

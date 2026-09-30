@@ -162,7 +162,12 @@ async def rederive_chat(
                 continue
 
             if row.update_type == "message":
-                inserted_id = await derive_message(session_factory, update_row_id=row.id)
+                # A re-derived message is history: a live-path prediction on it could open an
+                # incident dated today and charged to today's owner. History is classified only
+                # by `classify_chat`, which never opens anything (D-TG-149).
+                inserted_id = await derive_message(
+                    session_factory, update_row_id=row.id, schedule_classification=False
+                )
                 if inserted_id is not None:
                     derived += 1
             else:

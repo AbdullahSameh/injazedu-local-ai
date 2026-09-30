@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sys
 
-from pydantic import Field, ValidationError, field_validator, model_validator
+from pydantic import Field, ValidationError, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -82,12 +82,44 @@ class Settings(BaseSettings):
         default=86400, alias="MODERATION_INCIDENT_MAX_AGE_S"
     )
 
+    # --- AI Classification (TG-M5, optional, defaulted) ---
+    # Confidence is the model's self-report, never a safety signal (operator item 3): the floor
+    # and threshold below only decide where a prediction is routed, not whether to trust it.
+    moderation_confidence_floor: float = Field(default=0.60, alias="MODERATION_CONFIDENCE_FLOOR")
+    moderation_incident_confidence: float = Field(
+        default=0.85, alias="MODERATION_INCIDENT_CONFIDENCE"
+    )
+    moderation_classify_max_attempts: int = Field(
+        default=5, alias="MODERATION_CLASSIFY_MAX_ATTEMPTS"
+    )
+    moderation_classify_retry_base_s: int = Field(
+        default=30, alias="MODERATION_CLASSIFY_RETRY_BASE_S"
+    )
+
     @field_validator("telegram_bot_token", mode="before")
     @classmethod
     def _empty_telegram_bot_token_is_absent(cls, value: object) -> object:
         # "" and unset are one state (D-TG-26) — pydantic does not coerce this on its own.
         if value == "":
             return None
+        return value
+
+    @field_validator(
+        "moderation_confidence_floor",
+        "moderation_incident_confidence",
+        "moderation_classify_max_attempts",
+        "moderation_classify_retry_base_s",
+        mode="before",
+    )
+    @classmethod
+    def _empty_classification_setting_is_default(
+        cls, value: object, info: ValidationInfo
+    ) -> object:
+        # "" and unset are one state, as `_empty_telegram_bot_token_is_absent` treats it — the
+        # field's own default carries the value forward rather than each validator repeating it.
+        if value == "":
+            assert info.field_name is not None
+            return cls.model_fields[info.field_name].default
         return value
 
     @model_validator(mode="after")
@@ -240,6 +272,53 @@ class Settings(BaseSettings):
             raise ValueError(
                 "MODERATION_INCIDENT_MAX_AGE_S must be positive "
                 f"(got {self.moderation_incident_max_age_s})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_confidence_floor_is_in_range(self) -> Settings:
+        if not 0 <= self.moderation_confidence_floor <= 1:
+            raise ValueError(
+                "MODERATION_CONFIDENCE_FLOOR must be between 0 and 1 "
+                f"(got {self.moderation_confidence_floor})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_incident_confidence_is_in_range(self) -> Settings:
+        if not 0 <= self.moderation_incident_confidence <= 1:
+            raise ValueError(
+                "MODERATION_INCIDENT_CONFIDENCE must be between 0 and 1 "
+                f"(got {self.moderation_incident_confidence})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_confidence_floor_at_most_incident_confidence(self) -> Settings:
+        if self.moderation_confidence_floor > self.moderation_incident_confidence:
+            raise ValueError(
+                "MODERATION_CONFIDENCE_FLOOR must be less than or equal to "
+                "MODERATION_INCIDENT_CONFIDENCE (got MODERATION_CONFIDENCE_FLOOR="
+                f"{self.moderation_confidence_floor}, MODERATION_INCIDENT_CONFIDENCE="
+                f"{self.moderation_incident_confidence})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_classify_max_attempts_is_positive(self) -> Settings:
+        if self.moderation_classify_max_attempts <= 0:
+            raise ValueError(
+                "MODERATION_CLASSIFY_MAX_ATTEMPTS must be positive "
+                f"(got {self.moderation_classify_max_attempts})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_classify_retry_base_is_positive(self) -> Settings:
+        if self.moderation_classify_retry_base_s <= 0:
+            raise ValueError(
+                "MODERATION_CLASSIFY_RETRY_BASE_S must be positive "
+                f"(got {self.moderation_classify_retry_base_s})"
             )
         return self
 

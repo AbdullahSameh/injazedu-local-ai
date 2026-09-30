@@ -70,6 +70,30 @@ class OpenIncidentAction
             });
     }
 
+    /**
+     * The Possible Violations page's own row action (`control-panel-classification.md` §3 V2):
+     * the same category/severity form as `forQueueRow()`, but on one of `ClassificationMetrics`'
+     * own C4 rows (a plain array, not an Eloquent model — the page's table reads its records
+     * straight from that quoted SQL) and recorded as list-prompted
+     * (`promptedByClassificationId: $row['id']`) rather than independent.
+     */
+    public static function forPossibleViolationRow(): Action
+    {
+        return Action::make('flag_message')
+            ->label('Flag message')
+            ->schema([
+                self::categorySelect(),
+                self::severitySelect(),
+            ])
+            ->action(function (array $data, $record): void {
+                $message = TelegramMessage::query()
+                    ->where('telegram_chat_id', $record['telegram_chat_id'])
+                    ->where('message_id', $record['telegram_message_id'])
+                    ->first();
+                self::open($message, $data['category'], $data['severity'], (int) $record['id']);
+            });
+    }
+
     private static function categorySelect(): Select
     {
         return Select::make('category')->label('Category')->options(self::CATEGORIES)->required();
@@ -80,14 +104,18 @@ class OpenIncidentAction
         return Select::make('severity')->label('Severity')->options(self::SEVERITIES)->required();
     }
 
-    private static function open(?TelegramMessage $message, string $category, string $severity): void
-    {
+    private static function open(
+        ?TelegramMessage $message,
+        string $category,
+        string $severity,
+        ?int $promptedByClassificationId = null,
+    ): void {
         if ($message === null) {
             return;
         }
         /** @var User $user */
         $user = Auth::user();
-        ModerationIncident::openOn($message, $category, $severity, $user);
+        ModerationIncident::openOn($message, $category, $severity, $user, $promptedByClassificationId);
     }
 
     /**

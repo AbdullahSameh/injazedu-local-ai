@@ -6,7 +6,7 @@ FR-022, FR-026, SC-010.
 from __future__ import annotations
 
 import pytest
-from app.application.moderation.text import redact
+from app.application.moderation.text import normalize, redact
 
 from tests.moderation.fixtures.arabic_messages import REDACTION_CASES
 
@@ -61,3 +61,13 @@ def test_short_numbers_survive() -> None:
     # A year and a lecture number are not "long" digit runs.
     assert redact("الدورة تبدأ 2026") == "الدورة تبدأ 2026"
     assert redact("المحاضرة 3") == "المحاضرة 3"
+
+
+def test_scheme_less_url_redacts_after_normalize() -> None:
+    # ⚠ Regression: `normalize()`'s step 7 used to collapse the literal "www" to "w" before this
+    # function ever saw it, so the contract's own worked example (`www.injaz.sa` → `«رابط»`) was
+    # silently unreachable through the real pipeline — found via TG-M5's classification pipeline
+    # tests, fixed in `normalize()`, not here; this guards the two functions' composition.
+    assert redact(normalize("كلمني @InjazSupport او على www.injaz.sa")) == (
+        "كلمني «مستخدم» او علي «رابط»"
+    )

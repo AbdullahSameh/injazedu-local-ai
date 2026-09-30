@@ -90,6 +90,41 @@ async def test_seeding_twice_produces_the_same_rows_with_no_duplicates(
 
 
 @pytest.mark.usefixtures("_seed_targets_test_database")
+async def test_moderation_profile_is_seeded_inactive_and_never_activates(
+    gateway_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The classification roster row (D-TG-129, research Finding 1): seeded `is_active = false`
+    with `reasoning_effort: "none"`, and reseeding neither duplicates nor activates it."""
+    previously_active_llm = await _deactivate_active(gateway_session_factory, "llm")
+    previously_active_embedding = await _deactivate_active(gateway_session_factory, "embedding")
+    try:
+        seed_profiles()
+        seed_profiles()
+
+        async with gateway_session_factory() as session:
+            row = (
+                await session.execute(
+                    text(
+                        "SELECT role, params, is_active FROM model_profiles "
+                        "WHERE name = 'ollama-gemma4-e2b-moderation'"
+                    )
+                )
+            ).one()
+        assert row.role == "moderation"
+        assert row.is_active is False
+        assert row.params == {
+            "num_ctx": 2048,
+            "num_predict": 128,
+            "temperature": 0,
+            "reasoning_effort": "none",
+        }
+    finally:
+        await _delete_roster(gateway_session_factory)
+        await _reactivate(gateway_session_factory, previously_active_llm)
+        await _reactivate(gateway_session_factory, previously_active_embedding)
+
+
+@pytest.mark.usefixtures("_seed_targets_test_database")
 async def test_reseed_does_not_overwrite_an_operators_edit(
     gateway_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

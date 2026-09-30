@@ -65,12 +65,17 @@ def _empty_schema(test_url: str) -> Iterator[None]:
                 # one reverse constraint, leaving telegram_messages itself intact). TG-M4's
                 # moderation_incidents/moderation_actions (revision 0006) and the two views built
                 # on them are later still and must drop before the tables they reference; every
-                # other drop below stays plain.
+                # other drop below stays plain. TG-M5's message_classifications/_attempts
+                # (revision 0007) are referenced *by* moderation_incidents/attention_items, never
+                # the other way — a CASCADE from a table they reference only detaches the FK
+                # constraint, not the table, so they must be named here too.
                 conn.execute(text("DROP VIEW IF EXISTS moderation_incident_state CASCADE"))
                 conn.execute(text("DROP VIEW IF EXISTS moderation_incident_evidence CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS moderation_actions CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS moderation_incidents CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS attention_items CASCADE"))
+                conn.execute(text("DROP TABLE IF EXISTS message_classification_attempts CASCADE"))
+                conn.execute(text("DROP TABLE IF EXISTS message_classifications CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS moderator_group_assignments"))
                 conn.execute(text("DROP TABLE IF EXISTS telegram_messages"))
                 conn.execute(text("DROP TABLE IF EXISTS moderators"))

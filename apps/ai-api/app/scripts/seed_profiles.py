@@ -58,6 +58,23 @@ _ROSTER: tuple[dict[str, object], ...] = (
         "is_active": False,
     },
     {
+        "name": "ollama-gemma4-e2b-moderation",
+        "provider": "ollama",
+        "base_url": "http://host.docker.internal:11434/v1",
+        "model": "gemma4:e2b-it-qat",
+        "role": "moderation",
+        "params": (
+            '{"num_ctx": 2048, "num_predict": 128, "temperature": 0, '
+            '"reasoning_effort": "none"}'
+        ),
+        "dim": None,
+        "api_key_env": None,
+        # Seeded inactive (D-TG-129): the operator smokes it (runbook §C's TG-M5 row) before
+        # switching it on — `reasoning_effort: "none"` is what keeps every answer from being cut
+        # off at the plan's token budget (research Finding 1, operator item 1).
+        "is_active": False,
+    },
+    {
         "name": "ollama-embeddinggemma-300m",
         "provider": "ollama",
         "base_url": "http://host.docker.internal:11434/v1",

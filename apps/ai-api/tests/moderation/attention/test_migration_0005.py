@@ -35,10 +35,17 @@ _PRIOR_TABLES = (
     "users",
 )
 # TG-M4's `moderation_incidents`/`moderation_actions` (revision 0006) FK into telegram_chats/
-# telegram_messages/moderators/telegram_users/telegram_updates — this file's own tests never
-# migrate past 0005, but a leftover row from whatever ran before this file must still be dropped,
-# mirroring `tests/moderation/actors/test_migration_0004.py`'s `_LATER_TABLES`.
-_LATER_TABLES = ("moderation_actions", "moderation_incidents")
+# telegram_messages/moderators/telegram_users/telegram_updates, and TG-M5's
+# `message_classifications`/`_attempts` (revision 0007) FK into telegram_chats/telegram_messages
+# too — this file's own tests never migrate past 0005, but a leftover row from whatever ran
+# before this file must still be dropped, mirroring
+# `tests/moderation/actors/test_migration_0004.py`'s `_LATER_TABLES`.
+_LATER_TABLES = (
+    "moderation_actions",
+    "moderation_incidents",
+    "message_classification_attempts",
+    "message_classifications",
+)
 _LATER_VIEWS = ("moderation_incident_state", "moderation_incident_evidence")
 _NEW_COLUMNS = ("attention_item_id", "attention_evaluated_at")
 _NEW_INDEXES = (

@@ -22,7 +22,7 @@ class ModelProfileForm
                     ->unique(ignoreRecord: true)
                     ->helperText('The seed\'s conflict target — re-seeding never overwrites this row.'),
                 Select::make('role')
-                    ->options(['llm' => 'llm', 'embedding' => 'embedding'])
+                    ->options(['llm' => 'llm', 'embedding' => 'embedding', 'moderation' => 'moderation'])
                     ->required()
                     ->native(false),
                 Select::make('provider')
@@ -60,7 +60,8 @@ class ModelProfileForm
                     ->valueLabel('value')
                     ->helperText(
                         'llm: num_ctx, num_predict, temperature. embedding: batch_size, '
-                        .'prefix_document, prefix_query (with {text}).'
+                        .'prefix_document, prefix_query (with {text}). moderation: num_ctx, '
+                        .'num_predict, temperature, reasoning_effort.'
                     ),
                 Toggle::make('is_active')
                     ->helperText(

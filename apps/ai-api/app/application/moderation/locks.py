@@ -44,7 +44,7 @@ async def chat_lock(session: AsyncSession, chat_id: int) -> AsyncIterator[None]:
 # global to the lifecycle, not scoped to a chat. `App\Models\ModerationIncident`'s guard takes the
 # identical literal, `pg_advisory_xact_lock(hashtext('moderation:incidents'))`, so the two
 # languages serialise against each other, not just against themselves.
-_INCIDENT_LOCK_KEY = "moderation:incidents"
+_INCIDENT_LOCK_NAME = "moderation:incidents"
 
 
 @asynccontextmanager
@@ -58,6 +58,6 @@ async def incident_lock(session: AsyncSession) -> AsyncIterator[None]:
     like `chat_lock`, so a failing test releases it on rollback with no cleanup path to get wrong.
     """
     await session.execute(
-        sa.select(sa.func.pg_advisory_xact_lock(sa.func.hashtext(_INCIDENT_LOCK_KEY)))
+        sa.select(sa.func.pg_advisory_xact_lock(sa.func.hashtext(_INCIDENT_LOCK_NAME)))
     )
     yield

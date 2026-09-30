@@ -143,6 +143,9 @@ FROM (
 - **M17.** It includes false positives: a wrong flag took exactly as long to raise as a right one
   (D-TG-121). p90 suppression as M13, on `flagged`.
 
+From TG-M5 this statement is grouped by `source` — see
+`specs/008-tg-m5-ai-classification/contracts/classification-metrics.md` C8.
+
 ---
 
 ## §5 — "No data" is not zero

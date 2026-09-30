@@ -64,12 +64,20 @@ def _empty_schema(test_url: str) -> Iterator[None]:
                 # moderation_incidents/moderation_actions (revision 0006) and the two views built
                 # on them are later still — CASCADE from here reaches them too, but naming them
                 # explicitly means a plain drop below never has to guess at drop order; every
-                # other drop below stays plain.
+                # other drop below stays plain. `message_classifications`/`_attempts` (revision
+                # 0007) are referenced *by* moderation_incidents/attention_items, never the other
+                # way — dropping a table CASCADE only drops constraints that depend on it, never
+                # a table that merely holds a FK to it, so they must be named here too, or they
+                # survive this cleanup as orphans with their FKs to now-gone tables silently
+                # dropped (probe: a bare `DROP TABLE telegram_messages CASCADE` does not remove
+                # `message_classifications`, it only detaches `fk_classification_message`).
                 conn.execute(text("DROP VIEW IF EXISTS moderation_incident_state CASCADE"))
                 conn.execute(text("DROP VIEW IF EXISTS moderation_incident_evidence CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS moderation_actions CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS moderation_incidents CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS attention_items CASCADE"))
+                conn.execute(text("DROP TABLE IF EXISTS message_classification_attempts CASCADE"))
+                conn.execute(text("DROP TABLE IF EXISTS message_classifications CASCADE"))
                 for table in (
                     "moderator_group_assignments",
                     "telegram_messages",

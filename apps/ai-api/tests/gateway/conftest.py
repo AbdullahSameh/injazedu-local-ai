@@ -25,6 +25,7 @@ _SEEDED_PROFILE_NAMES = (
     "gw-test-llm-active",
     "gw-test-llm-inactive",
     "gw-test-embedding-active",
+    "gw-test-moderation-active",
 )
 
 
@@ -44,12 +45,15 @@ async def gateway_session_factory(
         await engine.dispose()
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture(scope="package")
 async def seeded_profiles(gateway_test_database_url: str) -> AsyncIterator[None]:
     """One active + one inactive `llm` profile, and one active `embedding` profile.
 
-    Session-scoped: every story's tests resolve against the same known rows, inserted once and
-    removed once, rather than each test managing its own profile lifecycle.
+    Package-scoped: every story's tests resolve against the same known rows, inserted once and
+    removed once, rather than each test managing its own profile lifecycle. Package (not session)
+    scope matters here — the seeded `moderation`-role row must be gone before any other package's
+    tests run, since `tests/integration/test_db_privileges.py`'s per-test downgrade to `base`
+    fails the pre-0007 `ck_model_profiles_role` check constraint while that row still exists.
     """
     engine = create_async_engine(gateway_test_database_url, pool_pre_ping=True)
     try:
@@ -63,7 +67,9 @@ async def seeded_profiles(gateway_test_database_url: str) -> AsyncIterator[None]
                     "('gw-test-llm-inactive', 'fake', NULL, 'fake-llm-inactive', 'llm', "
                     "  '{}'::jsonb, NULL, false), "
                     "('gw-test-embedding-active', 'fake', NULL, 'fake-embedding-active', "
-                    "  'embedding', '{}'::jsonb, 8, true) "
+                    "  'embedding', '{}'::jsonb, 8, true), "
+                    "('gw-test-moderation-active', 'fake', NULL, 'fake-moderation-active', "
+                    "  'moderation', '{\"reasoning_effort\": \"none\"}'::jsonb, NULL, true) "
                     "ON CONFLICT (name) DO NOTHING"
                 )
             )

@@ -169,4 +169,35 @@ class ListIncidents extends ListRecords
     {
         return $share === null ? '—' : number_format($share * 100, 0).'%';
     }
+
+    /**
+     * TG-M5, D-TG-159: `'operator'` / `'ai'` → the words the page uses, matching the Incidents
+     * list's own "Opened by" column (L1) — never the raw `source` value.
+     */
+    public function openerLabel(string $source): string
+    {
+        return $source === 'ai' ? 'Model' : 'Operator';
+    }
+
+    /**
+     * One row per opener present in a `detectionLatencyStats()` block, sorted so `'Model'` and
+     * `'Operator'` render in a stable order regardless of which source's row the query returned
+     * first — a source absent from the period has no row at all (never a zero-filled one).
+     *
+     * @param  array<string, array{flagged: int, median: float|null, p90: float|null,
+     *                p90_suppressed: bool, max: float|null}>  $latencyBySource
+     * @return Collection<int, array{opener: string, flagged: int, median: float|null,
+     *                p90: float|null, p90_suppressed: bool, max: float|null}>
+     */
+    public function latencyRows(array $latencyBySource): Collection
+    {
+        return collect($latencyBySource)
+            ->map(fn (array $block, string $source): array => array_merge(
+                ['opener' => $this->openerLabel($source)],
+                $block,
+            ))
+            ->values()
+            ->sortBy('opener')
+            ->values();
+    }
 }

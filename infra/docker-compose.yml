@@ -69,7 +69,7 @@ services:
 
   ai-worker:
     build: ../apps/ai-api
-    command: ["dramatiq", "app.workers.main", "--processes", "${WORKER_PROCESSES}", "--threads", "${WORKER_THREADS}"]
+    command: ["dramatiq", "app.workers.main", "--processes", "${WORKER_PROCESSES}", "--threads", "${WORKER_THREADS}", "--queues", "default"]
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
@@ -78,6 +78,39 @@ services:
       WORKER_HEARTBEAT_INTERVAL_S: ${WORKER_HEARTBEAT_INTERVAL_S}
       WORKER_HEARTBEAT_TTL_S: ${WORKER_HEARTBEAT_TTL_S}
     mem_limit: 1g
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # A dedicated, single-thread queue for `moderation_classify` (research Finding 4, operator item
+  # 2 — approved): a classification waiting on the model's one-at-a-time lane must never hold a
+  # worker thread that `default` traffic needs, so this queue's actor runs in its own service.
+  ai-classifier:
+    build: ../apps/ai-api
+    command: ["dramatiq", "app.workers.main", "--queues", "moderation_classify", "--processes", "1", "--threads", "1"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL}
+      WORKER_HEARTBEAT_INTERVAL_S: ${WORKER_HEARTBEAT_INTERVAL_S}
+      WORKER_HEARTBEAT_TTL_S: ${WORKER_HEARTBEAT_TTL_S}
+      MODERATION_CONFIDENCE_FLOOR: ${MODERATION_CONFIDENCE_FLOOR:-0.60}
+      MODERATION_INCIDENT_CONFIDENCE: ${MODERATION_INCIDENT_CONFIDENCE:-0.85}
+      MODERATION_CLASSIFY_MAX_ATTEMPTS: ${MODERATION_CLASSIFY_MAX_ATTEMPTS:-5}
+      MODERATION_CLASSIFY_RETRY_BASE_S: ${MODERATION_CLASSIFY_RETRY_BASE_S:-30}
+      GATEWAY_CALL_TIMEOUT_S: ${GATEWAY_CALL_TIMEOUT_S:-180}
+      GATEWAY_MAX_RETRIES: ${GATEWAY_MAX_RETRIES:-2}
+      GATEWAY_RETRY_BASE_S: ${GATEWAY_RETRY_BASE_S:-0.5}
+      GATEWAY_BREAKER_THRESHOLD: ${GATEWAY_BREAKER_THRESHOLD:-5}
+      GATEWAY_BREAKER_OPEN_S: ${GATEWAY_BREAKER_OPEN_S:-30}
+      GATEWAY_LANE_LEASE_TTL_S: ${GATEWAY_LANE_LEASE_TTL_S:-30}
+      GATEWAY_LANE_RENEW_S: ${GATEWAY_LANE_RENEW_S:-10}
+      GATEWAY_PROFILE_CACHE_TTL_S: ${GATEWAY_PROFILE_CACHE_TTL_S:-30}
+      GATEWAY_CAPTURE_PAYLOADS: ${GATEWAY_CAPTURE_PAYLOADS:-false}
+    mem_limit: 384m
     depends_on:
       postgres:
         condition: service_healthy

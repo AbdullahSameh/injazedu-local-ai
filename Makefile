@@ -1,4 +1,4 @@
-.PHONY: doctor up down down-hard logs health migrate migrate-down seed-profiles profiles seed-admin psql check test-db-reset mem-report automation-up smoke-llm test-llm check-lane tg-doctor
+.PHONY: doctor up down down-hard logs health migrate migrate-down seed-profiles profiles seed-admin psql check test-db-reset mem-report automation-up smoke-llm smoke-moderation test-llm check-lane tg-doctor
 
 COMPOSE := docker compose -f infra/docker-compose.yml --env-file .env
 
@@ -89,6 +89,13 @@ mem-report: ## docker stats against the 5 GB budget (SC-004)
 
 smoke-llm: ## One real structured generation + one real embedding; requires Ollama (FR-028, SC-015)
 	$(COMPOSE) --profile tools run --rm migrate python -m app.scripts.smoke_llm $(ARGS)
+
+smoke-moderation: ## Classify FIXTURES=<path outside the repo> against the real model before activating it (runbook §C TG-M5, SC-001)
+	@if [ -n "$(FIXTURES)" ]; then \
+		$(COMPOSE) --profile tools run --rm -T migrate python -m app.scripts.smoke_moderation $(ARGS) < "$(FIXTURES)"; \
+	else \
+		$(COMPOSE) --profile tools run --rm migrate python -m app.scripts.smoke_moderation $(ARGS); \
+	fi
 
 test-llm: ## Run only @pytest.mark.llm tests — the ones `make check` excludes (FR-027)
 	(cd apps/ai-api && uv run pytest -m llm)

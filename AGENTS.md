@@ -1,66 +1,65 @@
 <!-- SPECKIT START -->
-Active feature: **TG-M4 — Policy Incidents** (`specs/007-tg-m4-policy-incidents/`)
+Active feature: **TG-M5 — AI Classification** (`specs/008-tg-m5-ai-classification/`)
 
 Read before working on this feature:
 
-- `specs/007-tg-m4-policy-incidents/plan.md` — implementation plan, Constitution Check, the three operator items (**all approved 2026-09-24**)
-- `specs/007-tg-m4-policy-incidents/spec.md` — requirements (FR-001…FR-087), success criteria, 3 clarifications
-- `specs/007-tg-m4-policy-incidents/research.md` — 31 decisions (D-TG-98…D-TG-128), 9 probes, **4 findings**
-- `specs/007-tg-m4-policy-incidents/data-model.md` — revision `0006`: two tables, **two views**, the derived state machine
-- `specs/007-tg-m4-policy-incidents/contracts/incident-lifecycle.md` — **the** TG-M4 contract: opening (I1–I7), evidence (V1–V15, the membership table), linkage (L1–L7), derived state (S1–S6), the guard (H1–H7), attribution (A1–A5), re-derivation (R1–R5), what may never happen (N1–N8)
-- `specs/007-tg-m4-policy-incidents/contracts/incident-metrics.md` — the exact SQL behind every incident figure (M1–M19)
-- `specs/007-tg-m4-policy-incidents/contracts/control-panel-incidents.md` — the Incidents resource, its actions, the wording rule, config
-- `specs/007-tg-m4-policy-incidents/quickstart.md` — walkthrough, the evidence check, the runbook smoke test, 13 known limitations
+- `specs/008-tg-m5-ai-classification/plan.md` — implementation plan, Constitution Check, the four operator items (**all approved 2026-09-27**)
+- `specs/008-tg-m5-ai-classification/spec.md` — requirements (FR-001…FR-070), success criteria, 2 clarifications
+- `specs/008-tg-m5-ai-classification/research.md` — 33 decisions (D-TG-129…D-TG-161), 10 probes, **6 findings**
+- `specs/008-tg-m5-ai-classification/data-model.md` — revision `0007`: two tables, the incident links, the `moderation` role
+- `specs/008-tg-m5-ai-classification/contracts/classification-pipeline.md` — **the** TG-M5 contract: enqueue (Q1–Q4), the instruction `classify_v1` (§2, byte for byte), eligibility (E1–E10), input (P1–P5), the call (O1–O6), routing (R1–R13), opening (A1–A6), failure (F1–F6), idempotency (I1–I4), commands (C1–C5), what may never happen (N1–N10)
+- `specs/008-tg-m5-ai-classification/contracts/classification-metrics.md` — the exact SQL behind every classification figure (C1–C8, M1–M22)
+- `specs/008-tg-m5-ai-classification/contracts/control-panel-classification.md` — the model's view, Possible Violations, Classification Accuracy, the words
+- `specs/008-tg-m5-ai-classification/quickstart.md` — smoke first, switch on, the live check, reading the figures, 12 known limitations
 
-This is the fifth milestone of a **second bounded domain**. Its source plan of record is
+This is the sixth milestone of a **second bounded domain**. Its source plan of record is
 `docs/plan/telegram/telegram-moderation-intelligence.md` (TG-M0…TG-M10); the operator's human steps are
-`docs/runbooks/tg-operator-prerequisites.md` — **§C's TG-M4 row (a disposable third account in the dev
-group, willing to be restricted and banned) is the smoke-test prerequisite**, on top of §B and the
-TG-M2 row (the operator's own account mapped as a moderator of the dev group). Every automated test runs
-without any of them.
+`docs/runbooks/tg-operator-prerequisites.md` — **§C's TG-M5 row (Ollama running; 5–10 real Arabic messages
+with known labels, kept outside the repo) is the smoke-test prerequisite**. Every automated test runs with the
+model scripted and no runtime, credential or network.
 
-TG-M4 records **what moderators observably did about a flagged message** with **zero AI**: no model
-call, no automatic opening, no alert, no outbound message, no bot action of any kind. Only operators open
-incidents here (`source='operator'`; `ai` is reserved for TG-M5). Alembic revision `0006` is consumed;
-`0007`–`0009` stay reserved.
+TG-M5 puts **the first model** in front of the domain: each eligible message gets one immutable prediction
+(category, needs-response, needs-moderation, severity, self-reported confidence). A confident, coherent violation
+opens a TG-M4 incident (`source='ai'`); an uncertain or self-contradicting one is listed on **Possible
+Violations**; below the floor it waits for TG-M8. **The model opens no question and closes nothing.** Still no
+alert, no outbound message, no bot action. Alembic revision `0007` is consumed; `0008`–`0009` stay reserved.
 
 The rules that carry this milestone:
 
-- **Seeing is not acting.** A moderator's reaction or direct reply is *acknowledgement*; only
-  enforcement (ban / expulsion / restriction of the sender, as the platform reports it) or a panel
-  confirmation *resolves*. No acknowledgement kind carries a resolving strength — `ck_actions_strength`.
-- **Nothing is ever called a deletion.** Telegram reports none and never its author. The standing
-  sentence — *"Telegram does not report message deletion in groups; no removal evidence is available."* —
-  is on every incident page, and a test fails any other `delet`/`remov` substring on those screens. The
-  membership kind is `expulsion`, never `removal`, for exactly that reason.
-- **State is derived, never stored.** An incident row holds only what was decided at the flag (anchor,
-  `opened_at` = posting, `detected_at` = flag, labels, opener, responsible-at-detection). Status, moments
-  and timings come from the views `moderation_incident_evidence` and `moderation_incident_state` — **the
-  only definitions**, read by Python and PHP alike. Never compute a status in code (contract N6).
-- **Human acts are guarded inserts under one lock.** Acknowledge / resolve / not-a-violation: take
-  `pg_advisory_xact_lock(hashtext('moderation:incidents'))` (this exact literal, both languages), read the
-  status from the view, insert or do nothing. Membership-evidence inserts take the same lock. The guard
-  lives on `ModerationIncident` and is load-bearing (probe 8).
-- **`moderation_actions` is append-only** — no `UPDATE`, no `DELETE`, ever.
+- **A prediction is a claim.** Recorded once, with model, `prompt_version`, `taxonomy_version`, `model_run_id`,
+  route and the thresholds in force — **never updated, never deleted** (`message_classifications`, no text).
+- **The model sees words, never people.** The first-posted text is re-extracted from the message's own captured
+  event, normalised, **redacted before the gateway**; the request is `system` = `classify_v1.md` + `user` =
+  redacted text, nothing else. Never log text or the model's raw output.
+- **One definition each.** Eligibility (E1–E8) and routing (R1–R6) are pure functions in
+  `app/domain/moderation/classification.py`; the panel reads their stored outputs and never recomputes them.
+- **The model never touches the lifecycle.** A prediction is not evidence; a model-opened incident goes through
+  TG-M4's own `insert_incident`, in the same transaction as its prediction, and then lives exactly like any other.
+- **Two conservative readings, approved** (operator item 4): consistency is judged both ways (an advert with
+  needs-moderation false is *inconsistent* and listed); the group's linked channel's automatic forwards are excluded.
+- **Catch-up is measurement only.** `classify_chat` and anything re-derived never open an incident or list anything.
+- TG-M4's rules all still hold: seeing is not acting; nothing is called a deletion; incident state is derived from
+  the views; human acts are guarded inserts under `pg_advisory_xact_lock(hashtext('moderation:incidents'))`;
+  `moderation_actions` is append-only.
 
-Four measured facts that drive this design (see research.md §0):
+Six measured facts that drive this design (see research.md §0):
 
-1. ⚠ **The platform puts a fake `from` on every message sent on behalf of a chat, and TG-M2's
-   `ck_telegram_messages_sender` rejects that row** — channel spam is never stored. Fix (D-TG-99): when
-   `sender_chat` is present, ignore `from`. Edits a TG-M2 module — operator item 2, **approved**.
-2. ⚠ **The running panel's percentile floor is 0**: `.env` lacks the key, Compose passes `''`, and
-   `(int) env(…, 10)` is `0`. The new `MODERATION_INCIDENT_MAX_AGE_S` would inherit the trap. Fix
-   (D-TG-122): `${KEY:-default}` in Compose, blank-safe `config/moderation.php` — operator item 3, **approved**.
-3. ⚠ **The panel cannot run the Python matcher**, and TG-M3's hand-open already shows the disagreement
-   (it skips the lookback — recorded, not fixed). Hence state-as-views — operator item 1, **approved**, a
-   correction to §10.8.
-4. ⚠ **No `chat_member` or `message_reaction` event has ever been captured** in dev. Every payload shape is
-   pinned by `test_membership_classifier.py` against the Bot API reference; the smoke test first proves
-   both kinds land. Anonymous-administrator performers are unverified live.
+1. ⚠ **The model reasons before answering** — at the plan's 128 tokens every answer was cut off.
+   `reasoning_effort: "none"` (profile param, forwarded by the provider) → complete, ~1 s, deterministic. Operator item 1, **approved**.
+2. ⚠ **Confidence barely moves** — 0.90–1.00 on everything. The band will be nearly empty; the model's
+   false-positive count (C3) is the real control. Operator item 3, **decided**: keep 0.60 / 0.85, never treat
+   confidence as a safety signal; the **pilot false-positive rate of model-opened incidents is the operational gate**.
+3. ⚠ **Moderation cannot import `app.providers.llm`** — the gateway package exports the request types. Operator item 1, **approved**.
+4. ⚠ **A classification waiting for the lane holds a worker thread** — own queue `moderation_classify`, own
+   one-thread `ai-classifier` service, `ai-worker --queues default`. Operator item 2, **approved**.
+5. ⚠ **An edit overwrites the stored words** — the model reads the captured event, not `telegram_messages`.
+6. ⚠ **The gateway retries cut-off answers and returns no call id** — classifier gateway `max_retries=0`,
+   task-level transient retry; responses carry `model_run_id`. Operator item 1, **approved**.
 
 Architecture rules, mechanically enforced by `make check`:
 
-- **no `httpx` / `ollama` / `openai` import outside `app/providers/`** (M1);
+- **no `httpx` / `ollama` / `openai` import outside `app/providers/`** (M1); moderation reaches a model **only**
+  through `app.application.gateway`;
 - **moderation modules may import only** `app.{domain,application}.moderation`, `app.providers.telegram`,
   `app.workers.tasks.moderation`, `app.application.gateway`, `app.infrastructure`, `app.domain.model_profile`;
 - **no assessment-side module may import moderation** (composition roots — `app/main.py`, `app/workers/`,
@@ -69,22 +68,24 @@ Architecture rules, mechanically enforced by `make check`:
   delete / react method;
 - **no message text in any log line** (check 4). Correlation keys: `incident_id`, `message_id`,
   `update_id`, `chat_id` — never `message` (TG-M0's D-TG-24);
-- **`app/domain/moderation/{attention,incident}.py` stay pure**: no I/O, no clock, no session.
+- **`app/domain/moderation/{attention,incident,classification}.py` stay pure**: no I/O, no clock, no session;
+- **`classify_v1.md` is pinned by its SHA-256** — a new wording is a new file and a new version.
 
-Panel rules: Alembic owns the schema — **no migration from Filament**; no platform call, no model call,
-no bulk action, **no average and no composite score anywhere** (tested); **no state computed in PHP**.
-Feature tests use `DatabaseTransactions` against `injaz_ai_test` — never `RefreshDatabase`,
-`DatabaseMigrations` or `migrate:fresh`. No `GRANT` in a migration: the migrator's default ACL reaches
-`ai_control` for tables **and views** (probe 6). Arabic content keeps `dir="auto"` **per field**; the
-panel locale and chrome stay English and LTR.
+Panel rules: Alembic owns the schema — **no migration from Filament**; no platform call, **no model call**,
+no bulk action, **no average and no composite score anywhere** (tested); **no state, route or eligibility
+computed in PHP**. Confidence is always "self-reported", never a percentage or a probability. Feature tests use
+`DatabaseTransactions` against `injaz_ai_test` — never `RefreshDatabase`, `DatabaseMigrations` or
+`migrate:fresh`. No `GRANT` in a migration: the migrator's default ACL reaches `ai_control` and `ai_app` for new
+tables and views. Arabic content keeps `dir="auto"` **per field**; the panel locale and chrome stay English and LTR.
 
 Previous milestones (still current infrastructure): `specs/001-m0-foundation/`,
 `specs/002-m1-model-gateway/`, `specs/003-tg-m0-moderation-foundation/`,
 `specs/004-tg-m1-telegram-ingestion/`, `specs/005-tg-m2-groups-and-ownership/`,
-`specs/006-tg-m3-response-tracking/`. The M1 gateway is untouched. Consumed here: TG-M1's captured
-`chat_member` / `message_reaction` events and `process_update`, TG-M2's `upsert_identity`,
-`_is_declared_moderator`, `responsible_at` and `rederive_chat.py`, and TG-M3's anchor rule (Finding 2),
-percentile floor, figures-on-own-page pattern and the Live Attention Queue (one row action added).
+`specs/006-tg-m3-response-tracking/`, `specs/007-tg-m4-policy-incidents/`. The M1 gateway gains four additive
+extensions (operator item 1) and nothing else. Consumed here: M1's gateway, lane, breaker, accounting and fake
+provider; TG-M0's normaliser and redactor; TG-M2's `derive_message` and `rederive_chat.py`; TG-M3's stoplist,
+accuracy figures and Live Attention Queue (one column added); TG-M4's incidents, views, `openOn`, figures table
+and incident pages.
 
 Project-wide, always: `.specify/memory/constitution.md`. Its non-negotiables in one line —
 `injazedu/` is read-only, Git actions belong to the operator, and no test may touch a database

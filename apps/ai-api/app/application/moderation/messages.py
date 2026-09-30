@@ -28,6 +28,7 @@ from app.infrastructure.models_moderation import (
     telegram_messages,
     telegram_updates,
 )
+from app.workers.tasks.moderation.classify_message import classify_message
 from app.workers.tasks.moderation.evaluate_attention import evaluate_attention
 from app.workers.tasks.moderation.match_response import match_response
 
@@ -118,7 +119,10 @@ def _entity_flags(body: dict[str, Any]) -> dict[str, bool]:
     }
 
 
-def _text_and_normalized(body: dict[str, Any]) -> tuple[str | None, str | None]:
+def extract_text(body: dict[str, Any]) -> tuple[str | None, str | None]:
+    """The message's own text or caption, and its normalised form — the one extraction TG-M5's
+    classifier re-runs against a captured event's `payload` (`contracts/classification-pipeline.md`
+    §4 P1, D-TG-138), never against the stored, possibly edited, row."""
     original_text = body.get("text")
     if original_text is None:
         original_text = body.get("caption")
@@ -168,7 +172,10 @@ async def _is_declared_moderator(session: AsyncSession, *, telegram_user_id: int
 
 
 async def derive_message(
-    session_factory: async_sessionmaker[AsyncSession], *, update_row_id: int
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    update_row_id: int,
+    schedule_classification: bool = True,
 ) -> int | None:
     """Derives one `telegram_messages` row from the captured `message` event at
     `telegram_updates.id == update_row_id` — INSERT-ONLY (`contracts/message-derivation.md`
@@ -179,6 +186,12 @@ async def derive_message(
     Gated on the chat's `is_monitored` (`contracts/message-derivation.md` §6): an unmeasured
     chat produces no message row and no sender identity. Capture is unconditional and
     derivation is opt-in — the caller still marks the captured event handled either way.
+
+    `schedule_classification=True` (the default) sends `classify_message(chat_pk, message_id,
+    "live")` for every newly-inserted message, moderators' included — their exclusion is what
+    the classifier itself records (`contracts/classification-pipeline.md` §1 Q1-Q2, D-TG-149).
+    `rederive_chat.py` passes `False`: a re-derived message is history, and history is classified
+    only by the catch-up command, which never opens anything.
 
     Returns the inserted row's id, or `None` when the row already existed or the chat is not
     measured.
@@ -227,7 +240,7 @@ async def derive_message(
         reply_to = body.get("reply_to_message")
         reply_to_message_id = reply_to.get("message_id") if isinstance(reply_to, dict) else None
 
-        original_text, normalized_text = _text_and_normalized(body)
+        original_text, normalized_text = extract_text(body)
 
         insert_stmt = (
             pg_insert(telegram_messages)
@@ -269,6 +282,12 @@ async def derive_message(
     # should never wait for a settle window that judgement needs and matching does not.
     elif inserted_id is not None and is_from_moderator:
         match_response.send(inserted_id)
+
+    # Q1: every newly-inserted message, after the insert has committed — no settle window, and
+    # moderators' included (their exclusion is recorded by the classifier itself, not skipped
+    # here). A duplicate delivery (`inserted_id is None`) sends nothing (Q1, idempotency I1).
+    if inserted_id is not None and schedule_classification:
+        classify_message.send(chat_pk, body["message_id"], "live")
 
     return inserted_id
 
@@ -334,7 +353,7 @@ async def apply_edit(
         body: dict[str, Any] = update_row["payload"].get(update_row["update_type"]) or {}
 
         chat_pk = await _chat_surrogate(session, update_row["chat_id"])
-        original_text, normalized_text = _text_and_normalized(body)
+        original_text, normalized_text = extract_text(body)
         edited_at = datetime.fromtimestamp(body["date"], tz=UTC)
 
         result = await session.execute(

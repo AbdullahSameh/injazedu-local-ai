@@ -14,6 +14,9 @@ dramatiq.set_broker(make_broker(settings))
 
 from app.workers.tasks import diagnostics as _diagnostics  # noqa: E402,F401
 from app.workers.tasks.moderation import (  # noqa: E402,F401
+    classify_message as _classify_message,
+)
+from app.workers.tasks.moderation import (  # noqa: E402,F401
     drain_pending_updates as _drain_pending_updates,
 )
 from app.workers.tasks.moderation import (  # noqa: E402,F401

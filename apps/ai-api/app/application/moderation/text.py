@@ -40,11 +40,17 @@ _DIGIT_FOLD = str.maketrans(
     {chr(0x0660 + i): str(i) for i in range(10)} | {chr(0x06F0 + i): str(i) for i in range(10)}
 )
 
-# Step 7 — collapse 3+ of the same *letter* to one. Restricted to letters, not "any character":
-# a naive (.)\1{2,} collapse turns the phone number 0555555555 into 05 (D-TG-21, measured probe
-# 5). `[^\W\d_]` is "a word character that is neither a digit nor underscore" — i.e. a letter,
-# Unicode-aware.
-_LETTER_RUN_RE = re.compile(r"([^\W\d_])\1{2,}")
+# Step 7 — collapse 3+ of the same *Arabic letter* to one. Restricted to letters, not "any
+# character": a naive (.)\1{2,} collapse turns the phone number 0555555555 into 05 (D-TG-21,
+# measured probe 5). Restricted further to the Arabic letter block, not "any Unicode letter": the
+# rule exists for genuine Arabic doubling ("تمااااام", contract §2 "Collapse threshold is 3, not
+# 2"), and contract §2's N5 guarantees Latin script survives untouched ("STEP", "zoom link") — a
+# bare `[^\W\d_]` also matched Latin, so a literal "www" silently collapsed to "w" before `redact`
+# ever ran, breaking every scheme-less URL redaction (contract §3's own worked example). The range
+# is the 28 base consonants (0621-063A, 0641-064A), skipping 063B-0640 (extended letters, rare, and
+# tatweel — already stripped by step 3) so it never touches Arabic punctuation (،؛؟ sit below 0621,
+# already outside `\w` and so already excluded before this fix too).
+_LETTER_RUN_RE = re.compile(r"([ء-غف-ي])\1{2,}")
 _WHITESPACE_RUN_RE = re.compile(r"\s+")
 
 
