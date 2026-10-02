@@ -323,6 +323,28 @@ self-report; the roster offers the classification role.
 
 ---
 
+## Phase 11: Amendment 2026-10-01 — `classify_v2` (spec clarification session 2026-10-01, research §6)
+
+- [X] T084 `apps/ai-api/app/prompts/moderation/classify_v2.md` — research probe 11's v2-D wording, byte for byte (pipeline §2a, D-TG-162). `classify_v1.md` is untouched
+- [X] T085 `apps/ai-api/app/infrastructure/config.py` — `ModerationPromptVersion = Literal["classify_v1", "classify_v2"]` and `MODERATION_PROMPT_VERSION` (default `classify_v1`, blank = default, anything else refused at startup); `.env.example`; Compose passes it to `ai-classifier` and to `migrate`, which also gets the floor and threshold for the smoke test's routes (D-TG-163)
+- [X] T086 `apps/ai-api/app/application/moderation/classification.py` — one instruction per allowed version, read at import; `build_model_input(text, *, prompt_version)`; `classify_one` sends and records `settings.moderation_prompt_version`. No routing, eligibility, threshold or transaction change (pipeline P3, O5)
+- [X] T087 `apps/ai-api/app/scripts/smoke_moderation.py` — `--prompt`; each fixture's line number and live route (via `route_prediction`); a pure `summarise`/`format_summary` adding category exact, needs-moderation agreed, false negatives and positives with line numbers, errors and route tallies; the "n/total matched" line and the exit code are unchanged (C4, D-TG-162)
+- [X] T088 `apps/ai-api/app/scripts/moderation_smoke_policy_fixtures.jsonl` — research probe 11's 64 synthetic policy cases, near-misses and held-out messages; fake numbers, handles and domains; no real student text
+- [X] T089 [P] `apps/ai-api/tests/moderation/classification/test_prompt_pinned.py` — both instructions pinned by SHA-256; the allowlist, the files and the pins are one set
+- [X] T090 [P] `apps/ai-api/tests/moderation/classification/test_config_classification.py` — the default, blank-is-default, `classify_v2` accepted, an unknown version refused naming the variable
+- [X] T091 [P] `apps/ai-api/tests/moderation/classification/test_prompt_version.py` — with `classify_v2` configured the provider receives exactly `[classify_v2.md, redacted text]`, the row records `classify_v2`, the incident opens as before; a catch-up under v2 is still `measurement_only` and opens nothing
+- [X] T092 [P] `apps/ai-api/tests/moderation/classification/test_smoke_scoring.py` — the summary's counts, line lists and route tallies from scripted outcomes; a failed call is an error, never a prediction
+- [X] T093 `apps/ai-api/tests/moderation/classification/test_real_model.py` (`-m llm`) — parametrised over both instructions
+- [X] T094 Documentation: pipeline §2a, P3, O5, C4; `data-model.md` `prompt_version`; research §6 (Findings 7–8, probe 11, D-TG-162–163) with §3 and §5 rows; spec clarification session 2026-10-01 and Out of Scope; quickstart §4, §5, §6, §10 items 13–16; the plan of record's §15.5 correction; `CLAUDE.md`
+- [X] T095 Run `make check` with Ollama quit; run `make smoke-moderation` on the operator's real fixtures and both shipped sets, with both instructions (research §6's last table)
+
+**Operator steps, not tasks:** read the smoke summary on your own fixtures, set
+`MODERATION_PROMPT_VERSION=classify_v2` and rebuild `ai-classifier` (quickstart §5), and watch the model-opened
+false-positive figure. The link-policy rule and the scheme-less-link redaction are decisions for a later
+milestone (spec Out of Scope).
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

@@ -4,13 +4,13 @@ Active feature: **TG-M5 — AI Classification** (`specs/008-tg-m5-ai-classificat
 Read before working on this feature:
 
 - `specs/008-tg-m5-ai-classification/plan.md` — implementation plan, Constitution Check, the four operator items (**all approved 2026-09-27**)
-- `specs/008-tg-m5-ai-classification/spec.md` — requirements (FR-001…FR-070), success criteria, 2 clarifications
-- `specs/008-tg-m5-ai-classification/research.md` — 33 decisions (D-TG-129…D-TG-161), 10 probes, **6 findings**
+- `specs/008-tg-m5-ai-classification/spec.md` — requirements (FR-001…FR-070), success criteria, clarifications (2026-09-27 ×2, 2026-10-01 ×3)
+- `specs/008-tg-m5-ai-classification/research.md` — 35 decisions (D-TG-129…D-TG-163), 11 probes, **8 findings** (7–8 in the §6 amendment, 2026-10-01)
 - `specs/008-tg-m5-ai-classification/data-model.md` — revision `0007`: two tables, the incident links, the `moderation` role
-- `specs/008-tg-m5-ai-classification/contracts/classification-pipeline.md` — **the** TG-M5 contract: enqueue (Q1–Q4), the instruction `classify_v1` (§2, byte for byte), eligibility (E1–E10), input (P1–P5), the call (O1–O6), routing (R1–R13), opening (A1–A6), failure (F1–F6), idempotency (I1–I4), commands (C1–C5), what may never happen (N1–N10)
+- `specs/008-tg-m5-ai-classification/contracts/classification-pipeline.md` — **the** TG-M5 contract: enqueue (Q1–Q4), the instructions `classify_v1` (§2) and `classify_v2` (§2a, opt-in), byte for byte, eligibility (E1–E10), input (P1–P5), the call (O1–O6), routing (R1–R13), opening (A1–A6), failure (F1–F6), idempotency (I1–I4), commands (C1–C5), what may never happen (N1–N10)
 - `specs/008-tg-m5-ai-classification/contracts/classification-metrics.md` — the exact SQL behind every classification figure (C1–C8, M1–M22)
 - `specs/008-tg-m5-ai-classification/contracts/control-panel-classification.md` — the model's view, Possible Violations, Classification Accuracy, the words
-- `specs/008-tg-m5-ai-classification/quickstart.md` — smoke first, switch on, the live check, reading the figures, 12 known limitations
+- `specs/008-tg-m5-ai-classification/quickstart.md` — smoke first, switch on, the live check, reading the figures, 16 known limitations
 
 This is the sixth milestone of a **second bounded domain**. Its source plan of record is
 `docs/plan/telegram/telegram-moderation-intelligence.md` (TG-M0…TG-M10); the operator's human steps are
@@ -29,8 +29,9 @@ The rules that carry this milestone:
 - **A prediction is a claim.** Recorded once, with model, `prompt_version`, `taxonomy_version`, `model_run_id`,
   route and the thresholds in force — **never updated, never deleted** (`message_classifications`, no text).
 - **The model sees words, never people.** The first-posted text is re-extracted from the message's own captured
-  event, normalised, **redacted before the gateway**; the request is `system` = `classify_v1.md` + `user` =
-  redacted text, nothing else. Never log text or the model's raw output.
+  event, normalised, **redacted before the gateway**; the request is `system` = the configured instruction
+  (`MODERATION_PROMPT_VERSION`: `classify_v1` default, `classify_v2` opt-in) + `user` = redacted text, nothing
+  else. Never log text or the model's raw output.
 - **One definition each.** Eligibility (E1–E8) and routing (R1–R6) are pure functions in
   `app/domain/moderation/classification.py`; the panel reads their stored outputs and never recomputes them.
 - **The model never touches the lifecycle.** A prediction is not evidence; a model-opened incident goes through
@@ -42,7 +43,7 @@ The rules that carry this milestone:
   the views; human acts are guarded inserts under `pg_advisory_xact_lock(hashtext('moderation:incidents'))`;
   `moderation_actions` is append-only.
 
-Six measured facts that drive this design (see research.md §0):
+Eight measured facts that drive this design (see research.md §0 and §6):
 
 1. ⚠ **The model reasons before answering** — at the plan's 128 tokens every answer was cut off.
    `reasoning_effort: "none"` (profile param, forwarded by the provider) → complete, ~1 s, deterministic. Operator item 1, **approved**.
@@ -55,6 +56,12 @@ Six measured facts that drive this design (see research.md §0):
 5. ⚠ **An edit overwrites the stored words** — the model reads the captured event, not `telegram_messages`.
 6. ⚠ **The gateway retries cut-off answers and returns no call id** — classifier gateway `max_retries=0`,
    task-level transient retry; responses carry `model_run_id`. Operator item 1, **approved**.
+7. ⚠ **`classify_v1` decides "advert" on surface cues** — greeting- or emoji-wrapped adverts and private-contact
+   service offers came back needing no moderation at 0.90–1.00 (real benchmark 9/12). **Decided 2026-10-01**:
+   opt-in `classify_v2` (D-TG-162/163; 12/12 needs-moderation on the real set); thresholds unchanged; the
+   students-may-not-post-links rule is deterministic and deferred to its own milestone, never put in a prompt.
+8. ⚠ **The runtime ignores the profile's `num_ctx`** — Ollama runs at `OLLAMA_CONTEXT_LENGTH` (8192); keep it ≥
+   4096 (a long emoji-heavy advert is ~2,200 tokens under `classify_v2`). Not fixed here: M1/runtime territory.
 
 Architecture rules, mechanically enforced by `make check`:
 
@@ -69,7 +76,8 @@ Architecture rules, mechanically enforced by `make check`:
 - **no message text in any log line** (check 4). Correlation keys: `incident_id`, `message_id`,
   `update_id`, `chat_id` — never `message` (TG-M0's D-TG-24);
 - **`app/domain/moderation/{attention,incident,classification}.py` stay pure**: no I/O, no clock, no session;
-- **`classify_v1.md` is pinned by its SHA-256** — a new wording is a new file and a new version.
+- **every `classify_vN.md` is pinned by its SHA-256** — a new wording is a new file, a new version and a new
+  `ModerationPromptVersion` entry; the allowlist, the files and the pins are one set (tested).
 
 Panel rules: Alembic owns the schema — **no migration from Filament**; no platform call, **no model call**,
 no bulk action, **no average and no composite score anywhere** (tested); **no state, route or eligibility

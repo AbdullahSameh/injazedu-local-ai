@@ -1,6 +1,7 @@
-"""Validators for the four AI Classification settings (`data-model.md` §1, `plan.md` operator
-item 3): `MODERATION_CONFIDENCE_FLOOR`, `MODERATION_INCIDENT_CONFIDENCE`,
-`MODERATION_CLASSIFY_MAX_ATTEMPTS`, `MODERATION_CLASSIFY_RETRY_BASE_S`.
+"""Validators for the five AI Classification settings (`data-model.md` §1, `plan.md` operator
+item 3, D-TG-163): `MODERATION_CONFIDENCE_FLOOR`, `MODERATION_INCIDENT_CONFIDENCE`,
+`MODERATION_CLASSIFY_MAX_ATTEMPTS`, `MODERATION_CLASSIFY_RETRY_BASE_S`,
+`MODERATION_PROMPT_VERSION`.
 
 Same fail-fast pattern as the other moderation settings: a bad value exits naming the variable,
 never a stack trace (`tasks.md` T004).
@@ -19,6 +20,7 @@ _CLASSIFICATION_VARS = (
     "MODERATION_INCIDENT_CONFIDENCE",
     "MODERATION_CLASSIFY_MAX_ATTEMPTS",
     "MODERATION_CLASSIFY_RETRY_BASE_S",
+    "MODERATION_PROMPT_VERSION",
 )
 
 
@@ -38,6 +40,7 @@ def test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.moderation_incident_confidence == 0.85
     assert settings.moderation_classify_max_attempts == 5
     assert settings.moderation_classify_retry_base_s == 30
+    assert settings.moderation_prompt_version == "classify_v1"
 
 
 @pytest.mark.parametrize(
@@ -47,10 +50,11 @@ def test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         ("MODERATION_INCIDENT_CONFIDENCE", "moderation_incident_confidence", 0.85),
         ("MODERATION_CLASSIFY_MAX_ATTEMPTS", "moderation_classify_max_attempts", 5),
         ("MODERATION_CLASSIFY_RETRY_BASE_S", "moderation_classify_retry_base_s", 30),
+        ("MODERATION_PROMPT_VERSION", "moderation_prompt_version", "classify_v1"),
     ],
 )
 def test_empty_string_reads_the_default(
-    monkeypatch: pytest.MonkeyPatch, var: str, field_name: str, default: float
+    monkeypatch: pytest.MonkeyPatch, var: str, field_name: str, default: float | str
 ) -> None:
     _clear_ai_api_env(monkeypatch)
     monkeypatch.setenv(var, "")
@@ -154,3 +158,28 @@ def test_a_valid_configuration_is_accepted(monkeypatch: pytest.MonkeyPatch) -> N
     assert settings.moderation_incident_confidence == 0.9
     assert settings.moderation_classify_max_attempts == 3
     assert settings.moderation_classify_retry_base_s == 15
+
+
+def test_classify_v2_is_selectable(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_ai_api_env(monkeypatch)
+    monkeypatch.setenv("MODERATION_PROMPT_VERSION", "classify_v2")
+
+    settings = load_settings()
+
+    assert settings.moderation_prompt_version == "classify_v2"
+
+
+@pytest.mark.parametrize("value", ["classify_v3", "classify_v2.md", "CLASSIFY_V2"])
+def test_an_unknown_prompt_version_is_refused(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], value: str
+) -> None:
+    _clear_ai_api_env(monkeypatch)
+    monkeypatch.setenv("MODERATION_PROMPT_VERSION", value)
+
+    with pytest.raises(SystemExit) as exc_info:
+        load_settings()
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert "MODERATION_PROMPT_VERSION" in err
+    assert "Traceback" not in err

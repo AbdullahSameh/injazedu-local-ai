@@ -72,13 +72,44 @@ FIXTURES=~/injaz-moderation-fixtures.jsonl \
   make smoke-moderation ARGS="--profile ollama-gemma4-e2b-moderation"
 ```
 
-One line per fixture — expected against predicted, category and needs-moderation — then `PASS` or `FAIL`, and a
-non-zero exit on any mismatch. Without `FIXTURES` it runs the synthetic set shipped with the code. Nothing is
-written to the database.
+One line per fixture: its line number, expected against predicted (category and needs-moderation), and the route
+the live path would take. Then a summary:
 
-A mismatch is information, not a bug: read which way it went. If the model is wrong on your real messages in a
-way that matters, stop here — the instruction version or the model is the thing to change, and both are
-decisions, not settings.
+```text
+11/12 matched
+category exact: 11/12
+needs_moderation agreed: 12/12
+false negatives (expected true, predicted false): 0
+false positives (expected false, predicted true): 0
+errors: 0
+routes, violations: incident=12 possible_violation=0 review=0 none=0
+routes, legitimate: incident=0 possible_violation=0 review=0 none=0
+```
+
+The exit code is non-zero on any mismatch. Without `FIXTURES` it runs the synthetic set shipped with the code.
+`FIXTURES=apps/ai-api/app/scripts/moderation_smoke_policy_fixtures.jsonl` runs the second shipped set: 64
+synthetic policy cases and near-misses. Nothing is written to the database, and no text is printed.
+
+**Compare the two instructions** on the same file before choosing (D-TG-163):
+
+```bash
+FIXTURES=~/injaz-moderation-fixtures.jsonl \
+  make smoke-moderation ARGS="--profile ollama-gemma4-e2b-moderation --prompt classify_v1"
+FIXTURES=~/injaz-moderation-fixtures.jsonl \
+  make smoke-moderation ARGS="--profile ollama-gemma4-e2b-moderation --prompt classify_v2"
+```
+
+Read the summary, not just the first line:
+- A **false negative** is a violation the model let through, and it matters most.
+- A **false positive** whose route is `incident` is a false accusation.
+- A category mismatch where needs-moderation agreed (ABUSE predicted as COMPLAINT, say) changes far less.
+
+If the model is wrong on your real messages in a way that matters, stop here. The instruction version or the
+model is the thing to change, and both are decisions, not tuning. Never lower or raise the thresholds to fix a
+miss: the model reports 0.90–1.00 on its wrong answers too.
+
+If the tools image predates a code change, rebuild it first:
+`docker compose -f infra/docker-compose.yml --env-file .env --profile tools build migrate`.
 
 ---
 
@@ -88,6 +119,17 @@ Panel → **Platform → Model Profiles** → edit `ollama-gemma4-e2b-moderation
 only active classification model; the assessment model is untouched. Every message recorded from then on is
 classified. Messages recorded while no classification model was active are not — the catch-up command (§7)
 reaches them, for measurement only.
+
+**Choosing the instruction.** `MODERATION_PROMPT_VERSION` in `.env` names it: `classify_v1` (the default) or
+`classify_v2` (§2a of the pipeline contract). To switch:
+
+1. Smoke the instruction you want (§4).
+2. Set the variable in `.env`.
+3. Run `docker compose -f infra/docker-compose.yml --env-file .env up -d --build ai-classifier`.
+
+The next classification uses it. Nothing already recorded changes: each prediction keeps its version, and
+Classification Accuracy shows one block per version. The catch-up command (§7) and the smoke test read the same
+variable. Switching back is the same steps.
 
 To pause classification: the panel refuses to leave a role with no active profile (M1's guard), so stop the
 service — `docker compose -f infra/docker-compose.yml --env-file .env stop ai-classifier`. Nothing else changes;
@@ -100,9 +142,9 @@ latency, never against a moderator.
 ## 6. The live check — in the development group
 
 1. **An advert.** From the disposable account, post an obvious advert. Within a minute (model idle):
-   **Incidents** shows it, *Opened by: Model*; its detail shows the prediction, the model, `classify_v1`, the
-   posting moment and the flagging moment; the responsible moderator is whoever owned the group then. React ✅ →
-   acknowledged. Restrict the account → resolved. Exactly TG-M4's lifecycle (SC-002).
+   **Incidents** shows it, *Opened by: Model*; its detail shows the prediction, the model, the instruction
+   version (`classify_v1` or `classify_v2`), the posting moment and the flagging moment; the responsible
+   moderator is whoever owned the group then. React ✅ → acknowledged. Restrict the account → resolved. Exactly TG-M4's lifecycle (SC-002).
 2. **A question.** Post a question as a student. The Live Attention Queue row shows the model's view beside it.
    Nothing about the row changes because of it.
 3. **The model down.** Quit Ollama. Post a question and answer it as a moderator: the item opens and closes, and
@@ -198,6 +240,20 @@ make test-llm                       # the one real-model test, if you want it
     assessment work, not this milestone's.
 12. **The comparison is an estimate.** The labels are few, chosen by people rather than at random, and TG-M3's
     recall is a floor. The page says so.
+13. **Links are not a rule yet.** The group's "students may not post links" policy is deterministic and is not
+    enforced by the model. An informational post whose only fault is a link comes back "needs no moderation"
+    under `classify_v1`; `classify_v2` usually flags it as promotion, but by judgement, not by rule. A
+    rule-opened incident is a later milestone (spec clarification session 2026-10-01).
+14. **Scheme-less links reach the model unredacted.** `t.me/<name>`, the rest of `wa.me/…`, and bare domains
+    such as `example.sa` are not replaced: the redactor matches only `http(s)://` and `www.`. Digits in them
+    still become «رقم». FR-007 asks for every link and handle to be replaced, and a fix amends TG-M0's text
+    contract (research §6).
+15. **The profile's `num_ctx` is not what the runtime uses.** Ollama runs every call at its server context
+    (`OLLAMA_CONTEXT_LENGTH`, 8192 here). Keep that at 4096 or more: a long, emoji-heavy advert needs about
+    2,200 tokens with `classify_v2` (research Finding 8).
+16. **`classify_v2` is better, not perfect.** On 89 labelled messages it missed 1 violation where `classify_v1`
+    missed 11, with no false alarm in either. On a 2B model, small wording changes still flip borderline cases.
+    The false-positive figure in §8 stays the real measure.
 
 ---
 

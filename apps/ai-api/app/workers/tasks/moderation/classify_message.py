@@ -33,7 +33,7 @@ from app.application.gateway.lanes import Lane
 from app.application.gateway.registry import ProfileRegistry
 from app.application.moderation.classification import classify_one, record_failure
 from app.infrastructure.config import Settings, load_settings
-from app.infrastructure.db import make_engine, make_session_factory
+from app.infrastructure.db import worker_session_factory
 
 logger = logging.getLogger(__name__)
 
@@ -92,11 +92,6 @@ async def classify_message_once(
     )
 
 
-def _default_session_factory() -> async_sessionmaker[AsyncSession]:
-    settings = load_settings()
-    return make_session_factory(make_engine(settings))
-
-
 async def _classify_with_retry(
     session_factory: async_sessionmaker[AsyncSession],
     redis: Redis,
@@ -145,18 +140,18 @@ async def _classify_with_retry(
 
 async def _run(chat_pk: int, message_id: int, path: str, attempt: int) -> None:
     settings = load_settings()
-    session_factory = make_session_factory(make_engine(settings))
     redis: Redis = Redis.from_url(settings.redis_url, decode_responses=True)
     try:
-        await _classify_with_retry(
-            session_factory,
-            redis,
-            settings,
-            chat_pk=chat_pk,
-            message_id=message_id,
-            path=path,
-            attempt=attempt,
-        )
+        async with worker_session_factory(settings) as session_factory:
+            await _classify_with_retry(
+                session_factory,
+                redis,
+                settings,
+                chat_pk=chat_pk,
+                message_id=message_id,
+                path=path,
+                attempt=attempt,
+            )
     finally:
         await redis.aclose()
 

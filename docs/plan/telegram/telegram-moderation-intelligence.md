@@ -999,6 +999,11 @@ regression waiting to be toggled.
 The prompt template lives in `app/prompts/moderation/classify_v1.md`, is versioned by filename, and
 its version string is stored on every prediction. **No prompt text ever goes near n8n** (rule §5.1‑7).
 
+**Correction (TG-M5 amendment 2026-10-01, research Finding 7).** A second instruction, `classify_v2.md`, is
+opt-in, chosen by `MODERATION_PROMPT_VERSION` (default `classify_v1`). `classify_v1` missed greeting-wrapped
+adverts and private-contact service offers. The thresholds are unchanged. The group's "students may not post
+links" rule is deterministic and goes to a later rule source (`source = 'rule'`), never into a prompt.
+
 ### 15.6 Confidence and human correction
 
 - `confidence` is the model's **self-report** and is weakly calibrated. It is used as a **routing

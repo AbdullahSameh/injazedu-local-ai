@@ -122,8 +122,8 @@ async def test_a_claim_already_held_ends_without_calling_the_provider_or_writing
     gateway, calls = scripted_gateway(responses=[dict(_VALID_ANSWER)])
     registry = ProfileRegistry(classification_session_factory)
 
-    held_key = f"{_CLAIM_PREFIX}:{chat_pk}:1"
-    await classification_redis.set(held_key, "someone-else", px=60_000, nx=True)
+    held_claim = f"{_CLAIM_PREFIX}:{chat_pk}:1"
+    await classification_redis.set(held_claim, "someone-else", px=60_000, nx=True)
     try:
         outcome = await classify_one(
             classification_session_factory,
@@ -136,7 +136,7 @@ async def test_a_claim_already_held_ends_without_calling_the_provider_or_writing
             path="live",
         )
     finally:
-        await classification_redis.delete(held_key)
+        await classification_redis.delete(held_claim)
 
     assert outcome == "claimed_elsewhere"
     assert len(calls) == 0

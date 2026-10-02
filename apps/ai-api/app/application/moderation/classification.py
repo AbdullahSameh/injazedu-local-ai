@@ -18,7 +18,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 import sqlalchemy as sa
 from pydantic import BaseModel
@@ -47,7 +47,7 @@ from app.domain.moderation.classification import (
     quantise,
     route_prediction,
 )
-from app.infrastructure.config import Settings
+from app.infrastructure.config import ModerationPromptVersion, Settings
 from app.infrastructure.models_moderation import (
     message_classification_attempts,
     message_classifications,
@@ -58,9 +58,14 @@ from app.infrastructure.models_moderation import (
 
 logger = logging.getLogger(__name__)
 
-_PROMPT_VERSION = "classify_v1"
-_PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "moderation" / "classify_v1.md"
-_INSTRUCTION = _PROMPT_PATH.read_text(encoding="utf-8")
+# Every selectable instruction, read once at import (pipeline §2, §2a; D-TG-136, D-TG-163). The
+# version is the file's stem; `MODERATION_PROMPT_VERSION` chooses which one a deployment sends.
+_PROMPT_DIR = Path(__file__).resolve().parents[2] / "prompts" / "moderation"
+PROMPT_VERSIONS: tuple[str, ...] = get_args(ModerationPromptVersion)
+_INSTRUCTIONS: dict[str, str] = {
+    version: (_PROMPT_DIR / f"{version}.md").read_text(encoding="utf-8")
+    for version in PROMPT_VERSIONS
+}
 
 _CLAIM_PREFIX = "ai:mod:classify:msg"
 
@@ -105,13 +110,13 @@ class MessageClassificationResult(BaseModel):
     confidence: float
 
 
-def build_model_input(text: str) -> list[Message]:
-    """`[system = classify_v1.md, user = redact(text)]` (pipeline P2-P3) — no sender, group,
+def build_model_input(text: str, *, prompt_version: str) -> list[Message]:
+    """`[system = <prompt_version>.md, user = redact(text)]` (pipeline P2-P3) — no sender, group,
     time or neighbouring message. The redacted string is named `redacted_text` only in this
     function's own scope, never logged."""
     redacted_text = redact(text)
     return [
-        Message(role="system", content=_INSTRUCTION),
+        Message(role="system", content=_INSTRUCTIONS[prompt_version]),
         Message(role="user", content=redacted_text),
     ]
 
@@ -292,6 +297,7 @@ async def _insert_prediction(
     message_id: int,
     model_profile_id: int,
     model_run_id: int | None,
+    prompt_version: str,
     prediction: Prediction,
     path: str,
     route: str,
@@ -308,7 +314,7 @@ async def _insert_prediction(
             telegram_message_id=message_id,
             model_profile_id=model_profile_id,
             model_run_id=model_run_id,
-            prompt_version=_PROMPT_VERSION,
+            prompt_version=prompt_version,
             taxonomy_version=TAXONOMY_VERSION,
             category=prediction.category,
             needs_response=prediction.needs_response,
@@ -376,7 +382,8 @@ async def classify_one(
                 return "excluded"
 
             assert text is not None  # eligibility's E4 (no_text) already ruled this out
-            model_input = build_model_input(text)
+            prompt_version = settings.moderation_prompt_version
+            model_input = build_model_input(text, prompt_version=prompt_version)
 
             try:
                 response = await gateway.generate_structured(
@@ -432,6 +439,7 @@ async def classify_one(
                 message_id=message_id,
                 model_profile_id=profile.id,
                 model_run_id=response.model_run_id,
+                prompt_version=prompt_version,
                 prediction=prediction,
                 path=path,
                 route=route,

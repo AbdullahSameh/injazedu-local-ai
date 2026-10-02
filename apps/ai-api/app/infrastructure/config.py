@@ -7,9 +7,16 @@ naming the variable, never a stack trace (FR-005).
 from __future__ import annotations
 
 import sys
+from typing import Literal
 
 from pydantic import Field, ValidationError, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# The classification instructions a deployment may select (D-TG-163): each is a file under
+# `app/prompts/moderation/` pinned by its SHA-256, and its name is the `prompt_version` stored on
+# every prediction. The one definition — the classifier and the smoke test read their allowlist
+# from here.
+ModerationPromptVersion = Literal["classify_v1", "classify_v2"]
 
 
 class Settings(BaseSettings):
@@ -95,6 +102,11 @@ class Settings(BaseSettings):
     moderation_classify_retry_base_s: int = Field(
         default=30, alias="MODERATION_CLASSIFY_RETRY_BASE_S"
     )
+    # Opt-in (D-TG-163): `classify_v1` until the operator smokes `classify_v2` and switches. A
+    # switch revisits nothing — every past prediction keeps the version it was made with.
+    moderation_prompt_version: ModerationPromptVersion = Field(
+        default="classify_v1", alias="MODERATION_PROMPT_VERSION"
+    )
 
     @field_validator("telegram_bot_token", mode="before")
     @classmethod
@@ -109,6 +121,7 @@ class Settings(BaseSettings):
         "moderation_incident_confidence",
         "moderation_classify_max_attempts",
         "moderation_classify_retry_base_s",
+        "moderation_prompt_version",
         mode="before",
     )
     @classmethod

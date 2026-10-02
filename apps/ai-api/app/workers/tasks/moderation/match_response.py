@@ -7,7 +7,6 @@ unlike judgement, which must wait a full settle window for a burst to finish for
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import dramatiq
@@ -15,8 +14,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.moderation.attention import match_response as _match_response
-from app.infrastructure.config import load_settings
-from app.infrastructure.db import make_engine, make_session_factory
+from app.infrastructure.db import run_with_worker_session
 from app.infrastructure.models_moderation import telegram_messages
 
 logger = logging.getLogger(__name__)
@@ -51,15 +49,10 @@ async def match_response_once(
     return item_id
 
 
-def _default_session_factory() -> async_sessionmaker[AsyncSession]:
-    settings = load_settings()
-    return make_session_factory(make_engine(settings))
-
-
 @dramatiq.actor(max_retries=3)
 def match_response(telegram_message_row_id: int) -> None:
-    asyncio.run(
-        match_response_once(
-            _default_session_factory(), telegram_message_row_id=telegram_message_row_id
+    run_with_worker_session(
+        lambda session_factory: match_response_once(
+            session_factory, telegram_message_row_id=telegram_message_row_id
         )
     )

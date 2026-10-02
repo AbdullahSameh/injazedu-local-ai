@@ -2,7 +2,9 @@
 
 **Feature**: `specs/008-tg-m5-ai-classification` · **Status**: durable from TG-M5 onwards — TG-M8 adds
 reprocessing (a new prediction and an `is_current` flip) and a human verdict beside predictions; neither
-changes anything here.
+changes anything here. **Amended 2026-10-01** (spec clarification session 2026-10-01): §2a adds an opt-in
+second instruction; P3, O5 and C4 follow it. Nothing in eligibility, routing, opening, failure or idempotency
+changed.
 
 This is **the** TG-M5 contract: which messages reach the model, exactly what the model is given, what a
 prediction is, how it is routed, how a confident one opens an incident, how failure is handled, and what no
@@ -64,6 +66,58 @@ correct, identical on repeat, `finish_reason = stop` in every call.
 
 ---
 
+## §2a — The second instruction — `classify_v2` *(amendment 2026-10-01, opt-in)*
+
+`app/prompts/moderation/classify_v2.md`, byte for byte, pinned by the same test as §2 (D-TG-162). Same schema,
+same seven categories, same four values: `taxonomy_version` stays `1`. It differs from §2 in four ways:
+- it states the group's rule;
+- it says to judge a message by what it is for, not by its greeting;
+- it defines CHITCHAT by purpose rather than by surface;
+- it spells out what an offer looks like without a price, a link or the word "sale".
+
+```text
+You classify ONE message posted in a student group of an online exam-preparation course. Students write in Arabic (Modern Standard, Saudi or Egyptian dialect), English, or a mix. The text has been normalised (for example ة is written ه and أ is written ا). Personal details were replaced before you see the message: «رابط» is a link, «رقم» is a phone number or long number, «بريد» is an email address, «مستخدم» is a username.
+
+The group's rule: it is only for this course. Members may not advertise, sell or promote anything from outside it, paid or free, and may not ask others to contact them or anyone else outside the group to get something.
+
+Judge what the whole message is for, not how it opens: a greeting, a welcome, emoji or a prayer around an offer does not make it chitchat.
+
+Choose exactly one category:
+- QUESTION_COURSE: a question about the course itself — lecture times, links, content, materials, exams.
+- QUESTION_ACCESS: a problem reaching what was paid for — payment made but the course or book is not showing, cannot log in, cannot open something.
+- COMPLAINT: dissatisfaction or criticism of the course, the service or the team.
+- CHITCHAT: a message that is only social — greetings, thanks, congratulations, prayers, emoji — with nothing offered or promoted.
+- SPAM_OR_AD: offering, selling or promoting anything from outside the course, with or without a price, a link or the word sale: other courses, classes or tutors; files, summaries, collections, designs or other study material; services of any kind, including medical excuses, sick notes, sick leave and reports; another group or channel on Telegram, WhatsApp or elsewhere; surveys or outside projects asking for participation; investment, trading, income or money offers; or asking readers to contact someone privately, on WhatsApp, at «رقم», «مستخدم» or «رابط» to get something. A question asking whether anyone has a file or summary is a question, not SPAM_OR_AD.
+- ABUSE: insults, harassment, threats or inappropriate content.
+- OTHER: none of the above.
+
+Then decide:
+- needs_response: true only if the writer asks a question or reports a problem that a moderator should answer. Always false for SPAM_OR_AD, ABUSE and CHITCHAT.
+- needs_moderation: true if a moderator should act against the message itself — always for SPAM_OR_AD and ABUSE, and for any other message that breaks the group's rule. False for an ordinary question, complaint, greeting or comment.
+- severity: none, low, medium or high — how much harm or urgency the message carries.
+- confidence: a number from 0.0 to 1.0 for how sure you are of the category.
+
+Answer with the JSON object only.
+```
+
+**Which one is sent.** `MODERATION_PROMPT_VERSION` names it: `classify_v1` (the default) or `classify_v2`. It is
+validated at startup against the pinned files, and nothing else is accepted (D-TG-163). The classifier, the
+catch-up command and the smoke test all read the same setting. A switch takes effect on the next classification
+and revisits nothing: each prediction keeps the version it was made with, and every figure is grouped by it
+(`classification-metrics.md` K3).
+
+Measured in research probe 11 on 89 labelled messages, against the operator's 12 moderator-removed real messages
+plus 77 synthetic. The figures count fixtures whose needs-moderation came back wrong:
+
+| Instruction | Missed violations | False alarms |
+|---|---|---|
+| `classify_v1` | 11 | 0 |
+| `classify_v2` | 1 | 0 |
+
+On the 12 real messages alone: 9/12 → 12/12 on needs-moderation, and 9/12 → 11/12 on the exact pair.
+
+---
+
 ## §3 — Eligibility
 
 A pure function in `app/domain/moderation/classification.py` over the message's stored facts and its captured
@@ -94,7 +148,8 @@ event's body. First match wins (D-TG-137):
   The stored, possibly edited, words are never read (FR-006, Finding 5).
 - **P2.** `redact()` then replaces phone numbers and long digit runs, email addresses, links and handles with
   `«رقم»`, `«بريد»`, `«رابط»`, `«مستخدم»` — **before** anything reaches the gateway (FR-008).
-- **P3.** The request is exactly two messages: `system` = §2's text; `user` = the redacted text. No sender,
+- **P3.** The request is exactly two messages: `system` = the configured instruction's text (§2, or §2a when
+  `MODERATION_PROMPT_VERSION = classify_v2`); `user` = the redacted text. No sender,
   name, handle, platform identifier, group, title, course, time, entity flag or neighbouring message (FR-007).
 - **P4.** `StructuredRequest(schema_model=MessageClassificationResult)`, built from types imported from
   `app.application.gateway` (D-TG-132). The profile's params supply the budget, temperature and
@@ -124,8 +179,8 @@ class MessageClassificationResult(BaseModel):
 - **O4.** The confidence is quantised to three places, half-up, and **that** value is routed and stored
   (D-TG-135).
 - **O5.** The prediction row records: the message, `model_profile_id` (the profile the gateway resolved),
-  `model_run_id` (from the response; NULL only if M1's accounting write failed), `prompt_version =
-  "classify_v1"`, `taxonomy_version = 1`, the five values exactly as returned (an inconsistent combination
+  `model_run_id` (from the response; NULL only if M1's accounting write failed), `prompt_version` = the
+  configured instruction's stem (`"classify_v1"` by default, §2a), `taxonomy_version = 1`, the five values exactly as returned (an inconsistent combination
   included — FR-014), `path`, `route`, `route_reason`, the thresholds in force (live path), and `created_at`.
 - **O6.** No prediction is ever updated or deleted (FR-015). No prediction stores text (FR-016).
 
@@ -233,7 +288,18 @@ The only definition: `route_prediction(prediction, floor, threshold, path)` in
   `{"text", "category", "needs_moderation"}` per line — normalises and redacts each text exactly as §4 does,
   classifies it through the real gateway, prints expected against predicted, and exits non-zero on any
   mismatch. Without `FIXTURES`, the shipped synthetic set is used. `--profile` pins a named profile, active or
-  not (D-TG-161). It writes no prediction.
+  not (D-TG-161). `--prompt classify_v1|classify_v2` sends that instruction instead of the configured one
+  (D-TG-163). Each line also shows the fixture's line number and the route the live path would take,
+  computed by `route_prediction` at the configured thresholds (N7). The summary keeps the "n/total matched" line
+  and adds:
+  - category exact;
+  - needs-moderation agreed;
+  - false negatives (labelled as needing moderation, predicted not) and false positives, each with line
+    numbers;
+  - a route tally for violations and for legitimate fixtures (D-TG-162).
+
+  `app/scripts/moderation_smoke_policy_fixtures.jsonl` is a second, synthetic regression set: 64 policy
+  cases and near-misses, with no real student text. It writes no prediction and prints no text.
 - **C5.** Neither command is reachable from a screen.
 
 ---

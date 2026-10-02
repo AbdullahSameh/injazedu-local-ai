@@ -19,6 +19,9 @@ the library source. Two change what the model is asked to do; two change how the
 worker must be extended; one changes where the model's input comes from; one changes what the
 confidence thresholds can be expected to achieve.
 
+Two later findings, from the end-to-end manual test (2026-10-01), are in §6: the instruction's policy gap
+(Finding 7), and the context size the runtime actually uses (Finding 8).
+
 ### ⚠ Finding 1 — The installed model reasons before it answers, and at the plan's 128-token budget every answer is cut off.
 
 Probe 1 sent twelve synthetic Arabic messages through the exact request shape
@@ -397,6 +400,7 @@ predicted per fixture and exits non-zero on any mismatch. The operator's fixture
 | `MODERATION_INCIDENT_CONFIDENCE` | 0.85 | **New.** As above; `floor ≤ threshold` enforced |
 | `MODERATION_CLASSIFY_MAX_ATTEMPTS` | 5 | **New.** Positive integer; task-level transient retries (D-TG-151) |
 | `MODERATION_CLASSIFY_RETRY_BASE_S` | 30 | **New.** Positive; delay doubles per attempt |
+| `MODERATION_PROMPT_VERSION` | `classify_v1` | **New (2026-10-01).** `classify_v1` or `classify_v2` only; blank = default; to `ai-classifier` and the tools container (`migrate`, which runs catch-up and the smoke test) (D-TG-163) |
 | `GATEWAY_*` | M1's | **Exist.** Passed to `ai-classifier` as `${KEY:-default}`; `GATEWAY_CAPTURE_PAYLOADS` stays `false` |
 
 The model's own bounds — context, output budget, temperature, reasoning — are **profile params**, edited in the
@@ -423,7 +427,7 @@ roster, not environment keys.
 | Requirement group | Decisions |
 |---|---|
 | Which messages (FR-001…FR-006) | D-TG-137, D-TG-138, D-TG-139, D-TG-149, D-TG-150 |
-| What the model is given (FR-007…FR-010) | D-TG-136, D-TG-138, D-TG-140 |
+| What the model is given (FR-007…FR-010) | D-TG-136, D-TG-138, D-TG-140, D-TG-162, D-TG-163 |
 | The prediction (FR-011…FR-017) | D-TG-133, D-TG-135, D-TG-141, D-TG-142, D-TG-146, D-TG-147 |
 | Running the model (FR-018…FR-025) | D-TG-129…D-TG-134, D-TG-148, D-TG-151, D-TG-152 |
 | Routing (FR-026…FR-033) | D-TG-141, D-TG-142, D-TG-143 |
@@ -431,5 +435,131 @@ roster, not environment keys.
 | Possible violations (FR-041…FR-045) | D-TG-145, D-TG-154, D-TG-155 |
 | Measurement (FR-046…FR-051) | D-TG-146, D-TG-156, D-TG-159 |
 | Screens (FR-052…FR-060) | D-TG-155…D-TG-158 |
-| Commands (FR-061…FR-063) | D-TG-160, D-TG-161 |
+| Commands (FR-061…FR-063) | D-TG-160, D-TG-161, D-TG-162 |
 | Boundaries and continuity (FR-064…FR-070) | D-TG-132, D-TG-148, D-TG-149, D-TG-152 |
+
+---
+
+## §6 — Amendment 2026-10-01: the second instruction
+
+The operator's end-to-end test put real messages through the live pipeline. Moderators had removed them, or
+banned their senders, for promotion. The live classifier recorded a greeting-led institute advert as CHITCHAT,
+with needs-moderation false at confidence 1.000: no incident, nothing listed. The same message sent straight
+through the smoke test gave the same answer. Ingestion, normalisation, redaction, first-posted text and
+routing all did what they were designed to do. The model, reading `classify_v1`, judged it not a violation.
+The operator's 12-message real benchmark reproduced the problem: 9/12, with all three misses being violations
+predicted as needing no moderation. Those messages stay outside the repository.
+
+### ⚠ Finding 7 — `classify_v1` decides "advert" on surface cues, so adverts wrapped in a greeting or emoji, and services offered through a private contact, are missed.
+
+Probe 11 compares each miss with the wording of `classify_v1` (§2 of the pipeline contract):
+
+- **A greeting or emoji decides the category.** `classify_v1` defines CHITCHAT as "greetings, thanks, emoji,
+  social talk". A medical-excuse advert opening with 🩺✅ came back CHITCHAT; so did the institute advert
+  opening with a welcome. The held-out set did the same thing twice: a survey ending in 🙏, and a "good
+  morning 🌸" that promotes a Telegram group.
+- **An offer without a sale word is not recognised.** SPAM_OR_AD names "service" only generically.
+  `classify_v1` never says an offer needs no price, link or "sale", and never names the call to action ("contact
+  on WhatsApp «رقم»"). Two adverts from the same sender share the same opening. The one that says يتوفر
+  ("available") is caught; the one that describes the service without that word is classified OTHER, needing no
+  moderation.
+- **No rule, so no violation.** needs-moderation is defined only as "a moderator should act against the
+  message itself (SPAM_OR_AD and ABUSE usually do)". An informational outside announcement whose only fault is
+  a student-posted link is correctly "OTHER, needs no moderation" under `classify_v1`. That rule is
+  deterministic and is not the model's to infer (spec clarification session 2026-10-01).
+- **Ruled out.** Length: adverts of 1,698 and 604 characters are caught, misses are 102–144. Obfuscation: NFKC,
+  the Cf strip and tashkeel removal already turn presentation forms, ZWNJ and sukun into plain letters before
+  the model sees them. The taxonomy: every case is expressible, and OTHER with needs-moderation is consistent
+  under R8. Confidence: every wrong answer came back at 0.80–1.00 (Finding 2 still holds).
+
+**Resolution (D-TG-162, D-TG-163).** A second instruction, `classify_v2`, opt-in. `classify_v1` is untouched.
+
+### ⚠ Finding 8 — The runtime does not apply the profile's `num_ctx`; a long emoji-heavy message already approaches 2,048 tokens under `classify_v1`.
+
+The Ollama server runs with `OLLAMA_CONTEXT_LENGTH=8192`, and its log shows `n_ctx_slot = 8192` for every one of
+645 recorded slots, including the moderation profile's calls. Those calls ask for `options.num_ctx: 2048` through
+the OpenAI-compatible endpoint, and the request is not honoured. Separately, probe 4's "4,096 characters fits
+2,048" holds for plain text only. An emoji-heavy advert of about 4,000 characters is 1,937 prompt tokens under
+`classify_v1` and about 2,190 under `classify_v2`; the log reports `truncated = 0` at 2,423. Nothing is lost
+today. It would be lost if the server's context were set below about 2,300, or if the profile's value began to be
+honoured. **Not resolved here:** it is M1 and runtime configuration, recorded so the profile's 2048 is not
+mistaken for the effective limit.
+
+### Probe 11 — v1 against candidate wordings
+
+The real provider and profile params were driven against local Ollama. The input was normalised and redacted
+exactly as in P1–P2, and routes were computed by `route_prediction` itself. Each set was run in identical
+rounds and was deterministic.
+
+There were five sets, 89 messages in all:
+- the operator's 12 real messages, outside the repository;
+- the live institute advert;
+- the 12 shipped synthetic fixtures;
+- 40 synthetic policy cases and near-misses;
+- 24 synthetic held-out messages, written after the wording was frozen.
+
+The 64 synthetic policy cases ship as `moderation_smoke_policy_fixtures.jsonl`, with fake numbers and handles.
+
+The candidate wordings, counted on needs-moderation. v1, v2-A and v2-D ran on all 89 messages. v2-B, v2-C and
+v2-E were dropped before the held-out set was written, so they ran on the first 65:
+
+| Wording | Missed violations | False alarms | Note |
+|---|---|---|---|
+| `classify_v1` | 11 | 0 | the pattern in Finding 7 |
+| v2-A: group rule, purpose over opener, explicit offers | 0 | 1 | "does anyone have the STEP collections file?" opened an **incident** |
+| v2-B: A + "asking for something is not offering it" | 2 | 1 | the carve-out contradicts "surveys asking for participation" |
+| v2-C: A + "a member asking for a file … is not SPAM_OR_AD" | 0 | 1 | the same false incident |
+| **v2-D: A + "a question asking whether anyone has a file or summary is a question"** | **1** | **0** | the miss is a terse synthetic survey; the real survey and the held-out survey are caught |
+| v2-E: D + "studies asking readers to take part" | 1 | 1 | worse on both |
+
+**What v2-D does across the sets:**
+- On the 12 real messages: 12/12 needs-moderation, 11/12 exact. The one category miss is the outside
+  announcement, predicted SPAM_OR_AD instead of OTHER; its moderation decision is right.
+- On the 24 held-out messages: 24/24.
+- One legitimate question ("how do I get a sick note from the health app?") came back SPAM_OR_AD, needs no
+  moderation. That combination is inconsistent, so it is **listed**, not opened.
+- Every caught violation routes to `incident`.
+
+**Cost:**
+- about 250 more prompt tokens;
+- no measurable latency change (median about 0.85 s against v1's 1.28 s).
+
+**Smaller wordings flip borderline cases.** That brittleness is the model's (a 2B model leaning on lexical
+cues). The wording mitigates it but does not remove it, and the pilot's false-positive rate of model-opened
+incidents stays the gate (operator item 3).
+
+Re-run through `make smoke-moderation` after implementation, giving the same per-fixture answers:
+
+| Fixture set | `classify_v1` | `classify_v2` |
+|---|---|---|
+| Real 12 | 9/12 matched, needs-moderation 9/12, false negatives #1 #3 #12, 0 false positives | 11/12 matched, needs-moderation 12/12, 0 false negatives, 0 false positives |
+| Policy 64 | needs-moderation 57/64, 7 false negatives, 0 false positives | needs-moderation 63/64, 1 false negative (#17), 0 false positives, 1 legitimate fixture listed (#4) |
+| Shipped 12 | needs-moderation 12/12 | needs-moderation 12/12 |
+
+**D-TG-162 — `classify_v2` is v2-D, word for word, and the smoke test reports misses apart from mismatches.**
+FR-009, FR-063. The wording is §2a of the pipeline contract. It quotes none of the benchmark messages. It
+describes the kinds of offer the operator's group removes: outside courses and tutors; files and study
+material; services, medical excuses included; other groups and channels; surveys and outside projects;
+income offers; and a private-contact call to action. It adds one carve-out, for a question asking whether
+anyone has a file. v2-D was chosen over v2-A, which missed nothing, because a false incident counts against a
+moderator until someone closes it, and a missed advert can still be flagged by hand (operator decision
+2026-10-01). `taxonomy_version` stays 1.
+
+The smoke test now prints each fixture's line number and live route (via `route_prediction`, N7). Its summary
+adds category agreement, needs-moderation agreement, the false negatives and false positives with their line
+numbers, and the route tallies. The "n/total matched" line and the exit code are unchanged.
+
+**D-TG-163 — The instruction is chosen by `MODERATION_PROMPT_VERSION`, default `classify_v1`.** FR-009, FR-013.
+An allowlist (`ModerationPromptVersion` in `app/infrastructure/config.py`) is the one definition of what may be
+sent. A test keeps it, the files on disk and the pinned SHA-256s as one set. The classifier, catch-up and the
+smoke test read it; `--prompt` overrides it for the smoke test only.
+
+**Why a setting.** The operator decides when an instruction is trusted, as with activating a profile
+(D-TG-129). The smoke test compares both on the operator's own labels first, and a rollback is an env change.
+
+**What a switch does.** It revisits nothing (FR-015, FR-017). Each prediction keeps its version, and K3 already
+keeps every figure apart by `(model, prompt_version, taxonomy_version)`; the panel shows the version on
+Possible Violations and on the incident page.
+
+**What it leaves alone.** No routing, threshold, eligibility, schema or panel change.
+

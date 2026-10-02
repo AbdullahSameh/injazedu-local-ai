@@ -13,7 +13,6 @@ fast path uses, never a second one (D-TG-82).
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import dramatiq
@@ -22,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.moderation.attention import assemble_burst, open_item
 from app.infrastructure.config import load_settings
-from app.infrastructure.db import make_engine, make_session_factory
+from app.infrastructure.db import run_with_worker_session
 from app.infrastructure.models_moderation import telegram_messages
 
 logger = logging.getLogger(__name__)
@@ -132,17 +131,12 @@ async def sweep_unjudged_bursts_all(
             return total
 
 
-def _default_session_factory() -> async_sessionmaker[AsyncSession]:
-    settings = load_settings()
-    return make_session_factory(make_engine(settings))
-
-
 @dramatiq.actor(max_retries=3)
 def sweep_unjudged_bursts() -> None:
     settings = load_settings()
-    handled = asyncio.run(
-        sweep_unjudged_bursts_all(
-            _default_session_factory(), gap_s=settings.moderation_burst_gap_s
+    handled = run_with_worker_session(
+        lambda session_factory: sweep_unjudged_bursts_all(
+            session_factory, gap_s=settings.moderation_burst_gap_s
         )
     )
     logger.info("swept unjudged bursts: %d rows", handled)

@@ -10,7 +10,6 @@ Finding 3) costs a slower judgement, never a missed one.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import UTC, datetime
 
@@ -19,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.moderation.attention import assemble_burst, open_item
 from app.infrastructure.config import load_settings
-from app.infrastructure.db import make_engine, make_session_factory
+from app.infrastructure.db import run_with_worker_session
 
 logger = logging.getLogger(__name__)
 
@@ -56,11 +55,6 @@ async def evaluate_attention_once(
     return item_id
 
 
-def _default_session_factory() -> async_sessionmaker[AsyncSession]:
-    settings = load_settings()
-    return make_session_factory(make_engine(settings))
-
-
 @dramatiq.actor(max_retries=3)
 def evaluate_attention(
     telegram_chat_id: int,
@@ -73,9 +67,9 @@ def evaluate_attention(
     `datetime` directly."""
     settings = load_settings()
     around = datetime.fromtimestamp(around_timestamp, tz=UTC)
-    asyncio.run(
-        evaluate_attention_once(
-            _default_session_factory(),
+    run_with_worker_session(
+        lambda session_factory: evaluate_attention_once(
+            session_factory,
             telegram_chat_id=telegram_chat_id,
             telegram_user_id=telegram_user_id,
             message_thread_id=message_thread_id,

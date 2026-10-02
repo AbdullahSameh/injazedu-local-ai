@@ -46,7 +46,7 @@ on `(telegram_chat_id, telegram_message_id)` — the platform numbers messages p
 | `telegram_message_id` | bigint | no | the message's **platform** id, per chat |
 | `model_profile_id` | bigint | no | FK → `model_profiles.id` `ON DELETE RESTRICT` — a profile that ever predicted cannot be deleted |
 | `model_run_id` | bigint | yes | FK → `model_runs.id` `ON DELETE SET NULL`. NULL only when M1's accounting write failed (research Finding 6) |
-| `prompt_version` | varchar(40) | no | the instruction file's stem — `classify_v1` (D-TG-136). Not a FK: `prompt_versions` does not exist (§10.10) |
+| `prompt_version` | varchar(40) | no | the instruction file's stem — `classify_v1` or `classify_v2`, whichever `MODERATION_PROMPT_VERSION` named when the prediction was made (D-TG-136, D-TG-163). Not a FK: `prompt_versions` does not exist (§10.10) |
 | `taxonomy_version` | smallint | no | `1` (D-TG-08) |
 | `category` | varchar(30) | no | the seven categories, D-TG-08's spelling |
 | `needs_response` | boolean | no | |

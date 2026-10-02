@@ -16,7 +16,6 @@ twice is the same result" contract TG-M1 established, now with real work happeni
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import dramatiq
@@ -28,8 +27,7 @@ from app.application.moderation.evidence import (
     derive_reaction_evidence,
 )
 from app.application.moderation.messages import apply_edit, derive_message
-from app.infrastructure.config import load_settings
-from app.infrastructure.db import make_engine, make_session_factory
+from app.infrastructure.db import run_with_worker_session
 from app.infrastructure.models_moderation import telegram_updates
 
 logger = logging.getLogger(__name__)
@@ -65,12 +63,9 @@ async def process_update_row(
         await session.commit()
 
 
-def _default_session_factory() -> async_sessionmaker[AsyncSession]:
-    settings = load_settings()
-    return make_session_factory(make_engine(settings))
-
-
 @dramatiq.actor(max_retries=3)
 def process_update(update_row_id: int, update_id: int) -> None:
     logger.info("update processed", extra={"update_id": update_id})
-    asyncio.run(process_update_row(_default_session_factory(), update_row_id))
+    run_with_worker_session(
+        lambda session_factory: process_update_row(session_factory, update_row_id)
+    )

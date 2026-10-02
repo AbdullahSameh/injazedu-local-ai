@@ -10,15 +10,13 @@ same transaction, so a claimed row can never be re-claimed by a concurrent run.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import dramatiq
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.infrastructure.config import load_settings
-from app.infrastructure.db import make_engine, make_session_factory
+from app.infrastructure.db import run_with_worker_session
 from app.infrastructure.models_moderation import telegram_updates
 
 logger = logging.getLogger(__name__)
@@ -70,12 +68,7 @@ async def drain_pending_updates_all(
             return total
 
 
-def _default_session_factory() -> async_sessionmaker[AsyncSession]:
-    settings = load_settings()
-    return make_session_factory(make_engine(settings))
-
-
 @dramatiq.actor(max_retries=3)
 def drain_pending_updates() -> None:
-    handled = asyncio.run(drain_pending_updates_all(_default_session_factory()))
+    handled = run_with_worker_session(drain_pending_updates_all)
     logger.info("drained pending updates: %d rows", handled)

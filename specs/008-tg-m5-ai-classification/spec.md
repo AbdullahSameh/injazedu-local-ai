@@ -78,6 +78,31 @@ smoke test.
 - Q: A prediction that a message needs moderation, with confidence at or above the floor (0.60) but below the incident threshold (0.85) — the source plan's §14.1 sends it to review and alerts nobody, while §15.6 opens a low-confidence incident with severity capped at medium. Which? → A: **No incident. It is listed as a possible violation**, on a read-only list from which an operator can flag the message by hand with TG-M4's existing opening action. The resulting incident is operator-opened with operator-chosen labels, and is recorded as prompted by the list so the comparison reports it apart from independent flags. An internally inconsistent prediction at or above the floor goes to the same list; a prediction below the floor is recorded as awaiting TG-M8's review queue and listed nowhere. Rationale: §14.1's principle — a low-confidence false accusation is worse than a delay — is kept, and the band where a small model's dialect mistakes concentrate never enters a moderator's figures on the model's word alone; yet nothing the model noticed is invisible for two milestones. Opening a low-confidence incident was rejected because every mistake would count against a moderator until someone closed it; recording without a list was rejected because a 0.84 advert would sit unseen until TG-M8.
 - Q: What does the model's judgement of whether a message needs an answer do in this milestone? → A: **Measurement only.** The rule set remains the only automatic opener of question items; the model's judgement is recorded on every classified message and compared with the rule set against the operators' dismissals and hand-added questions, side by side with the rule set's own precision and recall. The model opens, dismisses, closes and expires no question item. Rationale: TG-M3 was built so that replacing the rules would be "an experiment with a baseline, not an act of faith", and this is the experiment; every TG-M3 figure stays exactly as it was, so the baseline is not disturbed while it is being compared against; and response tracking never comes to depend on the model being up. Letting the model open questions the rules missed was rejected for now because the model's precision on questions is unmeasured; replacing the rules was rejected because it would make tracking depend on the model runtime. Either becomes a decision taken on the evidence this milestone produces.
 
+### Session 2026-10-01
+
+Raised by the end-to-end manual test: real adverts that moderators had removed were classified as needing no
+moderation at confidence 0.90–1.00 (research §6, Finding 7).
+
+- Q: `classify_v1` misses adverts wrapped in a greeting or emoji, and services offered through a private
+  contact, so they never reach a moderator. A new instruction catches them. How does it reach live
+  classification? → A: **As an opt-in second version, `classify_v2`, chosen by `MODERATION_PROMPT_VERSION`
+  (default `classify_v1`).** `classify_v1` is not touched. Every prediction records the version it was made
+  with, and every figure keeps the versions apart (metrics K3), so a switch revisits nothing. The operator
+  smokes `classify_v2` against their own labelled messages, then switches. Rationale: FR-009 already requires a
+  versioned instruction, and the operator decides when a new one is trusted, as with a model profile. Making
+  `classify_v2` the only instruction was rejected because a rollback would need a code change. Changing the
+  thresholds was rejected because confidence does not separate right from wrong (Finding 2): the wrong answers
+  came back at 0.80–1.00.
+- Q: The group allows no links from students, only from admins. Does TG-M5 enforce that? → A: **No.** It is a
+  deterministic rule, not a judgement, and it does not belong in a model's instruction. A rule-opened incident
+  needs an incident source TG-M4 does not have (`source = 'rule'`), a new revision and a policy on mentions,
+  captions, forwards and admins. It is deferred to its own milestone (Out of Scope). Nothing in this milestone
+  changes for it: whichever incident on a message opens first wins (pipeline A3, R12).
+- Q: The smoke test's "n/total matched" counted an adjacent category the same as a violation the model let
+  through. What does it report? → A: **Category agreement, needs-moderation agreement, missed violations and
+  false alarms, each with its fixture line numbers, and the live route each fixture would take**
+  (pipeline C4). The "n/total matched" line and the non-zero exit on any mismatch are kept.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - An eligible message is classified by the local model, and the prediction is kept with its full provenance and nothing else (Priority: P1)
@@ -682,6 +707,10 @@ model and confirm the active assessment model is unchanged, and the reverse.
   hold no text.
 - Splitting spam from competitor adverts, or any other change to the seven categories — a later vocabulary
   version, once reviews have produced labelled examples.
+- A deterministic link-policy rule — a student's message carrying a link opens an incident with `source =
+  'rule'` — and redacting scheme-less links (`t.me/…`, bare domains) before the model. Both are later work: the
+  first needs a TG-M4 schema and contract amendment, the second a TG-M0 text-contract amendment (the
+  clarification session 2026-10-01, research §6).
 - Re-classifying edited messages; classifying captions, images, voice notes or other media; classifying a
   multi-message question as one input; treating other people's follow-ups as context.
 - Any bot action in a group — banning, restricting, deleting, warning, reacting or replying — and any automatic

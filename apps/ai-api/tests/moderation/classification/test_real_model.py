@@ -1,7 +1,7 @@
 """T043 — one real classification against the local runtime, `@pytest.mark.llm` (excluded from
 `make check` by `addopts`). Touches no database: it proves only that the real gateway, the real
-model and the pinned instruction together return a complete, in-range answer
-(`contracts/classification-pipeline.md` §2, research probe 4).
+model and each pinned instruction together return a complete, in-range answer
+(`contracts/classification-pipeline.md` §2, §2a, research probe 4).
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from app.application.gateway.errors import GatewayError
 from app.application.gateway.gateway import Gateway
 from app.application.gateway.registry import ProfileRegistry, _row_to_profile
 from app.application.moderation.classification import (
+    PROMPT_VERSIONS,
     MessageClassificationResult,
     build_model_input,
 )
@@ -46,7 +47,8 @@ class _PinnedRegistry:
 
 
 @pytest.mark.llm
-async def test_a_synthetic_advert_is_classified_completely_in_range() -> None:
+@pytest.mark.parametrize("prompt_version", PROMPT_VERSIONS)
+async def test_a_synthetic_advert_is_classified_completely_in_range(prompt_version: str) -> None:
     settings = load_settings()
     engine = create_async_engine(settings.database_url)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -60,7 +62,7 @@ async def test_a_synthetic_advert_is_classified_completely_in_range() -> None:
 
     gateway = Gateway(registry)
     text = normalize("انضموا لقناتنا لتعلم التداول واستثمار فلوسكم من هنا")
-    model_input = build_model_input(text)
+    model_input = build_model_input(text, prompt_version=prompt_version)
 
     try:
         response = await gateway.generate_structured(
