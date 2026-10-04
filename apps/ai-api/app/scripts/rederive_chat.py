@@ -24,7 +24,12 @@ from datetime import UTC, datetime
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.application.moderation.attention import assemble_burst, open_item
+from app.application.moderation.attention import (
+    AiAttention,
+    ai_attention_from_settings,
+    assemble_burst,
+    open_item,
+)
 from app.application.moderation.evidence import (
     derive_membership_evidence,
     derive_reaction_evidence,
@@ -189,6 +194,7 @@ async def rederive_chat_attention(
     until: datetime | None = None,
     gap_s: int,
     max_age_s: int,
+    ai: AiAttention | None = None,
 ) -> AttentionRederiveReport:
     """`--with-attention`, default off (D-TG-89, FR-083, FR-082): clears `attention_evaluated_at`
     for every message of `chat_id` inside `[since, until)` — by `sent_at`, never `received_at` —
@@ -202,6 +208,11 @@ async def rederive_chat_attention(
     status: the guarded writes underneath (`ON CONFLICT DO NOTHING`, `UPDATE … WHERE status =
     'open'`) are idempotent by construction, and ordinary derivation (without this flag) opens
     items only for messages derived from now on — this is the only path that backfills.
+
+    `ai` is TG-M5.1's switch, built by the same `ai_attention_from_settings` the live paths use:
+    a re-judgement opens a model item only where live judgement would have — a live prediction
+    recorded after `MODERATION_AI_ATTENTION_FROM` — so it never reaches back into history and
+    never acts on a catch-up prediction (attention-opening L1-L3).
     """
     async with session_factory() as session:
         chat_pk = await _chat_surrogate(session, chat_id)
@@ -265,7 +276,7 @@ async def rederive_chat_attention(
                     gap_s=gap_s,
                 )
                 covered.update(member["id"] for member in burst)
-                await open_item(session, burst)
+                await open_item(session, burst, ai=ai)
             await session.commit()
 
     expired = await expire_stale_items_once(
@@ -458,6 +469,7 @@ async def _run(argv: list[str]) -> int:
             until=args.until,
             gap_s=settings.moderation_burst_gap_s,
             max_age_s=settings.moderation_item_max_age_s,
+            ai=ai_attention_from_settings(settings),
         )
         print(
             f"attention: opened={attention_report.opened} "

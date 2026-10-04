@@ -20,9 +20,9 @@ research Finding 2.
 | `telegram_chat_id` | bigint | no | FK → `telegram_chats.id` |
 | `telegram_message_id` | bigint | no | **the burst's earliest message**, not any later one |
 | `opened_at` | timestamptz | no | = that message's `sent_at` (FR-005). Never the judgement time |
-| `source` | varchar(20) | no | `rule` \| `operator`. `ai` is reserved for TG-M5 and never written here |
+| `source` | varchar(20) | no | `rule` \| `operator`. `ai` is reserved for TG-M5 and never written here  — *TG-M5.1 (2026-10-03): `ai` is written by `open_item` for a burst the rules declined, see `specs/009-tg-m5-1-ai-attention/`* |
 | `rule_version` | smallint | yes | which rule set opened it; NULL for `source='operator'` (FR-049) |
-| `message_classification_id` | bigint | yes | shaped for TG-M5, always NULL here. No FK until `0007` creates the table |
+| `message_classification_id` | bigint | yes | shaped for TG-M5, always NULL here. No FK until `0007` creates the table  — *TG-M5.1: set on `ai` items only, at insert* |
 | `responsible_moderator_id` | bigint | yes | FK → `moderators.id`. Snapshotted from `responsible_at(chat, opened_at)`; NULL is a real answer (FR-042) |
 | `status` | varchar(20) | no | `open` \| `answered` \| `dismissed` \| `expired`, default `open` |
 | `first_response_message_id` | bigint | yes | the closing message's Telegram id |

@@ -677,6 +677,29 @@ _CLASSIFICATION_LABELS_FOR_ITEMS_SQL = sa.text(
 ).bindparams(sa.bindparam("item_ids", type_=ARRAY(sa.BigInteger)))
 
 
+# §8a — C9 (TG-M5.1): questions the model opened, and what the humans did with them. M23: joined
+# through the item's own `message_classification_id` — the prediction that opened it — and grouped
+# by its model, never pooled (K3). M24: `model_dismissed` over `model_opened` is the pilot's
+# false-positive gate for AI-assisted Attention Opening; `model_kept` are rule misses the model
+# caught, which the rule-recall floor's `operator_added` never sees (M19, amended).
+_MODEL_OPENED_QUESTIONS_SQL = sa.text(
+    """
+    SELECT c.model_profile_id, c.prompt_version, c.taxonomy_version,
+           count(*)                                                AS model_opened,
+           count(*) FILTER (WHERE ai.status = 'dismissed')         AS model_dismissed,
+           count(*) FILTER (WHERE ai.status <> 'dismissed')        AS model_kept,
+           count(*) FILTER (WHERE ai.status = 'answered')          AS model_answered,
+           count(*) FILTER (WHERE ai.status IN ('open','expired')) AS model_unanswered
+    FROM attention_items ai
+    JOIN message_classifications c ON c.id = ai.message_classification_id
+    WHERE ai.source = 'ai'
+      AND ai.opened_at >= :period_from AND ai.opened_at < :period_to
+      AND (:chat_id IS NULL OR ai.telegram_chat_id = :chat_id)
+    GROUP BY 1, 2, 3
+    """
+).bindparams(sa.bindparam("chat_id", type_=sa.BigInteger))
+
+
 async def classification_question_stats(
     session: AsyncSession, *, period_from: datetime, period_to: datetime, chat_id: int | None = None
 ) -> list[dict[str, Any]]:
@@ -770,3 +793,18 @@ async def classification_labels_for_items(
         await session.execute(_CLASSIFICATION_LABELS_FOR_ITEMS_SQL, {"item_ids": item_ids})
     ).mappings().all()
     return {row["item_id"]: dict(row) for row in rows}
+
+
+async def model_opened_question_stats(
+    session: AsyncSession, *, period_from: datetime, period_to: datetime, chat_id: int | None = None
+) -> list[dict[str, Any]]:
+    """C9 (TG-M5.1): one row per `(model, prompt_version, taxonomy_version)` that opened a question
+    in the period — `model_opened` is always the denominator; a model that opened none has no row
+    (M22)."""
+    rows = (
+        await session.execute(
+            _MODEL_OPENED_QUESTIONS_SQL,
+            {"period_from": period_from, "period_to": period_to, "chat_id": chat_id},
+        )
+    ).mappings().all()
+    return [dict(row) for row in rows]

@@ -113,6 +113,18 @@ class LiveAttentionQueue extends Page implements HasTable
                     ->badge(),
                 TextColumn::make('status')
                     ->badge(),
+                // TG-M5.1 (`control-panel-classification.md` Q3): who opened the item — the stored
+                // `source`, labelled, never inferred. A model-opened item's prediction is the
+                // "Model's view" column beside it.
+                TextColumn::make('source')
+                    ->label('Opened by')
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'rule' => 'Rule',
+                        'ai' => 'Model',
+                        'operator' => 'Operator',
+                        default => $state,
+                    })
+                    ->badge(),
                 // `since()` formats via `Carbon::diffForHumans()` computed fresh on every render
                 // — server-side, and correct again on the next `poll('15s')` tick without a
                 // browser-clock ticker that would disagree with every other number by the

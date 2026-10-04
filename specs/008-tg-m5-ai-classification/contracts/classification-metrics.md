@@ -87,6 +87,8 @@ GROUP BY 1, 2, 3;
   are **unverified** — never counted as right and never as wrong (FR-046). The operator turns one into a label by
   adding the question by hand (TG-M3's action), after which it moves into C1's *operator-added*.
 
+  > **Amended by TG-M5.1 (2026-10-03).** With `MODERATION_AI_ATTENTION_FROM` set, a qualifying live prediction opens the item itself (`source = 'ai'`), so the message leaves C2. Its human label is then the operator's dismissal or non-dismissal of that item, counted by C9 (§8a). C1 stays rule- and operator-only, as written.
+
 ## §4 — C3: violations the humans labelled, and the model's own incidents
 
 ```sql
@@ -212,6 +214,8 @@ GROUP BY rule_version;
   `operator_added`: `rule_opened ÷ (rule_opened + operator_added)`, labelled — as TG-M3's M16 says — a floor, not a
   measurement. The statement is not changed; the page reads it as it is.
 
+  > **Amended by TG-M5.1 (2026-10-03).** With AI-assisted opening on, a rule miss the model caught is an `ai` item, not an operator-added one, so the floor reads higher. The statement is still unchanged; the page prints C9's `model_kept`, summed over models as a count of items, beside the baseline as "Model-opened and kept".
+
 **C8** is TG-M4's `incident-metrics.md` §4 statement with `i.source` selected and grouped (D-TG-159, FR-037):
 
 ```sql
@@ -233,6 +237,32 @@ GROUP BY i.source;
   (M17), p90 suppressed below `MODERATION_PERCENTILE_MIN_SAMPLES` on each row's own `flagged`. It selects by
   `detected_at` — it is TG-M4's figure, not a classification figure, and K1 does not apply to it. The model's row
   is the model's own delay; the operator's row is the operator's.
+
+## §8a — C9 (TG-M5.1, 2026-10-03): questions the model opened
+
+```sql
+SELECT c.model_profile_id, c.prompt_version, c.taxonomy_version,
+       count(*)                                                AS model_opened,
+       count(*) FILTER (WHERE ai.status = 'dismissed')         AS model_dismissed,
+       count(*) FILTER (WHERE ai.status <> 'dismissed')        AS model_kept,
+       count(*) FILTER (WHERE ai.status = 'answered')          AS model_answered,
+       count(*) FILTER (WHERE ai.status IN ('open','expired')) AS model_unanswered
+FROM attention_items ai
+JOIN message_classifications c ON c.id = ai.message_classification_id
+WHERE ai.source = 'ai'
+  AND ai.opened_at >= :period_from AND ai.opened_at < :period_to
+  AND (:chat_id IS NULL OR ai.telegram_chat_id = :chat_id)
+GROUP BY 1, 2, 3;
+```
+
+- **M23.** Each item is joined through its own `message_classification_id`, the prediction that opened it
+  (attention-opening O3). It is grouped by that prediction's model, instruction and vocabulary, never pooled
+  (K3), and selected by `opened_at` (K1).
+- **M24.** `model_dismissed` over `model_opened` is the **pilot's false-positive gate** for AI-assisted Attention
+  Opening, the question-side counterpart of M9. Read it after a week, with its denominator. `model_kept` are rule
+  misses the model caught (M19, amended).
+- **M25.** Verified by `tests/moderation/classification/test_metrics_model_opened.py` and
+  `ModelOpenedQuestionsTest.php` over one hand-computed scenario.
 
 ## §9 — "No data" is not zero
 

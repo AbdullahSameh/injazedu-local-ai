@@ -253,6 +253,8 @@ opens no question item in this milestone (the second clarification), and `source
 queue shows the model's view of an item's messages by joining through the messages (C6), not through this
 column.
 
+> **Amended by TG-M5.1 (2026-10-03).** No schema change. A `source = 'ai'` item now carries the prediction that opened it in `message_classification_id`, written once at insert. Rule- and operator-opened items keep it NULL (`specs/009-tg-m5-1-ai-attention/``contracts/attention-opening.md` O3).
+
 ---
 
 ## §6 — Changes outside the schema

@@ -78,6 +78,8 @@ smoke test.
 - Q: A prediction that a message needs moderation, with confidence at or above the floor (0.60) but below the incident threshold (0.85) — the source plan's §14.1 sends it to review and alerts nobody, while §15.6 opens a low-confidence incident with severity capped at medium. Which? → A: **No incident. It is listed as a possible violation**, on a read-only list from which an operator can flag the message by hand with TG-M4's existing opening action. The resulting incident is operator-opened with operator-chosen labels, and is recorded as prompted by the list so the comparison reports it apart from independent flags. An internally inconsistent prediction at or above the floor goes to the same list; a prediction below the floor is recorded as awaiting TG-M8's review queue and listed nowhere. Rationale: §14.1's principle — a low-confidence false accusation is worse than a delay — is kept, and the band where a small model's dialect mistakes concentrate never enters a moderator's figures on the model's word alone; yet nothing the model noticed is invisible for two milestones. Opening a low-confidence incident was rejected because every mistake would count against a moderator until someone closed it; recording without a list was rejected because a 0.84 advert would sit unseen until TG-M8.
 - Q: What does the model's judgement of whether a message needs an answer do in this milestone? → A: **Measurement only.** The rule set remains the only automatic opener of question items; the model's judgement is recorded on every classified message and compared with the rule set against the operators' dismissals and hand-added questions, side by side with the rule set's own precision and recall. The model opens, dismisses, closes and expires no question item. Rationale: TG-M3 was built so that replacing the rules would be "an experiment with a baseline, not an act of faith", and this is the experiment; every TG-M3 figure stays exactly as it was, so the baseline is not disturbed while it is being compared against; and response tracking never comes to depend on the model being up. Letting the model open questions the rules missed was rejected for now because the model's precision on questions is unmeasured; replacing the rules was rejected because it would make tracking depend on the model runtime. Either becomes a decision taken on the evidence this milestone produces.
 
+> **Amended by TG-M5.1 (2026-10-03).** The decision was taken on that evidence, for **live** predictions: one recorded at or after `MODERATION_AI_ATTENTION_FROM` may open a question item **the rule set declined**, through TG-M3's own `open_item`, on the anchor, clock and owner a rule-opened item would have — `specs/009-tg-m5-1-ai-attention/` (D-TG-164…D-TG-171). The rule set still has the first word; catch-up stays measurement only; with the switch blank, this clarification holds exactly as written.
+
 ### Session 2026-10-01
 
 Raised by the end-to-end manual test: real adverts that moderators had removed were classified as needing no
@@ -102,6 +104,10 @@ moderation at confidence 0.90–1.00 (research §6, Finding 7).
   through. What does it report? → A: **Category agreement, needs-moderation agreement, missed violations and
   false alarms, each with its fixture line numbers, and the live route each fixture would take**
   (pipeline C4). The "n/total matched" line and the non-zero exit on any mismatch are kept.
+
+### Session 2026-10-03 (TG-M5.1)
+
+- Recorded in `specs/009-tg-m5-1-ai-attention/spec.md` → Clarifications: dual-purpose predictions open both units; a late prediction that would be born expired opens nothing; an edited member's first-posted prediction counts on E3's clock; the switch is the dated `MODERATION_AI_ATTENTION_FROM`.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -371,6 +377,8 @@ model and confirm the active assessment model is unchanged, and the reverse.
 1. **Given** a waiting question whose messages have predictions, **When** the Live Attention Queue is loaded,
    **Then** the row shows the model's category and self-reported confidence, labelled as the model's
    self-report rather than a probability, and the question item itself is exactly as the rule set opened it.
+
+   > **Amended by TG-M5.1 (2026-10-03).** …or, for a model-opened item, exactly as TG-M5.1's `open_item` opened it.
 2. **Given** a message with no prediction, **When** it is shown, **Then** the screen states why — not eligible
    and which condition, awaiting the model, failed and how, or no classification model active — and never
    leaves the space blank.
@@ -402,6 +410,8 @@ model and confirm the active assessment model is unchanged, and the reverse.
 - **The model thinks a message needs an answer and the rules opened nothing.** No question item opens. The
   message is counted as an unverified model-only judgement; if the operator agrees, they add the question by
   hand with TG-M3's existing action, and it becomes a labelled rule miss the model caught.
+
+  > **Amended by TG-M5.1 (2026-10-03).** With `MODERATION_AI_ATTENTION_FROM` set, a live, qualifying prediction opens the item instead (`source = 'ai'`) — `specs/009-tg-m5-1-ai-attention/`. Blank, this edge case holds as written.
 - **The model is slower than the moderator.** The moderator answered before the label landed. The label
   attaches; nothing about the question moves. On the violation side, a spammer banned before the model
   flagged the message produces an incident that opens resolved, with the enforcement counted as "acted before
@@ -565,6 +575,8 @@ model and confirm the active assessment model is unchanged, and the reverse.
 - **FR-032**: The system MUST treat the model's needs-response judgement as measurement only: the rule set MUST
   remain the only automatic opener of question items, and no prediction MUST open, dismiss, close, expire or
   alter any question item.
+
+  > **Amended by TG-M5.1 (2026-10-03).** A live prediction may now open (never dismiss, close, expire or alter) a question item the rule set declined, while `MODERATION_AI_ATTENTION_FROM` is set — `specs/009-tg-m5-1-ai-attention/`, FR-101…FR-108.
 - **FR-033**: The system MUST NOT let any prediction acknowledge, resolve, close or alter an incident; a
   prediction MUST never count as evidence in an incident's lifecycle.
 
@@ -635,6 +647,8 @@ model and confirm the active assessment model is unchanged, and the reverse.
 
 - **FR-052**: The Live Attention Queue MUST show, on each waiting question, the model's category and
   self-reported confidence for its messages, and MUST otherwise remain as TG-M4 left it.
+
+  > **Amended by TG-M5.1 (2026-10-03).** It also shows who opened each item — Rule / Model / Operator (FR-109, `specs/009-tg-m5-1-ai-attention/`).
 - **FR-053**: The incidents list MUST show how each incident was opened — by an operator or by the model — and
   MUST be filterable by it.
 - **FR-054**: The incident detail MUST show the prediction for the incident's message — category, needs-response,
@@ -692,6 +706,8 @@ model and confirm the active assessment model is unchanged, and the reverse.
 - Letting the model open question items — whether to supplement the rule set or to replace it. Deferred by
   this milestone's second clarification, to be decided on the evidence its comparison produces, no earlier than
   TG-M8.
+
+  > **Amended by TG-M5.1 (2026-10-03).** Supplementing the rule set was brought forward to TG-M5.1, for live predictions, behind a dated switch — `specs/009-tg-m5-1-ai-attention/`. Replacing the rule set remains out of scope.
 - Alert rules, thresholds, the private moderators' group, the alert buttons, and any outbound message —
   **TG-M6**, including the alert wording the source plan sketches for uncertain predictions.
 - The overview, team and group performance screens and the incomplete-window marker — **TG-M7**. The
@@ -791,8 +807,12 @@ model and confirm the active assessment model is unchanged, and the reverse.
   control panel.
 - **SC-014**: Across every combination of prediction values, no prediction changes the state of any question item
   or any incident it did not open, and no question item is ever opened by the model.
+
+  > **Amended by TG-M5.1 (2026-10-03).** Holds with `MODERATION_AI_ATTENTION_FROM` blank. With it set, the model may open a question item the rules declined, and still changes the state of none it did not open — `specs/009-tg-m5-1-ai-attention/`.
 - **SC-015**: Every TG-M3 figure computed over the same traffic is identical with and without a classification
   model active; every TG-M4 figure differs only by the incidents the model opened.
+
+  > **Amended by TG-M5.1 (2026-10-03).** Holds with `MODERATION_AI_ATTENTION_FROM` blank. With it set, the TG-M3 response figures also count model-opened questions, as items like any other (TG-M5.1 FR-108).
 - **SC-016**: In a representative fixture of group traffic, moderators' messages, service announcements,
   acknowledgement-only messages and messages without text never reach the model, and the count excluded by each
   reason is reported.

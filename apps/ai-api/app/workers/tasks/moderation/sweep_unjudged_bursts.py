@@ -19,7 +19,12 @@ import dramatiq
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.application.moderation.attention import assemble_burst, open_item
+from app.application.moderation.attention import (
+    AiAttention,
+    ai_attention_from_settings,
+    assemble_burst,
+    open_item,
+)
 from app.infrastructure.config import load_settings
 from app.infrastructure.db import run_with_worker_session
 from app.infrastructure.models_moderation import telegram_messages
@@ -34,6 +39,7 @@ async def sweep_unjudged_bursts_once(
     *,
     gap_s: int,
     batch_size: int = _CLAIM_BATCH_SIZE,
+    ai: AiAttention | None = None,
 ) -> int:
     """Claims up to `batch_size` unjudged, settled messages in one transaction —
     `FOR UPDATE SKIP LOCKED` so this can run alongside live judgement and a concurrent sweep
@@ -45,6 +51,9 @@ async def sweep_unjudged_bursts_once(
     `attention_evaluated_at` on every member it reads, whether or not an item resulted, so a
     message this call declines is never revisited (B4). A `sender_chat` message
     (`telegram_user_id IS NULL`) forms no burst (FR-013) and is stamped evaluated directly.
+
+    `ai` is TG-M5.1's switch (`None` = rule-only). A message a late prediction put back on this
+    work list (`request_rejudgement`) is judged here like any other (attention-opening I2).
 
     Returns the number of claimed rows — 0 means the backlog is empty.
     """
@@ -99,7 +108,7 @@ async def sweep_unjudged_bursts_once(
                 gap_s=gap_s,
             )
             covered_ids.update(member["id"] for member in burst)
-            await open_item(session, burst)
+            await open_item(session, burst, ai=ai)
 
         if sender_chat_ids:
             await session.execute(
@@ -118,13 +127,14 @@ async def sweep_unjudged_bursts_all(
     *,
     gap_s: int,
     batch_size: int = _CLAIM_BATCH_SIZE,
+    ai: AiAttention | None = None,
 ) -> int:
     """Drains the whole authoritative work list, one claimed batch at a time. Returns the total
     number of rows handled."""
     total = 0
     while True:
         handled = await sweep_unjudged_bursts_once(
-            session_factory, gap_s=gap_s, batch_size=batch_size
+            session_factory, gap_s=gap_s, batch_size=batch_size, ai=ai
         )
         total += handled
         if handled < batch_size:
@@ -136,7 +146,9 @@ def sweep_unjudged_bursts() -> None:
     settings = load_settings()
     handled = run_with_worker_session(
         lambda session_factory: sweep_unjudged_bursts_all(
-            session_factory, gap_s=settings.moderation_burst_gap_s
+            session_factory,
+            gap_s=settings.moderation_burst_gap_s,
+            ai=ai_attention_from_settings(settings),
         )
     )
     logger.info("swept unjudged bursts: %d rows", handled)

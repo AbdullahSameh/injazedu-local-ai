@@ -77,6 +77,10 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       WORKER_HEARTBEAT_INTERVAL_S: ${WORKER_HEARTBEAT_INTERVAL_S}
       WORKER_HEARTBEAT_TTL_S: ${WORKER_HEARTBEAT_TTL_S}
+      # TG-M5.1: question judgement (`evaluate_attention`, the sweep) runs here and reads the
+      # switch and the ageing ceiling its gate compares against (attention-opening G5-G6).
+      MODERATION_AI_ATTENTION_FROM: ${MODERATION_AI_ATTENTION_FROM:-}
+      MODERATION_ITEM_MAX_AGE_S: ${MODERATION_ITEM_MAX_AGE_S:-86400}
     mem_limit: 1g
     depends_on:
       postgres:
@@ -102,6 +106,9 @@ services:
       MODERATION_CLASSIFY_MAX_ATTEMPTS: ${MODERATION_CLASSIFY_MAX_ATTEMPTS:-5}
       MODERATION_CLASSIFY_RETRY_BASE_S: ${MODERATION_CLASSIFY_RETRY_BASE_S:-30}
       MODERATION_PROMPT_VERSION: ${MODERATION_PROMPT_VERSION:-classify_v1}
+      # TG-M5.1: a live prediction proposing a question puts its message back on the attention
+      # work list only while the switch is set (attention-opening I1).
+      MODERATION_AI_ATTENTION_FROM: ${MODERATION_AI_ATTENTION_FROM:-}
       GATEWAY_CALL_TIMEOUT_S: ${GATEWAY_CALL_TIMEOUT_S:-180}
       GATEWAY_MAX_RETRIES: ${GATEWAY_MAX_RETRIES:-2}
       GATEWAY_RETRY_BASE_S: ${GATEWAY_RETRY_BASE_S:-0.5}
@@ -188,6 +195,10 @@ services:
       MODERATION_CONFIDENCE_FLOOR: ${MODERATION_CONFIDENCE_FLOOR:-0.60}
       MODERATION_INCIDENT_CONFIDENCE: ${MODERATION_INCIDENT_CONFIDENCE:-0.85}
       MODERATION_PROMPT_VERSION: ${MODERATION_PROMPT_VERSION:-classify_v1}
+      # rederive_chat --with-attention re-judges here with the same switch the live paths use, so it
+      # reaches the same answer (TG-M5.1, attention-opening L2).
+      MODERATION_AI_ATTENTION_FROM: ${MODERATION_AI_ATTENTION_FROM:-}
+      MODERATION_ITEM_MAX_AGE_S: ${MODERATION_ITEM_MAX_AGE_S:-86400}
     restart: "no"
     depends_on:
       postgres:
@@ -199,6 +210,20 @@ services:
     mem_limit: 768m
     depends_on:
       - postgres
+
+  # Development-only log viewer — opt-in via the `devtools` profile, never started by `make up`.
+  # The Docker socket is read-only and container actions stay off (Dozzle's default): it reads
+  # logs and stats, it cannot start, stop or exec anything. Bound to localhost only.
+  dozzle:
+    image: amir20/dozzle:latest
+    profiles: ["devtools"]
+    environment:
+      DOZZLE_NO_ANALYTICS: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "127.0.0.1:${DOZZLE_HOST_PORT:-9999}:8080"
+    mem_limit: 64m
 
 volumes:
   postgres-data:

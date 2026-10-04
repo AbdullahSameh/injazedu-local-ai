@@ -3,14 +3,17 @@
 
 Pure: no I/O, no clock, no session, no import outside the standard library and
 `app.domain.moderation.attention` (for the one shared acknowledgement matcher, E8). This is the
-**only** definition of eligibility and routing (pipeline contract N7): the classifier calls these
-functions directly, the panel reads their stored outputs, and no test helper recomputes an
-expected route or eligibility — it calls the function or asserts the stored row.
+**only** definition of eligibility and routing (pipeline contract N7), and — since TG-M5.1 — of
+whether a prediction proposes a question item (`specs/009-tg-m5-1-ai-attention/contracts/
+attention-opening.md` G1-G6): the classifier and `open_item` call these functions directly, the
+panel reads their stored outputs, and no test helper recomputes an expected route, eligibility or
+proposal — it calls the function or asserts the stored row.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from app.domain.moderation.attention import is_acknowledgement
@@ -34,6 +37,11 @@ VIOLATION_CATEGORIES: frozenset[str] = frozenset({"SPAM_OR_AD", "ABUSE"})
 INCIDENT_CATEGORIES: frozenset[str] = frozenset({"SPAM_OR_AD", "ABUSE", "OTHER"})
 
 TAXONOMY_VERSION = 1
+
+# TG-M5.1 (attention-opening contract G4, D-TG-165): both instructions say needs_response is "Always
+# false for SPAM_OR_AD, ABUSE and CHITCHAT" — a true value on one of these contradicts itself, the
+# question-side counterpart of R8's two-way consistency.
+NO_RESPONSE_CATEGORIES: frozenset[str] = frozenset({"SPAM_OR_AD", "ABUSE", "CHITCHAT"})
 
 
 @dataclass(frozen=True)
@@ -126,3 +134,27 @@ def route_prediction(
     if prediction.confidence >= threshold:
         return "incident", None
     return "possible_violation", "uncertain"
+
+
+def proposes_attention(*, path: str, route: str, needs_response: bool, category: str) -> bool:
+    """TG-M5.1's gate, the prediction's own side (attention-opening contract G1-G4): whether a
+    stored prediction proposes that its message needs a moderator's answer. Live only (G2 — catch-up
+    is measurement only); never below the floor (G3 — FR-030, read from the stored route, never
+    recomputed); and never on a category the instruction says needs no answer (G4). The violation
+    side's route is otherwise irrelevant (decision 1: both units of work, independently)."""
+    return (
+        path == "live"
+        and route != "review"
+        and needs_response
+        and category not in NO_RESPONSE_CATEGORIES
+    )
+
+
+def within_attention_window(
+    *, recorded_at: datetime, opened_at: datetime, enabled_from: datetime, max_age_s: int
+) -> bool:
+    """TG-M5.1's gate, the timing side (contract G5-G6): the prediction was recorded at or after
+    `MODERATION_AI_ATTENTION_FROM` (G5 — switching on never reaches back), and before the item it
+    would open is `MODERATION_ITEM_MAX_AGE_S` old (G6 — never an item born expired). Both are
+    stored instants compared with each other — no clock is read here."""
+    return recorded_at >= enabled_from and recorded_at - opened_at < timedelta(seconds=max_age_s)

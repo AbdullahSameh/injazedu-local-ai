@@ -4,7 +4,7 @@
 reprocessing (a new prediction and an `is_current` flip) and a human verdict beside predictions; neither
 changes anything here. **Amended 2026-10-01** (spec clarification session 2026-10-01): §2a adds an opt-in
 second instruction; P3, O5 and C4 follow it. Nothing in eligibility, routing, opening, failure or idempotency
-changed.
+changed. **Amended 2026-10-03** (TG-M5.1): R13, N1 and F6 carry dated notes — a live prediction may re-flag its message for TG-M3's judgement, which may open a question item the rules declined (`specs/009-tg-m5-1-ai-attention/``contracts/attention-opening.md`).
 
 This is **the** TG-M5 contract: which messages reach the model, exactly what the model is given, what a
 prediction is, how it is routed, how a confident one opens an incident, how failure is handled, and what no
@@ -217,6 +217,8 @@ The only definition: `route_prediction(prediction, floor, threshold, path)` in
 - **R13.** The route never touches a question item. The model's needs-response judgement is measured, never
   acted on (FR-032, the second clarification).
 
+  > **Amended by TG-M5.1 (2026-10-03).** Still true of the route. Separately, a live prediction passing TG-M5.1's gate puts its message back on TG-M3's work list (`request_rejudgement`, attention-opening I1), and `open_item` may then open a `source = 'ai'` item the rules declined. The classifier itself opens no question item.
+
 ---
 
 ## §7 — Opening an incident
@@ -257,6 +259,8 @@ The only definition: `route_prediction(prediction, floor, threshold, path)` in
   like every actor in the domain.
 - **F6.** The model being slow, absent or broken changes nothing outside this pipeline: every question item and
   every incident lifecycle behaves exactly as with no classification model at all (FR-022, US3).
+
+  > **Amended by TG-M5.1 (2026-10-03).** With `MODERATION_AI_ATTENTION_FROM` set, questions only the model would catch go untracked while it is down. Rule questions and every lifecycle are unaffected (attention-opening §9).
 
 ---
 
@@ -307,6 +311,8 @@ The only definition: `route_prediction(prediction, floor, threshold, path)` in
 ## §11 — What may never happen
 
 - **N1.** A prediction opening, dismissing, closing, expiring or altering a question item.
+
+  > **Amended by TG-M5.1 (2026-10-03).** …except that TG-M3's `open_item` may open one from a live prediction under attention-opening G1–G6. Dismissing, closing, expiring or altering one remains forbidden.
 - **N2.** A prediction acknowledging, resolving or closing an incident, or counting as evidence.
 - **N3.** An `UPDATE` or `DELETE` on `message_classifications`, or a prediction rewritten "to be consistent".
 - **N4.** An incident opened from a catch-up prediction, from a prediction below the threshold, or from an

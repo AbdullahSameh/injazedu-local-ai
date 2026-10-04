@@ -205,6 +205,35 @@ class LiveAttentionQueueTest extends TestCase
             ->assertTableColumnStateSet('opened_at', $item->opened_at, $item);
     }
 
+    /**
+     * TG-M5.1 (`control-panel-classification.md` Q3): every waiting item says who opened it —
+     * the rule set, the model or an operator — read from the stored `source`, never inferred.
+     */
+    public function test_each_waiting_item_shows_who_opened_it(): void
+    {
+        $this->actingAsPanelOperator();
+        $chat = $this->makeChat();
+        $student = $this->makeStudent();
+
+        $byRule = $this->makeItem($chat, $this->makeMessage($chat, $student, 1, 'متى الاختبار؟', now()->subMinutes(30)));
+        $byModel = $this->makeItem(
+            $chat,
+            $this->makeMessage($chat, $student, 2, 'في محاضرة بكرة', now()->subMinutes(20)),
+            ['source' => 'ai', 'rule_version' => null],
+        );
+        $byOperator = $this->makeItem(
+            $chat,
+            $this->makeMessage($chat, $student, 3, 'الرابط وين', now()->subMinutes(10)),
+            ['source' => 'operator', 'rule_version' => null],
+        );
+
+        Livewire::test(LiveAttentionQueue::class)
+            ->assertTableColumnFormattedStateSet('source', 'Rule', $byRule)
+            ->assertTableColumnFormattedStateSet('source', 'Model', $byModel)
+            ->assertTableColumnFormattedStateSet('source', 'Operator', $byOperator)
+            ->assertSeeText('Opened by');
+    }
+
     /** @return array<int, string> */
     private function forbiddenActionNames(): array
     {

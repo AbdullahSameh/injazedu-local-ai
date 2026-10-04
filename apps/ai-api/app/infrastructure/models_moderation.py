@@ -354,8 +354,10 @@ attention_items = sa.Table(
     sa.Column("source", sa.String(length=20), nullable=False),
     sa.Column("rule_version", sa.SmallInteger(), nullable=True),
     # `fk_attention_classification` (below, deferred past `message_classifications`' own
-    # definition) stays NULL on every row this milestone — the model opens no question item
-    # (data-model.md §5, the second clarification).
+    # definition). NULL on every rule- and operator-opened row. TG-M5 kept it NULL everywhere
+    # (data-model.md §5, the second clarification); since TG-M5.1 a `source='ai'` row carries the
+    # prediction that opened it, written once at insert and never updated
+    # (specs/009-tg-m5-1-ai-attention/contracts/attention-opening.md O3).
     sa.Column("message_classification_id", sa.BigInteger(), nullable=True),
     sa.Column(
         "responsible_moderator_id",
@@ -710,8 +712,8 @@ sa.Index(
 )
 
 # TG-M5's own link, deferred here since `attention_items` (revision 0005) predates
-# `message_classifications`. Stays NULL on every row this milestone — the model opens no
-# question item (data-model.md §5, the second clarification).
+# `message_classifications`. TG-M5 kept it NULL on every row (data-model.md §5, the second
+# clarification); TG-M5.1 sets it on `source='ai'` rows only — no schema change.
 attention_items.append_constraint(
     sa.ForeignKeyConstraint(
         ["message_classification_id"],

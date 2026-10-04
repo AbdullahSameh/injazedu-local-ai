@@ -1,4 +1,4 @@
-.PHONY: doctor up down down-hard logs health migrate migrate-down seed-profiles profiles seed-admin psql check test-db-reset mem-report automation-up smoke-llm smoke-moderation test-llm check-lane tg-doctor
+.PHONY: doctor up down down-hard logs health migrate migrate-down seed-profiles profiles seed-admin psql check test-db-reset mem-report automation-up logs-ui smoke-llm smoke-moderation smoke-attention test-llm check-lane tg-doctor
 
 COMPOSE := docker compose -f infra/docker-compose.yml --env-file .env
 
@@ -97,6 +97,13 @@ smoke-moderation: ## Classify FIXTURES=<path outside the repo> against the real 
 		$(COMPOSE) --profile tools run --rm migrate python -m app.scripts.smoke_moderation $(ARGS); \
 	fi
 
+smoke-attention: ## Benchmark needs_response on FIXTURES=<path outside the repo> before MODERATION_AI_ATTENTION_FROM (TG-M5.1)
+	@if [ -n "$(FIXTURES)" ]; then \
+		$(COMPOSE) --profile tools run --rm -T migrate python -m app.scripts.smoke_attention $(ARGS) < "$(FIXTURES)"; \
+	else \
+		$(COMPOSE) --profile tools run --rm migrate python -m app.scripts.smoke_attention $(ARGS); \
+	fi
+
 test-llm: ## Run only @pytest.mark.llm tests — the ones `make check` excludes (FR-027)
 	(cd apps/ai-api && uv run pytest -m llm)
 
@@ -105,6 +112,9 @@ check-lane: ## Prove the llm lane admits at most one caller at a time (FR-029, r
 
 automation-up: ## Start n8n deliberately (FR-003)
 	$(COMPOSE) --profile automation up -d n8n
+
+logs-ui: ## Start Dozzle (dev-only browser log viewer) on http://localhost:9999
+	$(COMPOSE) --profile devtools up -d dozzle
 
 tg-doctor: ## Report Telegram ingestion setup: credential, getMe, subscriptions, per-chat standing (FR-036)
 	$(COMPOSE) --profile tools run --rm migrate python -m app.scripts.tg_doctor

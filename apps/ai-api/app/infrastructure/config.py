@@ -7,6 +7,7 @@ naming the variable, never a stack trace (FR-005).
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from typing import Literal
 
 from pydantic import Field, ValidationError, ValidationInfo, field_validator, model_validator
@@ -107,6 +108,13 @@ class Settings(BaseSettings):
     moderation_prompt_version: ModerationPromptVersion = Field(
         default="classify_v1", alias="MODERATION_PROMPT_VERSION"
     )
+    # TG-M5.1 (D-TG-164, decision 4): the instant from which a live prediction may open a question
+    # item the rule set declined. Blank = off — TG-M5's measurement-only behaviour, unchanged. A
+    # dated switch, not a boolean, so every judgement path reaches the same answer for the same
+    # stored facts and switching on never reaches back into history.
+    moderation_ai_attention_from: datetime | None = Field(
+        default=None, alias="MODERATION_AI_ATTENTION_FROM"
+    )
 
     @field_validator("telegram_bot_token", mode="before")
     @classmethod
@@ -122,6 +130,7 @@ class Settings(BaseSettings):
         "moderation_classify_max_attempts",
         "moderation_classify_retry_base_s",
         "moderation_prompt_version",
+        "moderation_ai_attention_from",
         mode="before",
     )
     @classmethod
@@ -134,6 +143,18 @@ class Settings(BaseSettings):
             assert info.field_name is not None
             return cls.model_fields[info.field_name].default
         return value
+
+    @model_validator(mode="after")
+    def _moderation_ai_attention_from_is_timezone_aware(self) -> Settings:
+        # An instant compared with `message_classifications.created_at` (timestamptz): a naive
+        # value would silently mean whatever the container's local zone happens to be.
+        value = self.moderation_ai_attention_from
+        if value is not None and value.utcoffset() is None:
+            raise ValueError(
+                "MODERATION_AI_ATTENTION_FROM must include a timezone offset, e.g. "
+                f"2026-10-04T09:00:00+03:00 (got {value.isoformat()})"
+            )
+        return self
 
     @model_validator(mode="after")
     def _heartbeat_ttl_exceeds_interval(self) -> Settings:

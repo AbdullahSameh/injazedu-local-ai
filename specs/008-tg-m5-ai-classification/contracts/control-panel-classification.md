@@ -37,6 +37,8 @@ content keeps `dir="auto"` per field (FR-060).
 - **Q2.** Nothing else changes: order, live ageing, the dismiss, hand-open and reassign actions, and TG-M4's
   "Open incident" row action. The model's view never filters, sorts or hides a row.
 
+  > **Amended by TG-M5.1 (2026-10-03).** **Q3.** One more column: **Opened by** — "Rule", "Model" or "Operator", the stored `source` labelled (TG-M5.1 FR-109, `specs/009-tg-m5-1-ai-attention/`). Nothing else changes.
+
 ### §2.2 Incidents — list (FR-053)
 
 - **L1.** One column: **Opened by** — "Operator" or "Model".
@@ -111,6 +113,8 @@ measurement."*
 | **Questions** | rule-kept: model agrees needs an answer · rule-dismissed: model would also have flagged · operator-added: model caught the miss · items no model classified, per label · unverified model-only judgements (a count, never a ratio) | C1, C2 |
 | **Violations** | independent flags: model agreed · of those, same category · list-prompted flags: the same, **shown apart** · false-positive closures: model would have raised · model-opened incidents: closed as false positive · listed now | C3, C4 |
 | **What happened to every message** | classified · excluded, by reason · failed, by latest kind · not classified yet | C5 |
+
+> **Amended by TG-M5.1 (2026-10-03).** A **Questions the model opened** section per model block: dismissed as not a real question · answered · still unanswered, each over `model_opened` (C9). Below the rule baseline: "Model-opened and kept: n" (M19, amended). It appears only where the figure is non-zero.
 
 - **A1.** A ratio with a zero denominator reads "no labelled examples" (M21). A model with no predictions in the
   period has no block (M22).

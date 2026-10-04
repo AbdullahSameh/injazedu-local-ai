@@ -340,6 +340,40 @@ trait ClassificationMetrics
     }
 
     /**
+     * C9 (TG-M5.1, `classification-metrics.md` §8a): questions the model opened, and what the
+     * humans did with them — one row per model, never pooled (K3), joined through the item's own
+     * `message_classification_id`. M24: `model_dismissed` over `model_opened` is the pilot's
+     * false-positive gate; `model_kept` are rule misses the model caught (M19, amended).
+     *
+     * @return array<int, object>
+     */
+    private function classificationModelOpenedQuestions(?int $chatId, Carbon $from, Carbon $to): array
+    {
+        return DB::select(
+            <<<'SQL'
+            SELECT c.model_profile_id, c.prompt_version, c.taxonomy_version,
+                   count(*)                                                AS model_opened,
+                   count(*) FILTER (WHERE ai.status = 'dismissed')         AS model_dismissed,
+                   count(*) FILTER (WHERE ai.status <> 'dismissed')        AS model_kept,
+                   count(*) FILTER (WHERE ai.status = 'answered')          AS model_answered,
+                   count(*) FILTER (WHERE ai.status IN ('open','expired')) AS model_unanswered
+            FROM attention_items ai
+            JOIN message_classifications c ON c.id = ai.message_classification_id
+            WHERE ai.source = 'ai'
+              AND ai.opened_at >= :period_from AND ai.opened_at < :period_to
+              AND (:chat_id1::bigint IS NULL OR ai.telegram_chat_id = :chat_id2::bigint)
+            GROUP BY 1, 2, 3
+            SQL,
+            [
+                'period_from' => $from,
+                'period_to' => $to,
+                'chat_id1' => $chatId,
+                'chat_id2' => $chatId,
+            ],
+        );
+    }
+
+    /**
      * C7: TG-M3's `attention-metrics.md` §5 statement, verbatim, with
      * `AND (:chat_id IS NULL OR telegram_chat_id = :chat_id)` added — the baseline the model is
      * compared against, on its own definitions (D-TG-156). Grouped by `rule_version` always (M15);

@@ -72,6 +72,15 @@
                 </tbody>
             </table>
         </div>
+        {{-- M19, amended by TG-M5.1: the recall floor's operator-added count never sees a rule miss the model caught. --}}
+        @php($modelKept = $this->modelKeptQuestions())
+        @if ($modelKept > 0)
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                Model-opened and kept: {{ $modelKept }} — questions the rule set missed and the model opened,
+                which nobody dismissed. They are not in the operator-added count, so the recall floor reads
+                higher while AI-assisted opening is on.
+            </p>
+        @endif
     </div>
 
     {{-- What happened to every message: C5, never grouped by model. --}}
@@ -128,6 +137,16 @@
                 <li>Operator-added, model caught the miss: {{ $this->ratio($block['questions']['operator_added']['judged_needs_response'], $block['questions']['operator_added']['classified']) }}</li>
                 <li>Unverified model-only judgements (a count, never a ratio): {{ $block['questions']['unverified'] }}</li>
             </ul>
+
+            {{-- C9 (TG-M5.1): dismissed ÷ opened is the pilot's false-positive gate for AI-assisted opening. --}}
+            @if ($block['model_questions']['opened'] > 0)
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-4">Questions the model opened</h3>
+                <ul class="text-sm mt-1 space-y-1">
+                    <li>Model-opened, dismissed as not a real question: {{ $this->ratio($block['model_questions']['dismissed'], $block['model_questions']['opened']) }}</li>
+                    <li>Model-opened, answered: {{ $this->ratio($block['model_questions']['answered'], $block['model_questions']['opened']) }}</li>
+                    <li>Model-opened, still unanswered (open or expired): {{ $this->ratio($block['model_questions']['unanswered'], $block['model_questions']['opened']) }}</li>
+                </ul>
+            @endif
 
             <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-4">Violations</h3>
             <ul class="text-sm mt-1 space-y-1">

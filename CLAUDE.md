@@ -1,5 +1,52 @@
 <!-- SPECKIT START -->
-Active feature: **TG-M5 — AI Classification** (`specs/008-tg-m5-ai-classification/`)
+Active feature: **TG-M5.2 — classify_v3 and Model Qualification** (`specs/010-tg-m5-2-classify-v3/`), on top of
+TG-M5.1 (`specs/009-tg-m5-1-ai-attention/`) and TG-M5 (`specs/008-tg-m5-ai-classification/`). Both are below
+and both still hold.
+
+Read first for TG-M5.2:
+
+- `docs/plan/telegram/tg-m5-classify-v3-plan.md`:
+  - §1–§4: root cause. needs_response followed the *topic*, not the *function*;
+  - §14: three e2b tuning rounds hit the stop condition;
+  - §16: e4b measurement.
+- `specs/010-tg-m5-2-classify-v3/spec.md`: FR-201…FR-216, SC-201…SC-208, clarifications (2026-10-04):
+  - Policy S;
+  - one call, not Option B;
+  - the model is qualified on the production host;
+  - tracked exceptions (Option A).
+- `specs/010-tg-m5-2-classify-v3/plan.md`: implementation order and Constitution Check.
+- `specs/010-tg-m5-2-classify-v3/contracts/classify-v3.md`: V1–V7, starting draft F1, freeze protocol (≤ 2
+  rounds), X1–X5.
+- `specs/010-tg-m5-2-classify-v3/contracts/qualification.md`: `make qualify-moderation`, scoring S1–S6, gate
+  Q1–Q12, verdicts, R1–R3, N1–N4.
+- `specs/010-tg-m5-2-classify-v3/research.md`: Findings 10–13 and D-TG-172…181.
+
+TG-M5.2 in one line: **freeze one instruction, qualify the model.**
+- `classify_v3` (opt-in) separates *asking* from *informing*, under Policy S: a bare course statement is a check.
+- v2's advert and abuse wording stays byte-identical, and so does "Always false for SPAM_OR_AD, ABUSE and
+  CHITCHAT.".
+- A read-only command judges one profile-and-instruction pair over every benchmark set. Ambiguous and tracked
+  lines are kept out of the hard gates, and the command prints QUALIFIED, NOT QUALIFIED or INCOMPLETE.
+- Production enables AI Attention only on a QUALIFIED pair.
+- No migration, no schema change, no TG-M5.1 change, no rule change, no PHP change.
+- Development stays on e2b with `classify_v2`.
+
+Read first for TG-M5.1:
+
+- `docs/plan/telegram/tg-m5-1-ai-attention-plan.md` — the approved 15-point analysis (2026-10-03)
+- `specs/009-tg-m5-1-ai-attention/spec.md` — FR-101…FR-112, SC-101…SC-105, four clarifications (2026-10-03)
+- `specs/009-tg-m5-1-ai-attention/contracts/attention-opening.md` — **the** TG-M5.1 contract: the gate (G1–G6),
+  opening (O1–O5), reconciliation (I1–I4), live vs catch-up (L1–L3), time (T1–T4), dual-purpose (D1–D2), the
+  benchmark (B1–B4), never (N1–N6), limitations (§9)
+- `specs/009-tg-m5-1-ai-attention/quickstart.md` — benchmark, switch on (`MODERATION_AI_ATTENTION_FROM`), live
+  check, rollback
+
+TG-M5.1 in one line: **the rule set has the first word; a live prediction may add a second.** When rule set v1
+declines a burst, TG-M3's own `open_item` may open `source='ai'` from a live prediction passing the pure gate
+(`proposes_attention` + `within_attention_window`), on TG-M3's anchor, clock and owner. A late prediction
+re-flags its message through E5's mechanism (`request_rejudgement`, under `chat_lock`); the sweep converges.
+Blank switch = TG-M5 exactly. No migration.
+
 
 Read before working on this feature:
 
@@ -21,7 +68,7 @@ model scripted and no runtime, credential or network.
 TG-M5 puts **the first model** in front of the domain: each eligible message gets one immutable prediction
 (category, needs-response, needs-moderation, severity, self-reported confidence). A confident, coherent violation
 opens a TG-M4 incident (`source='ai'`); an uncertain or self-contradicting one is listed on **Possible
-Violations**; below the floor it waits for TG-M8. **The model opens no question and closes nothing.** Still no
+Violations**; below the floor it waits for TG-M8. **The model opens no question and closes nothing** (TG-M5; since TG-M5.1 a live prediction may open a question the rules declined, through `open_item`, while `MODERATION_AI_ATTENTION_FROM` is set — it still closes nothing). Still no
 alert, no outbound message, no bot action. Alembic revision `0007` is consumed; `0008`–`0009` stay reserved.
 
 The rules that carry this milestone:

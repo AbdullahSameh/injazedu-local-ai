@@ -79,9 +79,9 @@ class ClassificationAccuracy extends Page
     }
 
     /**
-     * One block per `(model_profile_id, prompt_version, taxonomy_version)` seen in C1, C2 or C3
-     * for the current period and group — the union, since a model with a row in only one of the
-     * three still earns a block (M22 applies per figure, not per model).
+     * One block per `(model_profile_id, prompt_version, taxonomy_version)` seen in C1, C2, C3 or
+     * C9 for the current period and group — the union, since a model with a row in only one of
+     * them still earns a block (M22 applies per figure, not per model).
      */
     public function blocks(): Collection
     {
@@ -92,6 +92,7 @@ class ClassificationAccuracy extends Page
         $unverified = collect($this->classificationUnverifiedStats($chatId, $from, $to));
         $violations = collect($this->classificationViolationStats($chatId, $from, $to));
         $listed = collect($this->possibleViolations($chatId, $from, $to));
+        $modelOpened = collect($this->classificationModelOpenedQuestions($chatId, $from, $to));
 
         $keyOf = fn (int|string $modelProfileId, string $promptVersion, int $taxonomyVersion): string => "{$modelProfileId}|{$promptVersion}|{$taxonomyVersion}";
 
@@ -100,10 +101,11 @@ class ClassificationAccuracy extends Page
         $keys = $questions->map(fn (object $r): string => $keyOf($r->model_profile_id, $r->prompt_version, $r->taxonomy_version))
             ->merge($unverified->map(fn (object $r): string => $keyOf($r->model_profile_id, $r->prompt_version, $r->taxonomy_version)))
             ->merge($violations->map(fn (object $r): string => $keyOf($r->model_profile_id, $r->prompt_version, $r->taxonomy_version)))
+            ->merge($modelOpened->map(fn (object $r): string => $keyOf($r->model_profile_id, $r->prompt_version, $r->taxonomy_version)))
             ->unique()
             ->values();
 
-        return $keys->map(function (string $key) use ($questions, $unverified, $violations, $listed, $profileIdsByName): array {
+        return $keys->map(function (string $key) use ($questions, $unverified, $violations, $listed, $modelOpened, $profileIdsByName): array {
             [$modelProfileId, $promptVersion, $taxonomyVersion] = explode('|', $key);
             $modelProfileId = (int) $modelProfileId;
             $taxonomyVersion = (int) $taxonomyVersion;
@@ -124,6 +126,11 @@ class ClassificationAccuracy extends Page
                     && $r->prompt_version === $promptVersion && (int) $r->taxonomy_version === $taxonomyVersion
             );
 
+            $modelOpenedRow = $modelOpened->first(
+                fn (object $r): bool => (int) $r->model_profile_id === $modelProfileId
+                    && $r->prompt_version === $promptVersion && (int) $r->taxonomy_version === $taxonomyVersion
+            );
+
             $listedNow = $listed->filter(
                 fn (object $r): bool => ($profileIdsByName[$r->model] ?? null) === $modelProfileId
                     && $r->prompt_version === $promptVersion
@@ -138,6 +145,13 @@ class ClassificationAccuracy extends Page
                     'rule_dismissed' => $this->questionLabel($questionRows, 'rule_dismissed'),
                     'operator_added' => $this->questionLabel($questionRows, 'operator_added'),
                     'unverified' => (int) ($unverifiedRow->unverified_needs_response ?? 0),
+                ],
+                'model_questions' => [
+                    'opened' => (int) ($modelOpenedRow->model_opened ?? 0),
+                    'dismissed' => (int) ($modelOpenedRow->model_dismissed ?? 0),
+                    'kept' => (int) ($modelOpenedRow->model_kept ?? 0),
+                    'answered' => (int) ($modelOpenedRow->model_answered ?? 0),
+                    'unanswered' => (int) ($modelOpenedRow->model_unanswered ?? 0),
                 ],
                 'violations' => [
                     'indep_flags' => (int) ($violationRow->indep_flags ?? 0),
@@ -198,6 +212,20 @@ class ClassificationAccuracy extends Page
             })
             ->filter(fn (array $row): bool => $row['rule_opened'] > 0 || $row['operator_added'] > 0)
             ->values();
+    }
+
+    /**
+     * M19, amended by TG-M5.1: questions the model opened that nobody dismissed are rule misses
+     * the model caught — they never reach the recall floor's operator-added count, so the floor
+     * reads higher with AI-assisted opening on. A count of items (one per anchor), shown beside
+     * the baseline; C9's per-model rows are its only source.
+     */
+    public function modelKeptQuestions(): int
+    {
+        [$from, $to] = $this->periodBounds();
+
+        return (int) collect($this->classificationModelOpenedQuestions($this->scopedChatId(), $from, $to))
+            ->sum(fn (object $row): int => (int) $row->model_kept);
     }
 
     /** A1, M21: "no labelled examples" over a zero denominator — never `0/0`. */

@@ -1633,6 +1633,13 @@ own linked channel's automatic forwards, which this milestone's plan text above 
 the model opens no question item anywhere in this pipeline: its needs-response judgement is
 measured against the rule set's own items, never acted on (the second clarification).
 
+**Amendment (TG-M5.1, 2026-10-03).** On the evidence TG-M5 produced (`classify_v2` judges implicit
+questions such as «في محاضرة اليوم» as needing an answer; the rule set, kept to clear question forms,
+cannot), a **live** prediction may now open a question item **the rule set declined** — through TG-M3's own
+`open_item`, on the same anchor, clock and owner, behind the dated switch `MODERATION_AI_ATTENTION_FROM`
+(blank = the TG-M5 behaviour above). Catch-up stays measurement only. Plan of record:
+`docs/plan/telegram/tg-m5-1-ai-attention-plan.md`; spec and contract: `specs/009-tg-m5-1-ai-attention/`.
+
 ---
 
 ### TG-M6 — Alerts *(~3 days)*
