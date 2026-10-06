@@ -196,6 +196,7 @@ replaces a second definition the command would otherwise need (D-TG-178).
 | Analysis, tuning and the larger-model measurement | ✅ 2026-10-04 (plan of record §1–§16) |
 | Spec and clarifications | ✅ 2026-10-04 |
 | Plan: research, data model, contracts, quickstart | ✅ 2026-10-04 |
-| Tasks | ⏳ `/speckit-tasks` |
-| Implementation and the development reference qualification | ⏳ |
-| Fresh sample, label review, production-host qualification, pilot | ⏳ operator |
+| Tasks | ✅ 2026-10-04 |
+| Implementation and the development reference qualification | ✅ Phases 1–3 (qualification) · ⛔ Phase 4 stopped under FR-216 (F1, F2) |
+| Fresh sample, label review, production-host qualification, pilot | ⛔ not for v3. The label review and fresh sample carry over to TG-M5.3 |
+| Closure | **Stopped under FR-216 (2026-10-06).** The provisional `classify_v3` was removed; development is back on e2b + `classify_v2`. Next: `docs/plan/telegram/tg-m5-3-attention-judgement-plan.md` |

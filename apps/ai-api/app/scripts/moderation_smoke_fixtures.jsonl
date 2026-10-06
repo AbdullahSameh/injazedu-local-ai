@@ -8,5 +8,5 @@
 {"text": "الله يعطيكم العافية على المجهود 🙏", "category": "CHITCHAT", "needs_moderation": false}
 {"text": "عندي كورس خصوصي بسعر مميز تواصلوا معي بالخاص", "category": "SPAM_OR_AD", "needs_moderation": true}
 {"text": "انضموا لقناتنا لتعلم التداول واستثمار فلوسكم", "category": "SPAM_OR_AD", "needs_moderation": true}
-{"text": "انتوا نصابين وحرامية ما تستاهلوا فلوسنا", "category": "ABUSE", "needs_moderation": true}
+{"text": "انتوا نصابين وحرامية ما تستاهلوا فلوسنا", "category": "ABUSE", "needs_moderation": true, "tracked": "label-review"}
 {"text": "حد يعرف مطعم كويس قريب من مركز الرياض؟", "category": "OTHER", "needs_moderation": false}

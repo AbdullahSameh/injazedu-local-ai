@@ -8,13 +8,25 @@ tests use `injaz_ai_test` only.
 
 **Git**: none by the agent (constitution IV). Tasks marked *(operator)* are the operator's.
 
+> **Stopped under FR-216 (2026-10-06).** T024's second round failed, so `classify_v3` never froze.
+> - **Removed 2026-10-06:** `classify_v3.md`, its allowlist entry and pin, and its v3-only tests. Kept: the
+>   every-instruction G4 test.
+> - **Development runtime restored:** the e2b profile active, `classify_v2`. The e4b profile stays registered,
+>   inactive, and its model stays installed.
+> - **Not run:** Phase 5 (no freeze), T028, T032–T034 and T037 (all v3-specific).
+> - **Still valid, carried to TG-M5.3:** T029 (the label review of shipped #11), T030 (the no-link rule exit)
+>   and T031 (external annotations and the fresh sample).
+> - **Next:** `docs/plan/telegram/tg-m5-3-attention-judgement-plan.md`.
+
 **Paths**: `apps/ai-api/…`. Tests live under `apps/ai-api/tests/moderation/classification/`. Run them with
 `cd apps/ai-api && uv run pytest <path>`.
 
 ## Phase 1: Setup
 
-- [ ] T001 Run `make check` with Ollama quit, and record that the suite is green before any change (baseline
+- [X] T001 Run `make check` with Ollama quit, and record that the suite is green before any change (baseline
   for SC-208). Repository root, no file change.
+  - *Done 2026-10-04, with Ollama running. Not green: 4 pre-existing `test_secret_scan.py` failures. See
+    research §2 "Baseline before any change".*
 
 ---
 
@@ -23,7 +35,7 @@ tests use `injaz_ai_test` only.
 **Purpose**: the qualification command, the freeze and the held-out run all depend on one per-fixture judgement
 path (D-TG-178) and on validated fixture keys (data-model §1).
 
-- [ ] T002 [P] Write failing tests for fixture-key validation in
+- [X] T002 [P] Write failing tests for fixture-key validation in
   `apps/ai-api/tests/moderation/classification/test_qualification_fixtures.py`:
   - a missing `label_class` defaults to `clear`; `ambiguous` is accepted;
   - an unknown `label_class` or `tracked` value is refused, and the error names the set and line but never the
@@ -31,27 +43,28 @@ path (D-TG-178) and on validated fixture keys (data-model §1).
   - `label_class` on a moderation fixture is refused;
   - `tracked` ∈ {`no-link-rule`, `label-review`};
   - blank lines are skipped, and numbering matches the smokes' `#N`.
-- [ ] T003 [P] Extract `async judge_attention_fixture(gateway, fixture, *, line, prompt_version, floor,
+- [X] T003 [P] Extract `async judge_attention_fixture(gateway, fixture, *, line, prompt_version, floor,
   threshold) -> tuple[AttentionRow, int | None]` from `_run` in `apps/ai-api/app/scripts/smoke_attention.py`.
   - The calls stay the same, in the same order: normalise, `evaluate`, `eligibility`, model, `route_prediction`
     (live), `proposes_attention`.
   - The function returns the row and `latency_ms`. `_run` keeps its printing and exit code byte-for-byte.
   - `test_attention_smoke_scoring.py` must stay green.
-- [ ] T004 [P] Extract `async judge_moderation_fixture(gateway, fixture, *, line, prompt_version, floor,
+- [X] T004 [P] Extract `async judge_moderation_fixture(gateway, fixture, *, line, prompt_version, floor,
   threshold) -> tuple[SmokeRow, int | None]` from `_run` in `apps/ai-api/app/scripts/smoke_moderation.py`, the
   same way. `test_smoke_scoring.py` must stay green.
-- [ ] T005 Implement fixture loading and validation:
+- [X] T005 Implement fixture loading and validation:
   - `load_fixture_lines(path, kind) -> list[tuple[int, dict]]` and `FixtureError` in
     `apps/ai-api/app/scripts/qualify_moderation.py`, a new module with only these at this point;
   - the constants `LABEL_CLASSES = ("clear", "ambiguous")`, `TRACKED_DISPOSITIONS = ("no-link-rule",
     "label-review")` and `TRACKED_LIMIT = 2`.
 
   Make T002 pass.
-- [ ] T006 [P] Annotate the shipped synthetic sets. Add keys only, never change a label (D-TG-177):
+- [X] T006 [P] Annotate the shipped synthetic sets. Add keys only, never change a label (D-TG-177):
   - `apps/ai-api/app/scripts/attention_smoke_fixtures.jsonl` #4, #5, #6: add `"label_class": "ambiguous"`;
   - `apps/ai-api/app/scripts/moderation_smoke_fixtures.jsonl` #11: add `"tracked": "label-review"`.
 
   Then confirm that `make smoke-attention` and `make smoke-moderation` still load both files.
+  - *Done: both smokes, on the rebuilt image and pinned to e2b + `classify_v2`, judged all 15 and 12 lines.*
 
 **Checkpoint**: the smokes are unchanged in behaviour, the shared judgement is reusable, and the fixture keys
 are validated.
@@ -68,7 +81,7 @@ prints every gate line, and exits 1, 2 or 0 to match its verdict.
 
 ### Tests for User Story 4
 
-- [ ] T007 [P] [US4] Write failing pure tests for scoring S1–S6 in
+- [X] T007 [P] [US4] Write failing pure tests for scoring S1–S6 in
   `apps/ai-api/tests/moderation/classification/test_qualification_scoring.py`. Build scripted
   `AttentionRow`/`SmokeRow` lists and cover:
   - clear positives with no opener, counting `none` and `excluded` as missed;
@@ -79,7 +92,7 @@ prints every gate line, and exits 1, 2 or 0 to match its verdict.
     pass/fail;
   - the repeat comparison, counting differing lines over needs-response, needs-moderation, category and route;
   - median and p95 latency.
-- [ ] T008 [P] [US4] Write failing pure tests for the gate and verdict in the same file:
+- [X] T008 [P] [US4] Write failing pure tests for the gate and verdict in the same file:
   - each of Q1–Q12 at its boundary: Q2 at 1 vs 2, Q4 at 1 vs 2, Q7 at false negatives 1 vs 2, Q10 at
     10,000 vs 10,001 ms, Q12 at 2 vs 3 tracked lines;
   - `NOT RUN` when a required set is missing, giving `INCOMPLETE`;
@@ -90,13 +103,13 @@ prints every gate line, and exits 1, 2 or 0 to match its verdict.
 
 ### Implementation for User Story 4
 
-- [ ] T009 [US4] Implement the pure parts in `apps/ai-api/app/scripts/qualify_moderation.py`:
+- [X] T009 [US4] Implement the pure parts in `apps/ai-api/app/scripts/qualify_moderation.py`:
   - the `SetSpec`, `SetResult`, `ClassSplit`, `TrackedLine` and `GateLine` dataclasses;
   - `split_by_label_class()`, `moderation_gated()`, `compare_runs()`, `latency_percentiles()`,
     `evaluate_gate()`, `verdict()` and `format_report()`, exactly as `contracts/qualification.md` §3–§5 says.
 
   Make T007 and T008 pass.
-- [ ] T010 [US4] Implement `discover_sets(fixtures_dir) -> list[SetSpec]` in the same file, per data-model §2:
+- [X] T010 [US4] Implement `discover_sets(fixtures_dir) -> list[SetSpec]` in the same file, per data-model §2:
   - `real-attention*.jsonl` (sorted) and the shipped attention set → tuning;
   - `attention_smoke_heldout_fixtures.jsonl` → held-out, required;
   - `fresh-attention.jsonl` → fresh sample, required for `QUALIFIED`;
@@ -105,7 +118,7 @@ prints every gate line, and exits 1, 2 or 0 to match its verdict.
 
   Add a pure test to `test_qualification_fixtures.py` over a temporary directory, covering both present and
   missing sets.
-- [ ] T011 [US4] Implement `async _run(argv)` and `main()` in the same file.
+- [X] T011 [US4] Implement `async _run(argv)` and `main()` in the same file.
   - **Arguments:** `--profile` (required), `--prompt` (an allowlist choice, default the configured one),
     `--fixtures-dir` and `--repeat` (default 2).
   - **Wiring:** resolve with `_PinnedRegistry`; reuse `_fail_if_unreachable` from `smoke_moderation`; use a
@@ -114,7 +127,7 @@ prints every gate line, and exits 1, 2 or 0 to match its verdict.
     `judge_moderation_fixture`.
   - **Output:** the smokes' per-line format for run 1 only, then `format_report()`, then the exit code (C5).
   - No text in any output (C3).
-- [ ] T012 [US4] Add a `qualify-moderation` target to `Makefile`:
+- [X] T012 [US4] Add a `qualify-moderation` target to `Makefile`:
 
   ```sh
   $(COMPOSE) --profile tools run --rm -T -v "$(FIXTURES_DIR)":/fixtures:ro migrate \
@@ -123,7 +136,7 @@ prints every gate line, and exits 1, 2 or 0 to match its verdict.
   ```
 
   Add it to `.PHONY` with a `##` help line, and refuse to run when `PROFILE` or `FIXTURES_DIR` is empty.
-- [ ] T013 [US4] Rebuild the tools image and run the development baseline:
+- [X] T013 [US4] Rebuild the tools image and run the development baseline:
 
   ```sh
   make qualify-moderation PROFILE=ollama-gemma4-e2b-moderation PROMPT=classify_v2 FIXTURES_DIR=~/Projects/injaz-m5-fixtures
@@ -133,6 +146,8 @@ prints every gate line, and exits 1, 2 or 0 to match its verdict.
   are `NOT RUN`. Record the counts only in `specs/010-tg-m5-2-classify-v3/research.md` §2.
   - Until the operator annotates the external sets (T031), their lines count as `clear`. Note that in the
     record.
+  - *Done 2026-10-04: `NOT QUALIFIED`. Q1 fails at 14, Q3 at 2, and Q2, Q4 and Q9 are `NOT RUN` (research
+    §2).*
 
 **Checkpoint**: qualification works end to end and writes nothing. US1–US3 can now be measured.
 
@@ -151,34 +166,34 @@ reading.
 
 ### Tests for User Stories 1–3
 
-- [ ] T014 [P] [US1] Write failing tests in `apps/ai-api/tests/moderation/classification/test_prompt_pinned.py`:
+- [X] T014 [P] [US1] Write failing tests in `apps/ai-api/tests/moderation/classification/test_prompt_pinned.py`:
   - `classify_v3` is in `PROMPT_VERSIONS` and has a file and a pin;
   - the v1 and v2 pins are unchanged;
   - **every** pinned instruction contains `Always false for SPAM_OR_AD, ABUSE and CHITCHAT.` verbatim (V4).
-- [ ] T015 [P] [US1] Write failing tests in `test_prompt_version.py` and `test_config_classification.py`:
+- [X] T015 [P] [US1] Write failing tests in `test_prompt_version.py` and `test_config_classification.py`:
   - `MODERATION_PROMPT_VERSION=classify_v3` is accepted;
   - the default is still `classify_v1`, and blank means the default;
   - an unknown value is refused at startup.
-- [ ] T016 [P] [US1] Write failing tests in `test_model_input.py` and `test_classify_one.py`:
+- [X] T016 [P] [US1] Write failing tests in `test_model_input.py` and `test_classify_one.py`:
   - with `classify_v3` configured, `system` equals `classify_v3.md`'s bytes, `user` is the redacted text, and
     nothing else is sent;
   - a live prediction stores `prompt_version='classify_v3'` (on `injaz_ai_test`);
   - catch-up under v3 is still `measurement_only`.
-- [ ] T017 [P] [US3] Write a failing test in `test_prompt_pinned.py` that every v2 line V3 names (intro, group
+- [X] T017 [P] [US3] Write a failing test in `test_prompt_pinned.py` that every v2 line V3 names (intro, group
   rule, "Judge what the whole message is for…", COMPLAINT, CHITCHAT, SPAM_OR_AD, ABUSE, needs_moderation,
   severity, confidence and the final line) appears byte-identically in `classify_v3.md`.
-- [ ] T018 [P] [US1] Write a failing test that `classify_v3.md` is at most `len(classify_v2.md) + 1200`
+- [X] T018 [P] [US1] Write a failing test that `classify_v3.md` is at most `len(classify_v2.md) + 1200`
   characters (V6), in `test_prompt_pinned.py`.
 
 ### Implementation for User Stories 1–3
 
-- [ ] T019 [US1] Create `apps/ai-api/app/prompts/moderation/classify_v3.md` as the F1 starting draft: v2's text
+- [X] T019 [US1] Create `apps/ai-api/app/prompts/moderation/classify_v3.md` as the F1 starting draft: v2's text
   with exactly the insertion and four replacements listed in `contracts/classify-v3.md` §2. Use no other edit,
   and build it from v2's bytes by script, not by retyping.
-- [ ] T020 [US1] Add `"classify_v3"` to `ModerationPromptVersion` in `apps/ai-api/app/infrastructure/config.py`,
+- [X] T020 [US1] Add `"classify_v3"` to `ModerationPromptVersion` in `apps/ai-api/app/infrastructure/config.py`,
   leaving the default `classify_v1`. Pin v3's SHA-256 **provisionally** in `test_prompt_pinned.py`. Make
   T014–T018 pass.
-- [ ] T021 [US1] F1. Rebuild the tools image and run:
+- [X] T021 [US1] F1. Rebuild the tools image and run:
 
   ```sh
   make qualify-moderation PROFILE=ollama-gemma4-e4b-moderation PROMPT=classify_v3 FIXTURES_DIR=~/Projects/injaz-m5-fixtures
@@ -186,20 +201,28 @@ reading.
 
   Run the same with `PROFILE=ollama-gemma4-e2b-moderation`, for information only. Record the counts in
   `research.md` §2: Q1, Q3, Q5–Q8, Q10, Q11, the ambiguous count and the tracked lines.
-- [ ] T022 [US2] Read F1 for US2. Q3 = 0 on e4b, and the ambiguous "answered true" count is recorded beside P2's
+  - *Done 2026-10-04 (research §2 "F1"): e4b `NOT QUALIFIED`. Q1 fails at 1 (extra #15). Under plan §13's
+    proposed annotations, every other tuning gate passes. e2b `NOT QUALIFIED`, for information.*
+- [X] T022 [US2] Read F1 for US2. Q3 = 0 on e4b, and the ambiguous "answered true" count is recorded beside P2's
   15/23. If Q3 fails where P2 passed, mark F2 as needed.
-- [ ] T023 [US3] Read F1 for US3:
+  - *Done: Q3 = 0 under the proposed annotations (all 7 misses are proposed-ambiguous); ambiguous 14/23.*
+- [X] T023 [US3] Read F1 for US3:
   - Q5–Q7 on e4b pass, with real moderation #1 and shipped #11 shown as tracked;
   - no legitimate line is routed to `incident`.
 
   If any of these fails where P2 passed, mark F2 as needed.
-- [ ] T024 [US1] Decide: freeze, or run F2.
+  - *Done: Q5–Q7 pass with #1 and #11 tracked; no legitimate line → `incident`.*
+- [X] T024 [US1] Decide: freeze, or run F2.
   - If F1's tuning gates pass on e4b, the provisional pin is final.
   - Otherwise make **one** F2 edit to `classify_v3.md` that only moves the failing sentence back toward P2's
     measured text (plan §16), re-pin, re-run T021, and freeze if it passes.
   - If F2 also fails, **stop** and report per FR-216, with no further rounds.
 
   Record the decision and the final SHA-256 in `research.md` §2.
+  - *Done 2026-10-04: **stopped under FR-216.** F1 failed Q1. F2, the operator's choice of edit (drop the
+    mixed sentence), failed Q1 (extra #15) and Q6 (shipped #12 → `incident`). No hash is final: the working
+    tree held F2 under a provisional pin only; it was removed on 2026-10-06 (contract §3 step 1). See
+    research §2 "F2 and the stop" and "Closure".*
 
 **Checkpoint**: `classify_v3` is frozen and pinned. US1–US3's tuning gates pass on e4b (or the milestone has
 stopped under FR-216).
@@ -207,6 +230,10 @@ stopped under FR-216).
 ---
 
 ## Phase 5: User Story 5 — Checked on cases nobody tuned against (Priority: P2)
+
+> **Blocked (2026-10-04):** T024 stopped under FR-216 and no hash is final, so the held-out set is not
+> written. T025's test was drafted and then removed from the suite, because it fails while the file is
+> absent. It can be restored when a freeze happens.
 
 **Goal**: a held-out synthetic set written after the freeze and run once (FR-209, data-model §3).
 

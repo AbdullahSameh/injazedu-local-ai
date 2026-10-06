@@ -3,6 +3,12 @@ Active feature: **TG-M5.2 — classify_v3 and Model Qualification** (`specs/010-
 TG-M5.1 (`specs/009-tg-m5-1-ai-attention/`) and TG-M5 (`specs/008-tg-m5-ai-classification/`). Both are below
 and both still hold.
 
+> **Status (2026-10-06): TG-M5.2 is stopped under FR-216.** `classify_v3` never froze: F1 and F2 failed on
+> e4b (010 `research.md` §2), and the provisional file was removed, so the allowlist is `classify_v1` and
+> `classify_v2` again. Kept: `make qualify-moderation`, the fixture keys and the gate. Development runs e2b +
+> `classify_v2`; the e4b profile stays registered (inactive) and installed. Next: TG-M5.3, plan only, at
+> `docs/plan/telegram/tg-m5-3-attention-judgement-plan.md`, awaiting approval.
+
 Read first for TG-M5.2:
 
 - `docs/plan/telegram/tg-m5-classify-v3-plan.md`:

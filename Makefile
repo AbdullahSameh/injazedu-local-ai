@@ -1,4 +1,4 @@
-.PHONY: doctor up down down-hard logs health migrate migrate-down seed-profiles profiles seed-admin psql check test-db-reset mem-report automation-up logs-ui smoke-llm smoke-moderation smoke-attention test-llm check-lane tg-doctor
+.PHONY: doctor up down down-hard logs health migrate migrate-down seed-profiles profiles seed-admin psql check test-db-reset mem-report automation-up logs-ui smoke-llm smoke-moderation smoke-attention qualify-moderation test-llm check-lane tg-doctor
 
 COMPOSE := docker compose -f infra/docker-compose.yml --env-file .env
 
@@ -103,6 +103,22 @@ smoke-attention: ## Benchmark needs_response on FIXTURES=<path outside the repo>
 	else \
 		$(COMPOSE) --profile tools run --rm migrate python -m app.scripts.smoke_attention $(ARGS); \
 	fi
+
+# `~/…` is expanded here: zsh leaves `FIXTURES_DIR=~/…` unexpanded on the command line.
+_QUALIFY_FIXTURES = $(abspath $(patsubst ~/%,$(HOME)/%,$(FIXTURES_DIR)))
+
+qualify-moderation: ## Qualify PROFILE=<profile> [PROMPT=<version>] over FIXTURES_DIR=<dir outside the repo> [REPEAT=2]; read-only (TG-M5.2)
+	@if [ -z "$(PROFILE)" ] || [ -z "$(FIXTURES_DIR)" ]; then \
+		echo "usage: make qualify-moderation PROFILE=<profile> FIXTURES_DIR=<dir outside the repo> [PROMPT=<version>] [REPEAT=2]" >&2; \
+		exit 2; \
+	fi
+	@if [ ! -d "$(_QUALIFY_FIXTURES)" ]; then \
+		echo "qualify-moderation: no fixtures directory at $(_QUALIFY_FIXTURES)" >&2; \
+		exit 2; \
+	fi
+	$(COMPOSE) --profile tools run --rm -T -v "$(_QUALIFY_FIXTURES)":/fixtures:ro migrate \
+		python -m app.scripts.qualify_moderation --profile $(PROFILE) $(if $(PROMPT),--prompt $(PROMPT)) \
+		--fixtures-dir /fixtures --repeat $(or $(REPEAT),2)
 
 test-llm: ## Run only @pytest.mark.llm tests — the ones `make check` excludes (FR-027)
 	(cd apps/ai-api && uv run pytest -m llm)

@@ -1,6 +1,8 @@
 # Contract: the `classify_v3` instruction
 
-**Feature**: `specs/010-tg-m5-2-classify-v3` · **Status**: durable once frozen. The frozen bytes are copied into
+**Feature**: `specs/010-tg-m5-2-classify-v3` · **Status**: **never frozen. Stopped under FR-216 (2026-10-06).** F1 and F2 both
+failed (`research.md` §2), and the provisional file was removed. This contract stays as the record of what was
+tried. Nothing below is in force. As written before the stop: durable once frozen. The frozen bytes are copied into
 `specs/008-tg-m5-ai-classification/contracts/classification-pipeline.md` §2b (D-TG-181). Until then, this
 contract states what the file must satisfy and how it is frozen.
 

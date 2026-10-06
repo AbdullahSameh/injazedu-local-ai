@@ -1,5 +1,8 @@
 # Quickstart: TG-M5.2 — classify_v3 and Model Qualification
 
+> **Stopped under FR-216 (2026-10-06).** `classify_v3` does not exist, so every v3 step below is void. `make qualify-moderation` still
+> works with `classify_v1` and `classify_v2`, and §2's annotations still apply. Next: `docs/plan/telegram/tg-m5-3-attention-judgement-plan.md`.
+
 Who does each step is marked: **(agent)** is implementation, **(operator)** is you. Git stays yours
 (constitution IV).
 

@@ -26,7 +26,9 @@ import json
 import sys
 import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -52,7 +54,7 @@ from app.domain.moderation.classification import (
 )
 from app.infrastructure.config import load_settings
 from app.providers.llm.base import StructuredRequest
-from app.scripts.smoke_moderation import _fail_if_unreachable, _PinnedRegistry
+from app.scripts.smoke_moderation import _fail_if_unreachable, _PinnedRegistry, _report_error
 
 _SHIPPED_FIXTURES = Path(__file__).resolve().parent / "attention_smoke_fixtures.jsonl"
 _OPENERS: tuple[str, ...] = ("rule", "model", "none", "excluded", "error")
@@ -71,6 +73,8 @@ class AttentionRow:
     excluded: str | None = None
     predicted_needs_response: bool | None = None
     predicted_category: str | None = None
+    predicted_needs_moderation: bool | None = None
+    confidence: float | None = None
     route: str | None = None
     model_proposes: bool | None = None
     error: str | None = None
@@ -184,6 +188,25 @@ def format_summary(summary: AttentionSummary) -> list[str]:
     ]
 
 
+def format_row(row: AttentionRow, latency_ms: int | None) -> str:
+    """One judged fixture's line — line number, labels, the model's answer, route and opener;
+    never text. An error row has no line of its own: its error is reported as it happens."""
+    rule = "opens" if row.rule_opens else "declines"
+    if row.excluded is not None:
+        return (
+            f"[{'OK' if row.matched else 'MISMATCH'}] #{row.line} "
+            f"expected={row.expected_needs_response} excluded={row.excluded} rule={rule} "
+            f"opener={row.opener}"
+        )
+    status = "OK" if row.matched else ("FN" if row.expected_needs_response else "FP")
+    return (
+        f"[{status}] #{row.line} expected={row.expected_needs_response} "
+        f"predicted={row.predicted_needs_response} category={row.predicted_category} "
+        f"confidence={row.confidence} route={row.route} rule={rule} opener={row.opener} "
+        f"latency_ms={latency_ms}"
+    )
+
+
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -223,6 +246,81 @@ def _facts(text: str | None) -> MessageFacts:
     )
 
 
+async def judge_attention_fixture(
+    gateway: Gateway,
+    fixture: dict[str, Any],
+    *,
+    line: int,
+    prompt_version: str,
+    floor: Decimal,
+    threshold: Decimal,
+    report_error: Callable[[int, str], None] | None = None,
+) -> tuple[AttentionRow, int | None]:
+    """Judges one attention fixture the way live traffic is, as a one-message burst: normalise,
+    the rule set (`evaluate`), eligibility, the model, `route_prediction` (live), then
+    `proposes_attention` — each the real function (N7), shared by this smoke and the
+    qualification (D-TG-178). Returns the row and the call's latency in milliseconds, `None` when
+    no answer came back. A failure is an error row, never a prediction; its detail goes only to
+    `report_error`, and only when one is given."""
+    expected: bool = fixture["needs_response"]
+    text = normalize(fixture["text"])
+    rule_opens = evaluate([text])
+    base = AttentionRow(
+        line=line,
+        expected_needs_response=expected,
+        expected_category=fixture.get("category"),
+        rule_opens=rule_opens,
+    )
+
+    reason = eligibility(_facts(text))
+    if reason is not None:
+        return replace(base, excluded=reason), None
+
+    model_input = build_model_input(text, prompt_version=prompt_version)
+    started = time.monotonic()
+    try:
+        response = await gateway.generate_structured(
+            StructuredRequest(messages=model_input, schema_model=MessageClassificationResult),
+            role="moderation",
+        )
+    except GatewayError as exc:
+        if report_error is not None:
+            report_error(line, f"{type(exc).__name__}: {exc}")
+        return replace(base, error=type(exc).__name__), None
+    latency_ms = int((time.monotonic() - started) * 1000)
+    answer = response.value
+    if not 0 <= answer.confidence <= 1:
+        if report_error is not None:
+            report_error(line, "confidence_out_of_range")
+        return replace(base, error="confidence_out_of_range"), latency_ms
+
+    prediction = Prediction(
+        category=answer.category,
+        needs_response=answer.needs_response,
+        needs_moderation=answer.needs_moderation,
+        severity=answer.severity,
+        confidence=quantise(answer.confidence),
+    )
+    route, route_reason = route_prediction(
+        prediction, floor=floor, threshold=threshold, path="live"
+    )
+    row = replace(
+        base,
+        predicted_needs_response=answer.needs_response,
+        predicted_category=answer.category,
+        predicted_needs_moderation=answer.needs_moderation,
+        confidence=answer.confidence,
+        route=f"{route}/{route_reason}" if route_reason else route,
+        model_proposes=proposes_attention(
+            path="live",
+            route=route,
+            needs_response=answer.needs_response,
+            category=answer.category,
+        ),
+    )
+    return row, latency_ms
+
+
 async def _run(argv: list[str]) -> None:
     args = _parse_args(argv)
     fixtures = _load_fixtures()
@@ -258,76 +356,18 @@ async def _run(argv: list[str]) -> None:
     rows: list[AttentionRow] = []
 
     for line, fixture in enumerate(fixtures, start=1):
-        expected: bool = fixture["needs_response"]
-        expected_category: str | None = fixture.get("category")
-        text = normalize(fixture["text"])
-        rule_opens = evaluate([text])
-        base = AttentionRow(
+        row, latency_ms = await judge_attention_fixture(
+            gateway,
+            fixture,
             line=line,
-            expected_needs_response=expected,
-            expected_category=expected_category,
-            rule_opens=rule_opens,
-        )
-
-        reason = eligibility(_facts(text))
-        if reason is not None:
-            row = replace(base, excluded=reason)
-            rows.append(row)
-            print(
-                f"[{'OK' if row.matched else 'MISMATCH'}] #{line} expected={expected} "
-                f"excluded={reason} rule={'opens' if rule_opens else 'declines'} "
-                f"opener={row.opener}"
-            )
-            continue
-
-        model_input = build_model_input(text, prompt_version=prompt_version)
-        started = time.monotonic()
-        try:
-            response = await gateway.generate_structured(
-                StructuredRequest(messages=model_input, schema_model=MessageClassificationResult),
-                role="moderation",
-            )
-        except GatewayError as exc:
-            print(f"  ERROR #{line}: {type(exc).__name__}: {exc}", file=sys.stderr)
-            rows.append(replace(base, error=type(exc).__name__))
-            continue
-        latency_ms = int((time.monotonic() - started) * 1000)
-        answer = response.value
-        if not 0 <= answer.confidence <= 1:
-            print(f"  ERROR #{line}: confidence_out_of_range", file=sys.stderr)
-            rows.append(replace(base, error="confidence_out_of_range"))
-            continue
-
-        prediction = Prediction(
-            category=answer.category,
-            needs_response=answer.needs_response,
-            needs_moderation=answer.needs_moderation,
-            severity=answer.severity,
-            confidence=quantise(answer.confidence),
-        )
-        route, route_reason = route_prediction(
-            prediction, floor=floor, threshold=threshold, path="live"
-        )
-        row = replace(
-            base,
-            predicted_needs_response=answer.needs_response,
-            predicted_category=answer.category,
-            route=f"{route}/{route_reason}" if route_reason else route,
-            model_proposes=proposes_attention(
-                path="live",
-                route=route,
-                needs_response=answer.needs_response,
-                category=answer.category,
-            ),
+            prompt_version=prompt_version,
+            floor=floor,
+            threshold=threshold,
+            report_error=_report_error,
         )
         rows.append(row)
-        status = "OK" if row.matched else ("FN" if expected else "FP")
-        print(
-            f"[{status}] #{line} expected={expected} predicted={answer.needs_response} "
-            f"category={answer.category} confidence={answer.confidence} route={row.route} "
-            f"rule={'opens' if rule_opens else 'declines'} opener={row.opener} "
-            f"latency_ms={latency_ms}"
-        )
+        if row.error is None:
+            print(format_row(row, latency_ms))
 
     await engine.dispose()
 

@@ -1,9 +1,9 @@
 {"text": "متى يبدأ الترم الجديد؟", "needs_response": true, "category": "QUESTION_COURSE"}
 {"text": "عندي مشكلة في الدفع", "needs_response": true, "category": "QUESTION_ACCESS"}
 {"text": "المحاضرة الجاية اونلاين ولا حضوري", "needs_response": true, "category": "QUESTION_COURSE"}
-{"text": "الملزمة الجديدة نزلت", "needs_response": true, "category": "QUESTION_COURSE"}
-{"text": "الامتحان النهائي بكرة", "needs_response": true, "category": "QUESTION_COURSE"}
-{"text": "التسجيل في الدورة لسه مفتوح", "needs_response": true, "category": "QUESTION_COURSE"}
+{"text": "الملزمة الجديدة نزلت", "needs_response": true, "category": "QUESTION_COURSE", "label_class": "ambiguous"}
+{"text": "الامتحان النهائي بكرة", "needs_response": true, "category": "QUESTION_COURSE", "label_class": "ambiguous"}
+{"text": "التسجيل في الدورة لسه مفتوح", "needs_response": true, "category": "QUESTION_COURSE", "label_class": "ambiguous"}
 {"text": "الدورة مو ظاهرة في حسابي", "needs_response": true, "category": "QUESTION_ACCESS"}
 {"text": "حاولت ادخل المنصة وما زبط معي", "needs_response": true, "category": "QUESTION_ACCESS"}
 {"text": "محاضرة امس كانت ممتعة جدا", "needs_response": false}

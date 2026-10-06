@@ -3,7 +3,10 @@
 **Feature Branch**: none created. Git is operator-owned (constitution IV), so the work sits on
 `m5/ai-classification`.
 **Created**: 2026-10-04
-**Status**: Draft
+**Status**: **Stopped under FR-216 (2026-10-06).** `classify_v3` never froze: F1 and F2 both failed tuning gates on the e4b
+reference profile (`research.md` §2). The provisional file, allowlist entry, pin and v3-only tests were
+removed. The qualification command, the fixture keys and the gate stay. The next step, a separate
+needs-response judgement (FR-216, plan §15 Option B), is planned in `docs/plan/telegram/tg-m5-3-attention-judgement-plan.md`.
 **Input**: "Based on this session and the `docs/plan/telegram/tg-m5-classify-v3-plan.md` plan, start specifying
 TG-M5.2." That is the operator's request of 2026-10-04. The plan of record is
 `docs/plan/telegram/tg-m5-classify-v3-plan.md`: root cause §1–§4, decisions §5, tuning outcome §14, options §15,

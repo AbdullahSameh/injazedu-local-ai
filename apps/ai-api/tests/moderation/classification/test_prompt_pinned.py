@@ -3,6 +3,10 @@ pipeline.md` §2 and §2a, D-TG-136, D-TG-163): a new wording is a new file and 
 an edit. The selectable versions (`MODERATION_PROMPT_VERSION`'s allowlist), the files on disk and
 the pinned hashes are one and the same set — no instruction can be sent that is not pinned, and no
 file can sit beside them unpinned.
+
+Every instruction also ends its needs_response line with the sentence TG-M5.1's G4
+(`proposes_attention`) rests on (TG-M5.2, `specs/010-tg-m5-2-classify-v3/contracts/classify-v3.md`
+V4): a future instruction that drops it fails here.
 """
 
 from __future__ import annotations
@@ -19,6 +23,8 @@ _PINNED_SHA256 = {
     "classify_v2": "bf5ec2ce00ee0f01204515fd073ebbddcd17f190f33300569be2872a1e63aab0",
 }
 
+_G4_SENTENCE = "Always false for SPAM_OR_AD, ABUSE and CHITCHAT."
+
 
 @pytest.mark.parametrize("version", sorted(_PINNED_SHA256))
 def test_each_instruction_matches_its_pinned_hash(version: str) -> None:
@@ -34,3 +40,15 @@ def test_selectable_versions_files_and_pins_are_one_set() -> None:
 
     assert set(PROMPT_VERSIONS) == set(_PINNED_SHA256)
     assert files == set(_PINNED_SHA256)
+
+
+@pytest.mark.parametrize("version", sorted(_PINNED_SHA256))
+def test_every_instruction_ends_its_needs_response_line_with_the_g4_sentence(
+    version: str,
+) -> None:
+    text = (_PROMPT_DIR / f"{version}.md").read_text(encoding="utf-8")
+    (needs_response_line,) = [
+        line for line in text.splitlines() if line.startswith("- needs_response:")
+    ]
+
+    assert needs_response_line.endswith(" " + _G4_SENTENCE)
