@@ -51,7 +51,13 @@ _NEW_INDEXES = (
 # re-migration to "head" collides with a table `CASCADE`-detaching from, rather than dropping,
 # its referenced tables (mirrors `tests/moderation/actors/test_migration_0004.py`'s
 # `_LATER_TABLES`).
-_LATER_TABLES = ("message_classification_attempts", "message_classifications")
+_LATER_TABLES = (
+    # TG-M5.3's revision 0008, for the same reason.
+    "message_attention_attempts",
+    "message_attention_judgements",
+    "message_classification_attempts",
+    "message_classifications",
+)
 
 
 def _alembic_config(sqlalchemy_url: str) -> Config:

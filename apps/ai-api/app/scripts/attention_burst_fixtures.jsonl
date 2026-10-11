@@ -1,0 +1,8 @@
+{"burst": ["السلام عليكم", "متى موعد الاختبار؟"], "needs_response": true, "intent": "asking", "expected_opener": "rule"}
+{"burst": ["السلام عليكم", "كنت بحاول أدخل الاختبار", "بس الرابط مش شغال"], "needs_response": true, "intent": "asking", "expected_opener": "rule"}
+{"burst": ["السلام عليكم", "كنت بحاول أدخل الاختبار", "بس الرابط بايظ"], "needs_response": true, "intent": "asking", "expected_opener": "model"}
+{"burst": ["السلام عليكم", "كنت بحاول أدخل الاختبار", "والرابط مش راضي يفتح"], "needs_response": true, "intent": "asking", "expected_opener": "model"}
+{"burst": ["السلام عليكم", "كنت بحاول أدخل الاختبار", "بس الرابط لا يعمل"], "needs_response": true, "intent": "asking", "expected_opener": "model"}
+{"burst": ["كنت بحاول أدخل الاختبار", "امبارح وبرضه النهارده", "😢"], "needs_response": true, "intent": "asking", "expected_opener": "none"}
+{"burst": ["أمس جربت أفتح التسجيل", "واليوم نفس الشي", "😔"], "needs_response": true, "intent": "asking", "expected_opener": "none"}
+{"burst": ["السلام عليكم يا شباب", "حد ذاكر الوحدة الخامسة كلها"], "needs_response": false, "intent": "discussion", "expected_opener": "none", "peer": true}

@@ -81,6 +81,8 @@ services:
       # switch and the ageing ceiling its gate compares against (attention-opening G5-G6).
       MODERATION_AI_ATTENTION_FROM: ${MODERATION_AI_ATTENTION_FROM:-}
       MODERATION_ITEM_MAX_AGE_S: ${MODERATION_ITEM_MAX_AGE_S:-86400}
+      # TG-M5.3 (FR-307, D-TG-189): the attention instruction. Blank = nothing judged.
+      MODERATION_ATTENTION_PROMPT_VERSION: ${MODERATION_ATTENTION_PROMPT_VERSION:-}
     mem_limit: 1g
     depends_on:
       postgres:
@@ -91,9 +93,13 @@ services:
   # A dedicated, single-thread queue for `moderation_classify` (research Finding 4, operator item
   # 2 — approved): a classification waiting on the model's one-at-a-time lane must never hold a
   # worker thread that `default` traffic needs, so this queue's actor runs in its own service.
+  # TG-M5.3 (D-TG-187): it also consumes `moderation_attention`. `judge_attention` has priority 0
+  # and `classify_message` 10, so Attention runs first when both wait here (research Finding 18).
+  # That is today's deployment policy, not a contract: separate services or more threads are a
+  # change to this file only.
   ai-classifier:
     build: ../apps/ai-api
-    command: ["dramatiq", "app.workers.main", "--queues", "moderation_classify", "--processes", "1", "--threads", "1"]
+    command: ["dramatiq", "app.workers.main", "--queues", "moderation_attention", "moderation_classify", "--processes", "1", "--threads", "1"]
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
@@ -109,6 +115,9 @@ services:
       # TG-M5.1: a live prediction proposing a question puts its message back on the attention
       # work list only while the switch is set (attention-opening I1).
       MODERATION_AI_ATTENTION_FROM: ${MODERATION_AI_ATTENTION_FROM:-}
+      # TG-M5.3 (FR-307, D-TG-189): the attention instruction `judge_attention` sends. Blank = no
+      # attention call and nothing recorded (shadow mode starts when it is set).
+      MODERATION_ATTENTION_PROMPT_VERSION: ${MODERATION_ATTENTION_PROMPT_VERSION:-}
       GATEWAY_CALL_TIMEOUT_S: ${GATEWAY_CALL_TIMEOUT_S:-180}
       GATEWAY_MAX_RETRIES: ${GATEWAY_MAX_RETRIES:-2}
       GATEWAY_RETRY_BASE_S: ${GATEWAY_RETRY_BASE_S:-0.5}
@@ -171,6 +180,8 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       MODERATION_PERCENTILE_MIN_SAMPLES: ${MODERATION_PERCENTILE_MIN_SAMPLES:-10}
       MODERATION_INCIDENT_MAX_AGE_S: ${MODERATION_INCIDENT_MAX_AGE_S:-86400}
+      # TG-M5.3 (attention-metrics C10): the settle gap the attention figures' timeliness reads.
+      MODERATION_BURST_GAP_S: ${MODERATION_BURST_GAP_S:-90}
     ports:
       - "${CONTROL_PORT}:8080"
     mem_limit: 640m

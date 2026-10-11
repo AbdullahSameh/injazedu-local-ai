@@ -30,6 +30,7 @@ from app.infrastructure.models_moderation import (
 )
 from app.workers.tasks.moderation.classify_message import classify_message
 from app.workers.tasks.moderation.evaluate_attention import evaluate_attention
+from app.workers.tasks.moderation.judge_attention import judge_attention
 from app.workers.tasks.moderation.match_response import match_response
 
 # Coarse, in priority order. An entry here is stored as its own key name; anything present that
@@ -190,8 +191,11 @@ async def derive_message(
     `schedule_classification=True` (the default) sends `classify_message(chat_pk, message_id,
     "live")` for every newly-inserted message, moderators' included — their exclusion is what
     the classifier itself records (`contracts/classification-pipeline.md` §1 Q1-Q2, D-TG-149).
-    `rederive_chat.py` passes `False`: a re-derived message is history, and history is classified
-    only by the catch-up command, which never opens anything.
+    Since TG-M5.3 it first sends `judge_attention(chat_pk, message_id)` under the same condition:
+    the attention judgement is a separate question with its own record, and records its own
+    exclusions (`specs/011-…/contracts/attention-judgement.md` §1 J1). `rederive_chat.py` passes
+    `False`: a re-derived message is history, never judged (L1), and classified only by the
+    catch-up command, which never opens anything.
 
     Returns the inserted row's id, or `None` when the row already existed or the chat is not
     measured.
@@ -286,7 +290,10 @@ async def derive_message(
     # Q1: every newly-inserted message, after the insert has committed — no settle window, and
     # moderators' included (their exclusion is recorded by the classifier itself, not skipped
     # here). A duplicate delivery (`inserted_id is None`) sends nothing (Q1, idempotency I1).
+    # TG-M5.3 J1: the attention judgement is sent first, under the same condition. Neither task
+    # waits for or reads the other (J4); the order only queues Attention ahead on a shared worker.
     if inserted_id is not None and schedule_classification:
+        judge_attention.send(chat_pk, body["message_id"])
         classify_message.send(chat_pk, body["message_id"], "live")
 
     return inserted_id

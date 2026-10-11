@@ -4,6 +4,9 @@
 **Revision**: `0007_moderation_classification` — down-revision `0006`, confirmed head in both databases
 (research probe 9). `0008`–`0009` stay reserved for TG-M6…TG-M8.
 
+> **Amended by TG-M5.3 (2026-10-09).** TG-M5.3 took `0008_moderation_attention_judgement` (011 D-TG-192). Later
+> moderation revisions take the next free numbers. §1 and §5 carry the schema notes.
+
 Two tables created; one check widened; one column and four constraints added to `moderation_incidents`; one
 foreign key added to `attention_items`. Alembic owns all of it; the panel owns none of it. Every statement
 below ran exactly as written, as `ai_migrator`, inside `BEGIN … ROLLBACK` in `injaz_ai_test`, and twelve
@@ -31,6 +34,12 @@ row (`make seed-profiles`, D-TG-129):
 | name | provider | model | role | params | is_active |
 |---|---|---|---|---|---|
 | `ollama-gemma4-e2b-moderation` | `ollama` | `gemma4:e2b-it-qat` | `moderation` | `{"num_ctx": 2048, "num_predict": 128, "temperature": 0, "reasoning_effort": "none"}` | **false** |
+
+> **Amended by TG-M5.3 (2026-10-09).** Revision `0008` widens the check again:
+> `role IN ('llm', 'embedding', 'moderation', 'attention')`. `uq_model_profiles_one_active_per_role` then gives
+> exactly one active attention profile. The seed adds `ollama-gemma4-e2b-attention` and
+> `ollama-gemma4-e4b-attention`, both inactive, with the params above
+> (`specs/011-tg-m5-3-attention-judgement/data-model.md` §4).
 
 ---
 
@@ -254,6 +263,16 @@ queue shows the model's view of an item's messages by joining through the messag
 column.
 
 > **Amended by TG-M5.1 (2026-10-03).** No schema change. A `source = 'ai'` item now carries the prediction that opened it in `message_classification_id`, written once at insert. Rule- and operator-opened items keep it NULL (`specs/009-tg-m5-1-ai-attention/``contracts/attention-opening.md` O3).
+
+> **Amended by TG-M5.3 (2026-10-09).** Revision `0008` adds the item's **second link**: `attention_judgement_id`
+> → `message_attention_judgements.id` (`fk_attention_judgement`).
+> - **`ck_attention_ai_link`** requires exactly one of the two links on a `source = 'ai'` item, and neither on a
+>   rule or operator item.
+> - **The eras:** historical TG-M5.1 items keep `message_classification_id`. From `0008` on, `open_item` writes
+>   only `attention_judgement_id`.
+> - **This foreign key and its column are unchanged.**
+>
+> See `specs/011-tg-m5-3-attention-judgement/data-model.md` §3.
 
 ---
 

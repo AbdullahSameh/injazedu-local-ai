@@ -1,6 +1,10 @@
 """`MODERATION_AI_ATTENTION_FROM` — TG-M5.1's dated switch (D-TG-164, decision 4). Blank and unset
 are one state, off; a value is an instant with an explicit offset; a naive one exits naming the
 variable, never a stack trace — the same fail-fast pattern as every other moderation setting.
+
+Amended by TG-M5.3 (D-TG-199, `tasks.md` T042): the opener is on only when **both** the switch and
+`MODERATION_ATTENTION_PROMPT_VERSION` are set. Either one alone builds no switch. These tests
+monkeypatch the attention allowlist to a test-only version, so they do not depend on the frozen one.
 """
 
 from __future__ import annotations
@@ -9,10 +13,13 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from app.application.moderation.attention import AiAttention, ai_attention_from_settings
+from app.infrastructure import config
 from app.infrastructure.config import load_settings
 
 VALID_DATABASE_URL = "postgresql+psycopg://ai_app:x@localhost:5432/injaz_ai"
 VALID_REDIS_URL = "redis://localhost:6379/0"
+
+_TEST_ATTENTION_PROMPT_VERSION = "attention_test"
 
 
 def _clear_ai_api_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -21,6 +28,7 @@ def _clear_ai_api_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "REDIS_URL",
         "MODERATION_AI_ATTENTION_FROM",
         "MODERATION_ITEM_MAX_AGE_S",
+        "MODERATION_ATTENTION_PROMPT_VERSION",
     ):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("DATABASE_URL", VALID_DATABASE_URL)
@@ -47,8 +55,10 @@ def test_an_instant_with_an_offset_switches_on_with_the_item_max_age(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _clear_ai_api_env(monkeypatch)
+    monkeypatch.setattr(config, "ATTENTION_PROMPT_VERSIONS", (_TEST_ATTENTION_PROMPT_VERSION,))
     monkeypatch.setenv("MODERATION_AI_ATTENTION_FROM", "2026-10-04T09:00:00+03:00")
     monkeypatch.setenv("MODERATION_ITEM_MAX_AGE_S", "3600")
+    monkeypatch.setenv("MODERATION_ATTENTION_PROMPT_VERSION", _TEST_ATTENTION_PROMPT_VERSION)
 
     settings = load_settings()
 
@@ -57,6 +67,35 @@ def test_an_instant_with_an_offset_switches_on_with_the_item_max_age(
     assert ai_attention_from_settings(settings) == AiAttention(
         enabled_from=datetime(2026, 10, 4, 6, 0, 0, tzinfo=UTC), max_age_s=3600
     )
+
+
+def test_the_switch_set_with_the_attention_prompt_blank_is_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-TG-199: no attention instruction, no AI opening — even with judgements recorded earlier
+    still inside the window (FR-322)."""
+    _clear_ai_api_env(monkeypatch)
+    monkeypatch.setenv("MODERATION_AI_ATTENTION_FROM", "2026-10-04T09:00:00+03:00")
+    monkeypatch.setenv("MODERATION_ATTENTION_PROMPT_VERSION", "")
+
+    settings = load_settings()
+
+    assert settings.moderation_ai_attention_from is not None
+    assert ai_attention_from_settings(settings) is None
+
+
+def test_the_attention_prompt_set_with_the_switch_blank_is_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shadow mode: judgements are recorded, nothing opens from them."""
+    _clear_ai_api_env(monkeypatch)
+    monkeypatch.setattr(config, "ATTENTION_PROMPT_VERSIONS", (_TEST_ATTENTION_PROMPT_VERSION,))
+    monkeypatch.setenv("MODERATION_ATTENTION_PROMPT_VERSION", _TEST_ATTENTION_PROMPT_VERSION)
+
+    settings = load_settings()
+
+    assert settings.moderation_attention_prompt_version == _TEST_ATTENTION_PROMPT_VERSION
+    assert ai_attention_from_settings(settings) is None
 
 
 def test_a_naive_instant_is_refused(

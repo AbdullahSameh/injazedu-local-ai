@@ -341,9 +341,19 @@ trait ClassificationMetrics
 
     /**
      * C9 (TG-M5.1, `classification-metrics.md` §8a): questions the model opened, and what the
-     * humans did with them — one row per model, never pooled (K3), joined through the item's own
-     * `message_classification_id`. M24: `model_dismissed` over `model_opened` is the pilot's
-     * false-positive gate; `model_kept` are rule misses the model caught (M19, amended).
+     * humans did with them — one row per model, never pooled (K3). M24: `model_dismissed` over
+     * `model_opened` is the pilot's false-positive gate; `model_kept` are rule misses the model
+     * caught (M19, amended).
+     *
+     * TG-M5.3 K8 (`specs/011-…/contracts/dismissal-reasons.md` §3): the per-reason breakdown of
+     * `model_dismissed`, with `ai.` prefixes, summing to it (K9). `model_dismissed` and the gate are
+     * unchanged; no gate reads a breakdown column (K10).
+     *
+     * TG-M5.3 C9′ (`specs/011-…/contracts/attention-metrics.md` §1, M23′): the union of two eras,
+     * each item grouped by the record that opened it — `era = 'classification'` through the item's
+     * `message_classification_id` (model, instruction, vocabulary), `era = 'attention'` through its
+     * `attention_judgement_id` (model, attention instruction, no vocabulary). Never pooled; the
+     * TG-M5.3 pilot reads the `attention` rows.
      *
      * @return array<int, object>
      */
@@ -351,24 +361,60 @@ trait ClassificationMetrics
     {
         return DB::select(
             <<<'SQL'
-            SELECT c.model_profile_id, c.prompt_version, c.taxonomy_version,
+            SELECT 'classification' AS era, c.model_profile_id, c.prompt_version, c.taxonomy_version,
                    count(*)                                                AS model_opened,
                    count(*) FILTER (WHERE ai.status = 'dismissed')         AS model_dismissed,
                    count(*) FILTER (WHERE ai.status <> 'dismissed')        AS model_kept,
                    count(*) FILTER (WHERE ai.status = 'answered')          AS model_answered,
-                   count(*) FILTER (WHERE ai.status IN ('open','expired')) AS model_unanswered
+                   count(*) FILTER (WHERE ai.status IN ('open','expired')) AS model_unanswered,
+                   count(*) FILTER (WHERE ai.status = 'dismissed'
+                                      AND ai.close_reason = 'not_a_question')    AS dismissed_not_a_question,
+                   count(*) FILTER (WHERE ai.status = 'dismissed'
+                                      AND ai.close_reason = 'member_discussion') AS dismissed_member_discussion,
+                   count(*) FILTER (WHERE ai.status = 'dismissed'
+                                      AND ai.close_reason = 'message_removed')   AS dismissed_message_removed,
+                   count(*) FILTER (WHERE ai.status = 'dismissed'
+                                      AND (ai.close_reason IS NULL
+                                           OR ai.close_reason NOT IN ('not_a_question','member_discussion','message_removed')))
+                                                                                 AS dismissed_other
             FROM attention_items ai
             JOIN message_classifications c ON c.id = ai.message_classification_id
             WHERE ai.source = 'ai'
-              AND ai.opened_at >= :period_from AND ai.opened_at < :period_to
+              AND ai.opened_at >= :period_from1 AND ai.opened_at < :period_to1
               AND (:chat_id1::bigint IS NULL OR ai.telegram_chat_id = :chat_id2::bigint)
-            GROUP BY 1, 2, 3
+            GROUP BY 1, 2, 3, 4
+            UNION ALL
+            SELECT 'attention', j.model_profile_id, j.prompt_version, NULL::smallint,
+                   count(*),
+                   count(*) FILTER (WHERE ai.status = 'dismissed'),
+                   count(*) FILTER (WHERE ai.status <> 'dismissed'),
+                   count(*) FILTER (WHERE ai.status = 'answered'),
+                   count(*) FILTER (WHERE ai.status IN ('open','expired')),
+                   count(*) FILTER (WHERE ai.status = 'dismissed'
+                                      AND ai.close_reason = 'not_a_question'),
+                   count(*) FILTER (WHERE ai.status = 'dismissed'
+                                      AND ai.close_reason = 'member_discussion'),
+                   count(*) FILTER (WHERE ai.status = 'dismissed'
+                                      AND ai.close_reason = 'message_removed'),
+                   count(*) FILTER (WHERE ai.status = 'dismissed'
+                                      AND (ai.close_reason IS NULL
+                                           OR ai.close_reason NOT IN ('not_a_question','member_discussion','message_removed')))
+            FROM attention_items ai
+            JOIN message_attention_judgements j ON j.id = ai.attention_judgement_id
+            WHERE ai.source = 'ai'
+              AND ai.opened_at >= :period_from2 AND ai.opened_at < :period_to2
+              AND (:chat_id3::bigint IS NULL OR ai.telegram_chat_id = :chat_id4::bigint)
+            GROUP BY 1, 2, 3, 4
             SQL,
             [
-                'period_from' => $from,
-                'period_to' => $to,
+                'period_from1' => $from,
+                'period_to1' => $to,
                 'chat_id1' => $chatId,
                 'chat_id2' => $chatId,
+                'period_from2' => $from,
+                'period_to2' => $to,
+                'chat_id3' => $chatId,
+                'chat_id4' => $chatId,
             ],
         );
     }
@@ -379,6 +425,10 @@ trait ClassificationMetrics
      * compared against, on its own definitions (D-TG-156). Grouped by `rule_version` always (M15);
      * operator additions arrive in their own row, where `rule_version` is NULL.
      *
+     * TG-M5.3 K7 (`specs/011-…/contracts/dismissal-reasons.md` §3): the per-reason breakdown of
+     * `rule_dismissed`, each part filtered on `source = 'rule'`, summing to it (K9). The first four
+     * columns, and so precision, are unchanged.
+     *
      * @return array<int, object>
      */
     private function classificationRuleBaseline(?int $chatId, Carbon $from, Carbon $to): array
@@ -388,7 +438,17 @@ trait ClassificationMetrics
             SELECT count(*) FILTER (WHERE source = 'rule')                          AS rule_opened,
                    count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed') AS rule_dismissed,
                    count(*) FILTER (WHERE source = 'operator')                      AS operator_added,
-                   rule_version
+                   rule_version,
+                   count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
+                                      AND close_reason = 'not_a_question')    AS dismissed_not_a_question,
+                   count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
+                                      AND close_reason = 'member_discussion') AS dismissed_member_discussion,
+                   count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
+                                      AND close_reason = 'message_removed')   AS dismissed_message_removed,
+                   count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
+                                      AND (close_reason IS NULL
+                                           OR close_reason NOT IN ('not_a_question','member_discussion','message_removed')))
+                                                                              AS dismissed_other
             FROM attention_items
             WHERE opened_at >= :period_from AND opened_at < :period_to
               AND (:chat_id1::bigint IS NULL OR telegram_chat_id = :chat_id2::bigint)

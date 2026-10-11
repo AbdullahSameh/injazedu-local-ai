@@ -19,6 +19,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # from here.
 ModerationPromptVersion = Literal["classify_v1", "classify_v2"]
 
+# The attention instructions a deployment may select (TG-M5.3, D-TG-189): each is a file under
+# `app/prompts/moderation/` pinned by its SHA-256 (`test_prompt_pinned.py`), and its name is the
+# `prompt_version` stored on every attention judgement. A tuple, not a `Literal`: it was empty until
+# `attention_v1` was frozen, and the frozen file, this entry and its pin landed in one change
+# (T074, 2026-10-07: W2R of the selection round on e4b, research §2). The one definition: the
+# setting's validator, the judge and the qualification read it here.
+ATTENTION_PROMPT_VERSIONS: tuple[str, ...] = ("attention_v1",)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -115,6 +123,12 @@ class Settings(BaseSettings):
     moderation_ai_attention_from: datetime | None = Field(
         default=None, alias="MODERATION_AI_ATTENTION_FROM"
     )
+    # TG-M5.3 (FR-307, D-TG-189): the attention instruction. Blank = no attention call and nothing
+    # recorded; a value must be in `ATTENTION_PROMPT_VERSIONS`. Opening a model item needs both
+    # this and `MODERATION_AI_ATTENTION_FROM` (D-TG-199).
+    moderation_attention_prompt_version: str | None = Field(
+        default=None, alias="MODERATION_ATTENTION_PROMPT_VERSION"
+    )
 
     @field_validator("telegram_bot_token", mode="before")
     @classmethod
@@ -131,6 +145,7 @@ class Settings(BaseSettings):
         "moderation_classify_retry_base_s",
         "moderation_prompt_version",
         "moderation_ai_attention_from",
+        "moderation_attention_prompt_version",
         mode="before",
     )
     @classmethod
@@ -142,6 +157,21 @@ class Settings(BaseSettings):
         if value == "":
             assert info.field_name is not None
             return cls.model_fields[info.field_name].default
+        return value
+
+    @field_validator("moderation_attention_prompt_version", mode="after")
+    @classmethod
+    def _attention_prompt_version_is_allowlisted(cls, value: str | None) -> str | None:
+        # Read at call time, so the allowlist has one definition (and a test can stand one in).
+        if value is not None and value not in ATTENTION_PROMPT_VERSIONS:
+            allowed = (
+                ", ".join(ATTENTION_PROMPT_VERSIONS)
+                or "none yet: no attention instruction is frozen"
+            )
+            raise ValueError(
+                f"MODERATION_ATTENTION_PROMPT_VERSION must be one of the frozen attention "
+                f"instructions ({allowed}); got {value!r}"
+            )
         return value
 
     @model_validator(mode="after")

@@ -533,6 +533,8 @@ withheld below the threshold.
 
 - **FR-051**: The system MUST let an operator dismiss an open item, recording the reason, who dismissed it
   and when, and MUST offer at minimum the reasons "not a real question" and "the message was removed".
+
+  > **Amended by TG-M5.3 (2026-10-07).** The reasons offered are `not_a_question` ("Not a real question"), `member_discussion` ("Member discussion": a real question or discussion between members that needed no moderator) and `message_removed` ("Message removed"), each through the same guarded write, with one confirmation stating all three meanings. FR-051's "at minimum" is met, not changed (`specs/011-tg-m5-3-attention-judgement/contracts/dismissal-reasons.md` §1).
 - **FR-052**: The system MUST make a dismissed item stop ageing, contribute no response time, and be
   excluded from the unanswered count.
 - **FR-053**: The system MUST NOT reopen or close a dismissed item on any later message.

@@ -39,11 +39,14 @@ use UnitEnum;
  * "still waiting" picture by definition (`data-model.md` §3); this milestone's figures table
  * (Phase 8) is where every status is counted.
  *
- * Phase 6 (US4) adds the rule set's corrections: two dismiss row actions and one hand-open
- * header action, both going through `AttentionItem::closeIfOpen()` / a guarded create so the
- * invariant holds from `tinker` too. **No bulk action anywhere** — dismissing twenty items with
- * one click is how a false-positive count stops meaning anything
- * (`control-panel-attention.md` §2 P5).
+ * Phase 6 (US4) adds the rule set's corrections: dismiss row actions and one hand-open header
+ * action, both going through `AttentionItem::closeIfOpen()` / a guarded create so the invariant
+ * holds from `tinker` too. **No bulk action anywhere** — dismissing twenty items with one click is
+ * how a false-positive count stops meaning anything (`control-panel-attention.md` §2 P5).
+ *
+ * TG-M5.3 (`specs/011-tg-m5-3-attention-judgement/contracts/dismissal-reasons.md` K1-K4) makes it
+ * three dismiss row actions: "Member discussion" sits between the two originals, on an item of any
+ * source, and all three share one confirmation that states each reason's meaning (K2).
  */
 class LiveAttentionQueue extends Page implements HasTable
 {
@@ -83,6 +86,14 @@ class LiveAttentionQueue extends Page implements HasTable
     }
 
     protected string $view = 'filament.pages.live-attention-queue';
+
+    /**
+     * K2: the one confirmation every dismiss action shows, so the operator reads all three meanings
+     * whichever button they pressed. "Message removed" stays the operator's own judgement (P7).
+     */
+    private const DISMISS_CONFIRMATION = 'Not a real question: not a question or request at all; nothing to answer. '
+        .'Member discussion: a real question or discussion between members; no moderator was needed. '
+        .'Message removed: your own judgement that the message is gone. Telegram reports no deletion.';
 
     public function table(Table $table): Table
     {
@@ -140,14 +151,24 @@ class LiveAttentionQueue extends Page implements HasTable
                     ->extraAttributes(['dir' => 'auto']),
             ])
             ->recordActions([
-                // Both go through the same guarded write (contract §4 C8) — a double-submitted
+                // All three go through the same guarded write (contract §4 C8) — a double-submitted
                 // dismissal updates zero rows and leaves the first one intact.
                 Action::make('dismiss_not_a_question')
                     ->label('Not a real question')
                     ->icon(Heroicon::OutlinedXCircle)
                     ->color('gray')
                     ->requiresConfirmation()
+                    ->modalDescription(self::DISMISS_CONFIRMATION)
                     ->action(fn (AttentionItem $record) => self::dismiss($record, 'not_a_question')),
+                // TG-M5.3 K1, K4: a real question or discussion between members that needed no
+                // moderator — offered whatever opened the item.
+                Action::make('dismiss_member_discussion')
+                    ->label('Member discussion')
+                    ->icon(Heroicon::OutlinedChatBubbleLeftRight)
+                    ->color('gray')
+                    ->requiresConfirmation()
+                    ->modalDescription(self::DISMISS_CONFIRMATION)
+                    ->action(fn (AttentionItem $record) => self::dismiss($record, 'member_discussion')),
                 // P7: "message removed" is the operator's own judgement, never presented as a
                 // platform fact — Telegram reports no deletion in groups. The standing footnote
                 // saying so lives on the page view, not on this action.
@@ -156,6 +177,7 @@ class LiveAttentionQueue extends Page implements HasTable
                     ->icon(Heroicon::OutlinedTrash)
                     ->color('gray')
                     ->requiresConfirmation()
+                    ->modalDescription(self::DISMISS_CONFIRMATION)
                     ->action(fn (AttentionItem $record) => self::dismiss($record, 'message_removed')),
                 // TG-M4 (FR-072, D-TG-125): opens against the item's own anchor message. The
                 // item itself is never touched — no attention-item write is any part of opening

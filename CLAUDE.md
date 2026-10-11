@@ -1,15 +1,76 @@
 <!-- SPECKIT START -->
-Active feature: **TG-M5.2 — classify_v3 and Model Qualification** (`specs/010-tg-m5-2-classify-v3/`), on top of
-TG-M5.1 (`specs/009-tg-m5-1-ai-attention/`) and TG-M5 (`specs/008-tg-m5-ai-classification/`). Both are below
-and both still hold.
+Active feature: **TG-M5.3 — A Separate Attention Judgement** (`specs/011-tg-m5-3-attention-judgement/`). It
+builds on TG-M5.2 (stopped, history), TG-M5.1 (`specs/009-tg-m5-1-ai-attention/`) and TG-M5
+(`specs/008-tg-m5-ai-classification/`). Those are below and still hold, except where 011 amends them.
 
-> **Status (2026-10-06): TG-M5.2 is stopped under FR-216.** `classify_v3` never froze: F1 and F2 failed on
-> e4b (010 `research.md` §2), and the provisional file was removed, so the allowlist is `classify_v1` and
-> `classify_v2` again. Kept: `make qualify-moderation`, the fixture keys and the gate. Development runs e2b +
-> `classify_v2`; the e4b profile stays registered (inactive) and installed. Next: TG-M5.3, plan only, at
-> `docs/plan/telegram/tg-m5-3-attention-judgement-plan.md`, awaiting approval.
+> **Status (2026-10-09): closed.** Every task is done or recorded (`tasks.md`, T001–T095; Phase 10 included).
+> - **Shipped and deployable: Story 1.** The "Member discussion" dismissal, per-reason breakdowns, "dismissed (any
+>   reason)".
+> - **Complete and switched off: the attention judgement.**
+>   - Revision `0008`, the `attention` role, the setting.
+>   - Shadow dispatch (`judge_attention` on `moderation_attention`, before `classify_message`).
+>   - `open_item` opening from the judgement, with the SPAM_OR_AD/ABUSE veto. The opener needs both
+>     `MODERATION_AI_ATTENTION_FROM` and `MODERATION_ATTENTION_PROMPT_VERSION` (D-TG-199), and `classify_one` no
+>     longer re-flags.
+>   - Qualification version 2 (`make qualify TASK=…`; `qualify-moderation` an alias).
+>   - The C9′ and C10a–c figures.
+> - **`attention_v1`** (`a55308ca…`, e4b) was frozen and `QUALIFIED` under Policy D (2026-10-07/08; T077 read a
+>   37-line fresh sample).
+> - **Policy D′** (2026-10-09, option (a): outside institutions are not the team's) superseded Policy D.
+>   - Its second cycle (`docs/plan/telegram/tg-m5-3-attention-v2-addendum.md`, Phase 9b) **stopped under W-7′:**
+>     no V2 candidate passed, nor V2-AR after the one revision. So there is no `attention_v2`, and `attention_v1`
+>     is frozen history, unqualified under D′.
+>   - The second cycle's sets: `real-attention-fresh-v1.jsonl` (tuning), `attention_validation_scope_fixtures.jsonl`
+>     and `attention_heldout_v1_fixtures.jsonl` (validation, byte-identical, SHA-pinned). A3 is judged per
+>     validation set.
+> - **Today:** AI-assisted opening is off and the rules alone open question items. Both attention settings are
+>   blank in development, and the services were recreated.
+> - **Rebuild the `migrate` tool image** before `make migrate` or `make qualify` when it may be stale.
+> - **Next is an operator decision:**
+>   - measure rule-opened noise via "Member discussion" dismissals, which may point to a rule-set milestone;
+>   - or open a third attention round (e.g. D7's "unclear whose" clause).
 
-Read first for TG-M5.2:
+Read first for TG-M5.3:
+
+- `docs/plan/telegram/tg-m5-3-attention-judgement-plan.md`: the plan of record (§16 items 1–19 approved), §3a
+  bursts, §5a Policy D.
+- `docs/plan/telegram/tg-m5-3-attention-v2-addendum.md` (approved 2026-10-09): Policy D′ (D0, outside institutions
+  are not the team's), `attention_v2`'s second cycle, the sets and fixed topics.
+- `specs/011-tg-m5-3-attention-judgement/spec.md`: FR-301…FR-341, SC-301…SC-310, clarifications 2026-10-06/07.
+- `specs/011-tg-m5-3-attention-judgement/plan.md`: implementation order (Story 1 first, alone), Constitution
+  Check, file list.
+- `specs/011-tg-m5-3-attention-judgement/contracts/`:
+  - `dismissal-reasons.md` (K1–K12);
+  - `attention-judgement.md` (J, AE1–AE2, P, S, Policy D, A1/A2/V, W, F, N, limitations);
+  - `attention-metrics.md` (C9′, C10a–c);
+  - `qualification.md` v2 (A1–A9, Q5–Q12, reported lines, W-1…W-7).
+- `specs/011-tg-m5-3-attention-judgement/research.md`: Findings 14–19 and D-TG-182…199.
+- `specs/011-tg-m5-3-attention-judgement/data-model.md`: revision `0008`, the `close_reason` vocabulary, fixture
+  keys.
+
+TG-M5.3 in one line: **the question "does this need the team?" gets its own instruction, record, model role and
+qualification.**
+- **Story 1, first and alone:** a "Member discussion" dismissal, per-reason breakdowns beside unchanged
+  dismissal counts, and "dismissed (any reason)" wording.
+- **The judgement:**
+  - `attention_v1` answers one of six intents (`asking`, `discussion`, `informing`, `social`, `offering`,
+    `other`);
+  - `needs_response = (intent == "asking")` is the only derivation;
+  - it is dispatched at ingest, independent of moderation, and skipped when the message's own words open the
+    rules (AE2).
+- **Opening:** `open_item` reads the judgement after the rules decline. A SPAM_OR_AD or ABUSE classification
+  vetoes it. The classification-sourced opener is removed, and opening needs both
+  `MODERATION_AI_ATTENTION_FROM` and `MODERATION_ATTENTION_PROMPT_VERSION`.
+- **Scheduling is deployment policy, not contract:** today Attention goes first on the shared `ai-classifier`
+  worker, by actor priority.
+- `classify_v2`, routing, incidents and TG-M3's rule set and bursts are unchanged. There is no burst-level model
+  input; L-B1 is documented and measured.
+
+> **TG-M5.2 status (2026-10-06): stopped under FR-216.** `classify_v3` never froze, and the allowlist is
+> `classify_v1` and `classify_v2`. Kept: `make qualify-moderation`, the fixture keys and the gate. Development
+> runs e2b + `classify_v2`; the e4b profile stays registered (inactive) and installed.
+
+Read first for TG-M5.2 (history):
 
 - `docs/plan/telegram/tg-m5-classify-v3-plan.md`:
   - §1–§4: root cause. needs_response followed the *topic*, not the *function*;

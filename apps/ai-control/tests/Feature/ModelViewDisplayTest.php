@@ -205,6 +205,7 @@ class ModelViewDisplayTest extends TestCase
         Livewire::test(LiveAttentionQueue::class)
             ->assertCanSeeTableRecords([$longestWaiting, $shortestWaiting], inOrder: true)
             ->assertTableActionExists('dismiss_not_a_question')
+            ->assertTableActionExists('dismiss_member_discussion')
             ->assertTableActionExists('dismiss_message_removed');
     }
 

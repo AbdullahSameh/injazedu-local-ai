@@ -3,11 +3,16 @@
 
 Pure: no I/O, no clock, no session, no import outside the standard library and
 `app.domain.moderation.attention` (for the one shared acknowledgement matcher, E8). This is the
-**only** definition of eligibility and routing (pipeline contract N7), and — since TG-M5.1 — of
-whether a prediction proposes a question item (`specs/009-tg-m5-1-ai-attention/contracts/
-attention-opening.md` G1-G6): the classifier and `open_item` call these functions directly, the
-panel reads their stored outputs, and no test helper recomputes an expected route, eligibility or
-proposal — it calls the function or asserts the stored row.
+**only** definition of eligibility and routing (pipeline contract N7): the classifier calls these
+functions directly, the panel reads their stored outputs, and no test helper recomputes an
+expected route or eligibility — it calls the function or asserts the stored row.
+
+TG-M5.3 (`specs/011-tg-m5-3-attention-judgement/contracts/attention-judgement.md` §6, D-TG-191):
+a prediction no longer proposes a question item. `open_item` reads the attention judgement through
+`app.domain.moderation.attention_judgement` (A1-A2, V), and the classification's needs-response is
+measurement only. `within_attention_window` (G5-G6) is unchanged and still lives here. TG-M5.1's
+`proposes_attention` (G1-G4) and its `NO_RESPONSE_CATEGORIES` are removed, with no second home:
+the benchmark judges the attention judgement too (`app/scripts/qualification/attention.py`).
 """
 
 from __future__ import annotations
@@ -37,11 +42,6 @@ VIOLATION_CATEGORIES: frozenset[str] = frozenset({"SPAM_OR_AD", "ABUSE"})
 INCIDENT_CATEGORIES: frozenset[str] = frozenset({"SPAM_OR_AD", "ABUSE", "OTHER"})
 
 TAXONOMY_VERSION = 1
-
-# TG-M5.1 (attention-opening contract G4, D-TG-165): both instructions say needs_response is "Always
-# false for SPAM_OR_AD, ABUSE and CHITCHAT" — a true value on one of these contradicts itself, the
-# question-side counterpart of R8's two-way consistency.
-NO_RESPONSE_CATEGORIES: frozenset[str] = frozenset({"SPAM_OR_AD", "ABUSE", "CHITCHAT"})
 
 
 @dataclass(frozen=True)
@@ -134,20 +134,6 @@ def route_prediction(
     if prediction.confidence >= threshold:
         return "incident", None
     return "possible_violation", "uncertain"
-
-
-def proposes_attention(*, path: str, route: str, needs_response: bool, category: str) -> bool:
-    """TG-M5.1's gate, the prediction's own side (attention-opening contract G1-G4): whether a
-    stored prediction proposes that its message needs a moderator's answer. Live only (G2 — catch-up
-    is measurement only); never below the floor (G3 — FR-030, read from the stored route, never
-    recomputed); and never on a category the instruction says needs no answer (G4). The violation
-    side's route is otherwise irrelevant (decision 1: both units of work, independently)."""
-    return (
-        path == "live"
-        and route != "review"
-        and needs_response
-        and category not in NO_RESPONSE_CATEGORIES
-    )
 
 
 def within_attention_window(

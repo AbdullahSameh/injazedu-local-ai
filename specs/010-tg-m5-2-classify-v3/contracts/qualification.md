@@ -3,6 +3,15 @@
 **Feature**: `specs/010-tg-m5-2-classify-v3` · **Status**: durable from TG-M5.2 on. It decides whether one
 pair of **model profile** and **instruction** may run AI-assisted Attention in production (FR-206–FR-210).
 
+> **Amended by TG-M5.3 (2026-10-09).** **Superseded** by
+> `specs/011-tg-m5-3-attention-judgement/contracts/qualification.md`, version 2: a core with one suite per task.
+> - **The command:** `make qualify-moderation` survives as an alias of `make qualify TASK=moderation`, with the
+>   same interface. Its per-line output, set blocks and Q5–Q8, Q11 and Q12 lines are byte-identical.
+> - **What moved:** Q1–Q4, Q9 and Q10 moved to the attention suite as A1–A5 and A8. They judge the separate
+>   attention judgement, not the classification's needs-response.
+> - **The script:** `qualify_moderation.py` is a thin alias of `app/scripts/qualification/`.
+> - **This contract** stays as the record of TG-M5.2, which stopped under FR-216.
+
 ## §1 — The command
 
 ```text

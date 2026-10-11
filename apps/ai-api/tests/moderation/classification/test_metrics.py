@@ -185,7 +185,7 @@ async def test_probe_10_scenario_matches_every_hand_computed_figure(
     )
     await insert_attention_item(
         telegram_chat_id=chat_pk, telegram_message_id=3, opened_at=sent_at(3),
-        source="rule", rule_version=1, status="dismissed",
+        source="rule", rule_version=1, status="dismissed", close_reason="not_a_question",
     )
 
     await message(4, original_text="ما هي خطوات التسجيل في المقرر؟")
@@ -377,6 +377,21 @@ async def test_probe_10_scenario_matches_every_hand_computed_figure(
     assert c7_by_version[1]["rule_opened"] == 2
     assert c7_by_version[1]["rule_dismissed"] == 1
     assert c7_by_version[None]["operator_added"] == 1
+    # TG-M5.3 K7, K9: the per-reason breakdown sits beside `rule_dismissed` and sums to it.
+    rule_row = c7_by_version[1]
+    assert (
+        rule_row["dismissed_not_a_question"],
+        rule_row["dismissed_member_discussion"],
+        rule_row["dismissed_message_removed"],
+        rule_row["dismissed_other"],
+    ) == (1, 0, 0, 0)
+    assert (
+        rule_row["dismissed_not_a_question"]
+        + rule_row["dismissed_member_discussion"]
+        + rule_row["dismissed_message_removed"]
+        + rule_row["dismissed_other"]
+    ) == rule_row["rule_dismissed"]
+    assert c7_by_version[None]["dismissed_other"] == 0  # source = 'rule' filters only
 
     # --- C8: detection latency by opener ----------------------------------------------------------
 

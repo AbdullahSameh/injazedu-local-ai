@@ -1414,12 +1414,20 @@ quit and with no Telegram token set**.
 | `scripts/scan_secrets.sh`       | bot-token shape                                                                             | none                                                  |
 | `infra/docker-compose.yml`      | one new `ai-telegram` service, `mem_limit: 256m`                                            | low — measured stack is 0.27 GiB against a 5 GB cap   |
 | `apps/ai-control`               | new navigation group + resources; `ModelProfileResource` gains `Platform`                   | low                                                   |
-| `alembic/versions/`             | revisions `0003`…`0009`                                                                     | none — assessment milestones continue from `0010`     |
+| `alembic/versions/`             | revisions `0003`…`0009` — *TG-M5.3 (2026-10-09): `0008` taken by `0008_moderation_attention_judgement`; later moderation revisions take the next free numbers* | none — assessment milestones continue from `0010`     |
 | Assessment domain               | **untouched**                                                                               | —                                                     |
 
 **Alembic numbering.** Moderation takes `0003`…`0009`. If assessment M2 lands first it takes the next
 free number; Alembic's `down_revision` chain is linear, so whichever ships first wins and the other
 rebases its `down_revision`. Worth stating in the spec so two tracks do not both write `0003`.
+
+> **Amended by TG-M5.3 (2026-10-09).** The reservation was used out of this plan's order.
+> - **Taken so far:** TG-M3 `0005`, TG-M4 `0006`, TG-M5 `0007`, and TG-M5.3 `0008_moderation_attention_judgement`
+>   (`specs/011-tg-m5-3-attention-judgement/`, D-TG-192).
+> - **Later moderation revisions** take the next free numbers, whatever this plan names them. That includes
+>   §10.11's `classification_reviews` and the alerts revision, both written above as `0008`.
+> - **If that runs past `0009`,** the assessment track's "continue from `0010`" rule above becomes "next free
+>   number", decided when the first collision would occur.
 
 ---
 

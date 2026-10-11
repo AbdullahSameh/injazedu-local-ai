@@ -76,6 +76,10 @@ def _empty_schema(test_url: str) -> Iterator[None]:
                 conn.execute(text("DROP TABLE IF EXISTS moderation_actions CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS moderation_incidents CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS attention_items CASCADE"))
+                # TG-M5.3's message_attention_judgements/_attempts (revision 0008), like 0007's
+                # tables, are referenced *by* attention_items and must be named too.
+                conn.execute(text("DROP TABLE IF EXISTS message_attention_attempts CASCADE"))
+                conn.execute(text("DROP TABLE IF EXISTS message_attention_judgements CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS message_classification_attempts CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS message_classifications CASCADE"))
                 for table in (

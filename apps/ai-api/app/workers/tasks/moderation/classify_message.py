@@ -156,7 +156,10 @@ async def _run(chat_pk: int, message_id: int, path: str, attempt: int) -> None:
         await redis.aclose()
 
 
-@dramatiq.actor(queue_name="moderation_classify", max_retries=3)
+# TG-M5.3 (D-TG-187, research Finding 18): `priority=10`, against `judge_attention`'s `0`. Both
+# queues share the one-thread `ai-classifier` today, and Dramatiq runs a worker's fetched messages
+# lowest number first, so Attention goes first. This is deployment policy, not contract.
+@dramatiq.actor(queue_name="moderation_classify", max_retries=3, priority=10)
 def classify_message(chat_pk: int, message_id: int, path: str = "live", attempt: int = 1) -> None:
     logger.info("classification requested", extra={"message_id": message_id, "chat_id": chat_pk})
     asyncio.run(_run(chat_pk, message_id, path, attempt))

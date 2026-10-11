@@ -216,6 +216,8 @@ GROUP BY rule_version;
 
   > **Amended by TG-M5.1 (2026-10-03).** With AI-assisted opening on, a rule miss the model caught is an `ai` item, not an operator-added one, so the floor reads higher. The statement is still unchanged; the page prints C9's `model_kept`, summed over models as a count of items, beside the baseline as "Model-opened and kept".
 
+  > **Amended by TG-M5.3 (2026-10-07).** C7 carries TG-M3 §5's four new breakdown columns (`dismissed_not_a_question`, `dismissed_member_discussion`, `dismissed_message_removed`, `dismissed_other`), each filtered on `source = 'rule'`. `rule_dismissed` and precision are unchanged; the parts sum to `rule_dismissed`. The page heads the column "Rule-dismissed (any reason)" and prints the breakdown, as counts, under the table (`specs/011-tg-m5-3-attention-judgement/contracts/dismissal-reasons.md` K7, K9, K11).
+
 **C8** is TG-M4's `incident-metrics.md` §4 statement with `i.source` selected and grouped (D-TG-159, FR-037):
 
 ```sql
@@ -263,6 +265,8 @@ GROUP BY 1, 2, 3;
   misses the model caught (M19, amended).
 - **M25.** Verified by `tests/moderation/classification/test_metrics_model_opened.py` and
   `ModelOpenedQuestionsTest.php` over one hand-computed scenario.
+
+> **Amended by TG-M5.3 (2026-10-07).** C9 gains the per-reason breakdown of `model_dismissed`, four more columns in the same statement with `ai.` prefixes: `dismissed_not_a_question`, `dismissed_member_discussion`, `dismissed_message_removed` and `dismissed_other` (free text or NULL), as written in `specs/011-tg-m5-3-attention-judgement/contracts/dismissal-reasons.md` §3. The parts sum to `model_dismissed` (K9). **M24 is unchanged:** the gate is still `model_dismissed ÷ model_opened` over at least 30 items, at most 10%, counting every reason, and no gate reads a breakdown column (K10). After revision `0008` the same columns apply to both eras (`specs/011-…/contracts/attention-metrics.md` C9′). Also verified by `DismissalBreakdownTest.php`.
 
 ## §9 — "No data" is not zero
 

@@ -56,7 +56,12 @@ async def _insert_message_update(
 
 
 def _patch_sends(monkeypatch: Any) -> dict[str, list[Any]]:
-    sent: dict[str, list[Any]] = {"classify": [], "evaluate": [], "match": []}
+    sent: dict[str, list[Any]] = {"classify": [], "evaluate": [], "match": [], "judge": []}
+    # TG-M5.3: the attention judgement's dispatch has its own tests (`test_dispatch.py`); it is
+    # recorded here only so nothing reaches a broker.
+    monkeypatch.setattr(
+        messages_module.judge_attention, "send", lambda *a, **kw: sent["judge"].append((a, kw))
+    )
     monkeypatch.setattr(
         messages_module.classify_message,
         "send",

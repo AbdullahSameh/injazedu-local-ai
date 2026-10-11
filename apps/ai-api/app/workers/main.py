@@ -26,6 +26,9 @@ from app.workers.tasks.moderation import (  # noqa: E402,F401
     expire_stale_items as _expire_stale_items,
 )
 from app.workers.tasks.moderation import (  # noqa: E402,F401
+    judge_attention as _judge_attention,
+)
+from app.workers.tasks.moderation import (  # noqa: E402,F401
     match_response as _match_response,
 )
 from app.workers.tasks.moderation import process_update as _process_update  # noqa: E402,F401

@@ -4,6 +4,11 @@ arithmetic, grouped by `rule_version` — pooling versions would describe no rul
 ran (M15). The query is quoted from the contract rather than re-expressed, since Phase 8's
 `metrics.py` does not exist yet and this milestone's whole claim is that a figure is defensible
 straight from stored rows (A5).
+
+Amended by TG-M5.3 (`specs/011-tg-m5-3-attention-judgement/contracts/dismissal-reasons.md` K7,
+K9): the statement gains the per-reason breakdown of `rule_dismissed`, each part filtered on
+`source = 'rule'`. The existing columns, and so precision, are unchanged; the parts sum to
+`rule_dismissed`.
 """
 
 from __future__ import annotations
@@ -24,7 +29,21 @@ _ACCURACY_SQL = sa.text(
       count(*) FILTER (WHERE source = 'rule')                                 AS rule_opened,
       count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed')        AS rule_dismissed,
       count(*) FILTER (WHERE source = 'operator')                             AS operator_added,
-      rule_version
+      rule_version,
+      count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
+                         AND close_reason = 'not_a_question')
+                                                          AS dismissed_not_a_question,
+      count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
+                         AND close_reason = 'member_discussion')
+                                                          AS dismissed_member_discussion,
+      count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
+                         AND close_reason = 'message_removed')
+                                                          AS dismissed_message_removed,
+      count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
+                         AND (close_reason IS NULL
+                              OR close_reason NOT IN ('not_a_question','member_discussion',
+                                                      'message_removed')))
+                                                          AS dismissed_other
     FROM attention_items
     WHERE opened_at >= :period_from AND opened_at < :period_to
     GROUP BY rule_version;
@@ -65,8 +84,10 @@ async def test_accuracy_figures_match_hand_arithmetic_grouped_by_rule_version(
     chat_id = await insert_chat(chat_id=attention_chat_id)
     student_id = await insert_user(tg_user_id=random.randint(10_000_000, 2_000_000_000))
 
-    # rule_version=1: five rule-opened items, two of them dismissed by an operator.
+    # rule_version=1: five rule-opened items, two of them dismissed by an operator — one as not a
+    # real question, one as a member discussion (TG-M5.3).
     rule_statuses = ["open", "open", "answered", "dismissed", "dismissed"]
+    close_reasons = {4: "not_a_question", 5: "member_discussion"}
     for index, status in enumerate(rule_statuses, start=1):
         await insert_message(
             telegram_chat_id=chat_id,
@@ -75,15 +96,15 @@ async def test_accuracy_figures_match_hand_arithmetic_grouped_by_rule_version(
             telegram_user_id=student_id,
         )
         async with attention_session_factory() as session:
-            extra = (
-                {
+            extra: dict[str, object] = {}
+            if status == "answered":
+                extra = {
                     "first_response_message_id": 9_000 + index,
                     "first_response_at": period_start + timedelta(minutes=index, seconds=30),
                     "first_response_kind": "group_message",
                 }
-                if status == "answered"
-                else {}
-            )
+            elif status == "dismissed":
+                extra = {"close_reason": close_reasons[index]}
             await session.execute(
                 attention_items.insert().values(
                     telegram_chat_id=chat_id,
@@ -147,3 +168,18 @@ async def test_accuracy_figures_match_hand_arithmetic_grouped_by_rule_version(
 
     assert precision == pytest.approx(0.6)
     assert recall == pytest.approx(0.625)
+
+    # TG-M5.3 K7, K9: the breakdown is exact and sums to the unchanged `rule_dismissed`.
+    assert (
+        rule_row["dismissed_not_a_question"],
+        rule_row["dismissed_member_discussion"],
+        rule_row["dismissed_message_removed"],
+        rule_row["dismissed_other"],
+    ) == (1, 1, 0, 0)
+    assert (
+        rule_row["dismissed_not_a_question"]
+        + rule_row["dismissed_member_discussion"]
+        + rule_row["dismissed_message_removed"]
+        + rule_row["dismissed_other"]
+    ) == rule_dismissed
+    assert operator_row["dismissed_other"] == 0

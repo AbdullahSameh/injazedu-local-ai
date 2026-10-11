@@ -10,6 +10,19 @@ prediction may open a question item only for a burst the rule set declined, only
 `open_item`, and only on the anchor, `opened_at` and attribution a rule-opened item would have had. The model
 never closes, dismisses, expires, re-dates or re-attributes anything.
 
+> **Amended by TG-M5.3 (2026-10-09).** **§1–§3 are superseded** by
+> `specs/011-tg-m5-3-attention-judgement/contracts/attention-judgement.md` §6–§7.
+> - **What opens:** a separate, live **attention judgement** (`intent = asking`), not a classification.
+> - **What the classification still does:** its category can only veto an opening (V).
+> - **The opener needs both settings:** `MODERATION_AI_ATTENTION_FROM` and `MODERATION_ATTENTION_PROMPT_VERSION`
+>   (D-TG-199).
+> - **Unchanged:** the rule set's first word, O1, O4, O5, §4–§5 (live and catch-up; time and attribution) and
+>   "never closes, dismisses, expires, re-dates or re-attributes".
+> - **Today:** no attention instruction is qualified under the operator's Policy D′ (011 research §2, W-7′), so
+>   the opener stays off.
+>
+> The notes below mark each superseded clause.
+
 ---
 
 ## §1 — The gate
@@ -31,6 +44,14 @@ never closes, dismisses, expires, re-dates or re-attributes anything.
 `proposes_attention` is G1–G4; `within_attention_window` is G5–G6. G1–G4 need only the prediction; G5–G6 need
 the item's `opened_at`, which only `open_item` knows.
 
+> **Amended by TG-M5.3 (2026-10-09).**
+> - **G1–G4 are replaced** by attention-judgement A1–A2: a current, live judgement whose stored `needs_response`
+>   is true, read by `judgement_proposes`. They are joined by V: the member's current classification, if any, is
+>   not `SPAM_OR_AD` or `ABUSE`.
+> - **What was deleted:** `proposes_attention` and `NO_RESPONSE_CATEGORIES`.
+> - **G5–G6** (`within_attention_window`, on the judgement's `created_at`) are unchanged. G5's switch now needs
+>   both settings (D-TG-199).
+
 ## §2 — Opening
 
 - **O1.** `open_item` evaluates rule set v1 first, unchanged. Only when it declines **and** the switch is set
@@ -45,6 +66,13 @@ the item's `opened_at`, which only `open_item` knows.
   message in the burst. A burst already covered by any item converges on it (E2/E4) and consults nothing.
 - **O5.** Stamping (`attention_evaluated_at`, `attention_item_id`) and the open-time lookback (C10) are TG-M3's,
   unchanged.
+
+> **Amended by TG-M5.3 (2026-10-09).**
+> - **O2 becomes O2′:** `open_item` reads the burst members' current **attention judgements**, and the first to
+>   pass A1, A2, G5–G6 and V opens the item.
+> - **O3's link becomes `attention_judgement_id`.** `message_classification_id` stays NULL, enforced by
+>   `ck_attention_ai_link`. Historical TG-M5.1 items keep their classification link.
+> - **O1, O4 and O5 are unchanged.**
 
 ## §3 — Reconciliation: a prediction that lands after the burst was judged
 
@@ -66,6 +94,12 @@ the item's `opened_at`, which only `open_item` knows.
 **Case A** (classified before the settle, the usual ~1 s): the request finds the message not yet judged and
 does nothing; the settle-time judgement reads the prediction. **Case B** (classified after): the request puts
 the message back; the next sweep opens the item.
+
+> **Amended by TG-M5.3 (2026-10-09).** I1's caller changed (attention-judgement W2–W3).
+> - **Now:** `judge_one` calls `request_rejudgement` in the same transaction as a live attention judgement with
+>   `needs_response` true, only when the switch is set.
+> - **No longer:** `classify_one` never calls it.
+> - **Unchanged:** I2–I4 and Cases A and B, reading "prediction" as "judgement".
 
 ## §4 — Live and catch-up
 
@@ -137,3 +171,11 @@ the message back; the next sweep opens the item.
 - **Hand-opening (pre-existing, unchanged).** It takes no `chat_lock` and accepts a burst's non-anchor member.
 - **The recall floor.** With the switch on, rule misses the model caught are not operator-added, so the
   rule-recall floor reads higher. The accuracy page prints C9's kept count beside it.
+
+> **Amended by TG-M5.3 (2026-10-09).**
+> - **"The classifier down" now reads "the attention model down".** While the classifier is down, nothing here
+>   changes: a missing classification vetoes nothing.
+> - **L-B1, distributed intent, is added.** A request spread over burst members, none of which asks when read
+>   alone, is not opened by the model. No model receives burst-level input. The limitation is measured by 011's
+>   burst fixtures (R-burst) and by C10c's split of operator-added items by burst size
+>   (`specs/011-tg-m5-3-attention-judgement/contracts/attention-judgement.md` §11).

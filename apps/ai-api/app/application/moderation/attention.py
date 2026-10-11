@@ -12,10 +12,17 @@ lookback, C10) both close items through the same three functions — `_response_
 `_oldest_open_item_before` and `close_item` — so what closes an item is decided in exactly one
 place regardless of which direction found the message (D-TG-82).
 
-TG-M5.1 (`specs/009-tg-m5-1-ai-attention/contracts/attention-opening.md`) makes a live prediction
-a **second opener**, consulted by `open_item` only after the rule set declines — on the same anchor,
-`opened_at`, attribution, stamping and lookback — and adds `request_rejudgement`, E5's own
-re-judgement mechanism, for a prediction that lands after its burst was judged.
+TG-M5.1 (`specs/009-tg-m5-1-ai-attention/contracts/attention-opening.md`) makes a live model
+judgement a **second opener**, consulted by `open_item` only after the rule set declines — on the
+same anchor, `opened_at`, attribution, stamping and lookback — and adds `request_rejudgement`, E5's
+own re-judgement mechanism, for a judgement that lands after its burst was judged.
+
+TG-M5.3 (`specs/011-tg-m5-3-attention-judgement/contracts/attention-judgement.md` §6-§7) moves that
+second opener from the classification to the **attention judgement**: `open_item` reads the burst
+members' current `message_attention_judgements` through A1-A2 (`judgement_proposes`), G5-G6
+(`within_attention_window`) and V (`vetoed`, on each member's current classification category), and
+links the item to the judgement (`attention_judgement_id`). The classification's needs-response is
+measurement only again; the only caller of `request_rejudgement` is `judge_one` (W2-W3).
 """
 
 from __future__ import annotations
@@ -33,10 +40,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.moderation.assignments import responsible_at
 from app.application.moderation.locks import chat_lock
 from app.domain.moderation.attention import RULE_VERSION, evaluate
-from app.domain.moderation.classification import proposes_attention, within_attention_window
+from app.domain.moderation.attention_judgement import judgement_proposes, vetoed
+from app.domain.moderation.classification import within_attention_window
 from app.infrastructure.config import Settings
 from app.infrastructure.models_moderation import (
     attention_items,
+    message_attention_judgements,
     message_classifications,
     moderators,
     telegram_chats,
@@ -62,9 +71,16 @@ class AiAttention:
 
 def ai_attention_from_settings(settings: Settings) -> AiAttention | None:
     """The one place a judgement path turns settings into `AiAttention` — `evaluate_attention`,
-    `sweep_unjudged_bursts` and `rederive_chat` all call this, so every path reaches the same
-    answer for the same stored facts (decision 4, 2026-10-03)."""
-    if settings.moderation_ai_attention_from is None:
+    `sweep_unjudged_bursts`, `rederive_chat` and `judge_one` all call this, so every path reaches
+    the same answer for the same stored facts (decision 4, 2026-10-03).
+
+    TG-M5.3 (D-TG-199): the switch is on only when **both** `MODERATION_AI_ATTENTION_FROM` and
+    `MODERATION_ATTENTION_PROMPT_VERSION` are set. With no attention instruction, no model item
+    opens — even from judgements recorded earlier that are still inside the window (FR-322)."""
+    if (
+        settings.moderation_ai_attention_from is None
+        or settings.moderation_attention_prompt_version is None
+    ):
         return None
     return AiAttention(
         enabled_from=settings.moderation_ai_attention_from,
@@ -209,28 +225,43 @@ async def _model_proposal(
     opened_at: datetime,
     ai: AiAttention,
 ) -> int | None:
-    """TG-M5.1 (contract O2): the id of the current prediction that proposes this burst needs an
-    answer — the earliest member, in the burst's own `(sent_at, message_id)` order, whose stored
-    prediction passes the one gate (`proposes_attention`, `within_attention_window`); mirrors C6's
-    "earliest message the model judged to need an answer" (classification-metrics M17). Read under
-    the caller's `chat_lock`, so a prediction committed before the lock was taken is always seen
-    (contract I2). `None` when no member's prediction qualifies."""
+    """TG-M5.3 (contract §6 O2′): the id of the current attention judgement that opens this
+    burst — the earliest member, in the burst's own `(sent_at, message_id)` order, whose stored
+    judgement passes A1-A2 (`judgement_proposes`) and G5-G6 (`within_attention_window`), and whose
+    current classification, if any, is not vetoed (V). A missing classification never vetoes.
+    Read under the caller's `chat_lock`, so a judgement committed before the lock was taken is
+    always seen (TG-M5.1 I2). `None` when no member's judgement qualifies.
+
+    The classification is read here for V alone, at opening time, and never by either judgement
+    (J4, N5)."""
     position = {row["message_id"]: index for index, row in enumerate(burst)}
     rows = (
         (
             await session.execute(
                 sa.select(
-                    message_classifications.c.id,
-                    message_classifications.c.telegram_message_id,
-                    message_classifications.c.path,
-                    message_classifications.c.route,
-                    message_classifications.c.needs_response,
+                    message_attention_judgements.c.id,
+                    message_attention_judgements.c.telegram_message_id,
+                    message_attention_judgements.c.path,
+                    message_attention_judgements.c.needs_response,
+                    message_attention_judgements.c.created_at,
                     message_classifications.c.category,
-                    message_classifications.c.created_at,
-                ).where(
-                    message_classifications.c.telegram_chat_id == telegram_chat_id,
-                    message_classifications.c.telegram_message_id.in_(list(position)),
-                    message_classifications.c.is_current.is_(True),
+                )
+                .select_from(
+                    message_attention_judgements.outerjoin(
+                        message_classifications,
+                        sa.and_(
+                            message_classifications.c.telegram_chat_id
+                            == message_attention_judgements.c.telegram_chat_id,
+                            message_classifications.c.telegram_message_id
+                            == message_attention_judgements.c.telegram_message_id,
+                            message_classifications.c.is_current.is_(True),
+                        ),
+                    )
+                )
+                .where(
+                    message_attention_judgements.c.telegram_chat_id == telegram_chat_id,
+                    message_attention_judgements.c.telegram_message_id.in_(list(position)),
+                    message_attention_judgements.c.is_current.is_(True),
                 )
             )
         )
@@ -238,16 +269,15 @@ async def _model_proposal(
         .all()
     )
     for row in sorted(rows, key=lambda row: position[row["telegram_message_id"]]):
-        if proposes_attention(
-            path=row["path"],
-            route=row["route"],
-            needs_response=row["needs_response"],
-            category=row["category"],
-        ) and within_attention_window(
-            recorded_at=row["created_at"],
-            opened_at=opened_at,
-            enabled_from=ai.enabled_from,
-            max_age_s=ai.max_age_s,
+        if (
+            judgement_proposes(path=row["path"], needs_response=row["needs_response"])
+            and within_attention_window(
+                recorded_at=row["created_at"],
+                opened_at=opened_at,
+                enabled_from=ai.enabled_from,
+                max_age_s=ai.max_age_s,
+            )
+            and not vetoed(row["category"])
         ):
             return int(row["id"])
     return None
@@ -285,12 +315,16 @@ async def open_item(
     Inserts with `ON CONFLICT (telegram_chat_id, telegram_message_id) DO NOTHING RETURNING id` —
     never `DO UPDATE` — so a concurrent or repeated judgement converges on one row (B1, D-TG-80).
 
-    **TG-M5.1**: when the rules decline and `ai` is set (`MODERATION_AI_ATTENTION_FROM`), the
-    burst's stored predictions are consulted — the rules keep the first word on every burst, so an
-    item both would open is always `source='rule'` (contract O1). A qualifying prediction opens
-    `source='ai'`, `rule_version=NULL`, `message_classification_id` = that prediction, on exactly
-    the anchor, `opened_at` and attribution a rule-opened item would have (O3). The same gates — a
-    measured chat, a person who is not a moderator or bot, no service message — apply to both.
+    **TG-M5.1, amended by TG-M5.3**: when the rules decline and `ai` is set (both
+    `MODERATION_AI_ATTENTION_FROM` and `MODERATION_ATTENTION_PROMPT_VERSION`, D-TG-199), the burst
+    members' stored attention judgements are consulted — the rules keep the first word on every
+    burst, so an item both would open is always `source='rule'` (contract O1). A qualifying
+    judgement (`_model_proposal`: A1-A2, G5-G6, V) opens `source='ai'`, `rule_version=NULL`,
+    `attention_judgement_id` = that judgement and `message_classification_id` NULL
+    (`ck_attention_ai_link`, O3′), on exactly the anchor, `opened_at` and attribution a
+    rule-opened item would have. The same gates — a measured chat, a person who is not a moderator
+    or bot, no service message — apply to both. An item TG-M5.1 opened from a prediction keeps its
+    classification link: E4 converges on it and nothing is rewritten (D-TG-198).
 
     Returns the item's id, or `None` when the burst is empty, the chat is not (or is no longer)
     `is_monitored`, or neither opener opens. An unmeasured chat still gets `attention_evaluated_at`
@@ -326,7 +360,7 @@ async def open_item(
 
             anchor, opened_at = _anchor_and_opened_at(burst)
             source: str | None = None
-            message_classification_id: int | None = None
+            attention_judgement_id: int | None = None
             if is_monitored and not sender_excluded and not has_service_message:
                 replies_to_moderator = await _replies_to_moderator(
                     session, telegram_chat_id=telegram_chat_id, burst=burst
@@ -340,14 +374,14 @@ async def open_item(
                 ):
                     source = "rule"
                 elif ai is not None:
-                    message_classification_id = await _model_proposal(
+                    attention_judgement_id = await _model_proposal(
                         session,
                         telegram_chat_id=telegram_chat_id,
                         burst=burst,
                         opened_at=opened_at,
                         ai=ai,
                     )
-                    if message_classification_id is not None:
+                    if attention_judgement_id is not None:
                         source = "ai"
 
             if source is not None:
@@ -363,7 +397,7 @@ async def open_item(
                         opened_at=opened_at,
                         source=source,
                         rule_version=RULE_VERSION if source == "rule" else None,
-                        message_classification_id=message_classification_id,
+                        attention_judgement_id=attention_judgement_id,
                         responsible_moderator_id=responsible_moderator_id,
                     )
                     .on_conflict_do_nothing(constraint="uq_attention_anchor")
@@ -424,15 +458,17 @@ async def request_rejudgement(
     session: AsyncSession, *, telegram_chat_id: int, message_id: int
 ) -> bool:
     """TG-M5.1 (contract I1-I3): puts one message back on the sweep's authoritative work list — the
-    exact mechanism an edit uses (contract §3 E5), so a prediction that lands after its burst was
-    judged reaches `open_item` through the one judgement path, never a second one. Called by the
-    classifier in the transaction that records the prediction; judges nothing itself.
+    exact mechanism an edit uses (contract §3 E5), so a judgement that lands after its burst was
+    judged reaches `open_item` through the one judgement path, never a second one. Since TG-M5.3
+    (W2-W3) its only caller is `judge_one`, in the transaction that records a live attention
+    judgement needing a response; the classifier no longer calls it. Judges nothing itself.
 
     Holds `chat_lock`: `open_item` stamps `attention_evaluated_at` only under that same lock, so
-    the value read here cannot change before this transaction commits — either a judgement already
-    committed (and missed this prediction), and the flag is cleared; or it has not run, and it will
-    read the committed prediction. A message an item already covers (E4), one not yet judged, or
-    one with no personal sender (it forms no burst, FR-013) is left alone.
+    the value read here cannot change before this transaction commits — either a burst judgement
+    already committed (and missed this attention judgement), and the flag is cleared; or it has
+    not run, and it will read the committed attention judgement. A message an item already covers
+    (E4), one not yet judged, or one with no personal sender (it forms no burst, FR-013) is left
+    alone.
 
     Returns whether the message was put back on the work list.
     """

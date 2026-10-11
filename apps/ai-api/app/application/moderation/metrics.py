@@ -83,13 +83,27 @@ _OLDEST_WAITING_SQL = sa.text(
 # describe no rule set that ever ran. `chat_id` is optional (default unscoped, TG-M3's own
 # behaviour); TG-M5's C7 (`classification-metrics.md` §8) is this same statement with
 # `AND (:chat_id IS NULL OR telegram_chat_id = :chat_id)` added, verbatim, never a second query.
+# TG-M5.3 K7 (`specs/011-…/contracts/dismissal-reasons.md` §3): the per-reason breakdown of
+# `rule_dismissed`, each part filtered on `source = 'rule'`, summing to it (K9). The first four
+# columns are unchanged, and so is precision; no gate reads a breakdown column (K10).
 _ACCURACY_SQL = sa.text(
     """
     SELECT
       count(*) FILTER (WHERE source = 'rule')                                 AS rule_opened,
       count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed')        AS rule_dismissed,
       count(*) FILTER (WHERE source = 'operator')                             AS operator_added,
-      rule_version
+      rule_version,
+      count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
+                         AND close_reason = 'not_a_question')    AS dismissed_not_a_question,
+      count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
+                         AND close_reason = 'member_discussion') AS dismissed_member_discussion,
+      count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
+                         AND close_reason = 'message_removed')   AS dismissed_message_removed,
+      count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
+                         AND (close_reason IS NULL
+                              OR close_reason NOT IN ('not_a_question','member_discussion',
+                                                      'message_removed')))
+                                                                 AS dismissed_other
     FROM attention_items
     WHERE opened_at >= :period_from AND opened_at < :period_to
       AND (:chat_id IS NULL OR telegram_chat_id = :chat_id)
@@ -419,6 +433,9 @@ async def accuracy_by_rule_version(
     D-TG-156). `precision` is `None` when `rule_opened` is zero (nothing to measure); `recall` is
     always labelled an approximation (M16), since it can only see the misses an operator happened
     to notice and add. `chat_id` defaults unscoped, matching every existing caller.
+
+    TG-M5.3 K7: each row also carries the per-reason breakdown of `rule_dismissed` (counts, never
+    ratios — K12); the parts sum to `rule_dismissed`, and `precision` still reads every reason.
     """
     rows = (
         await session.execute(
@@ -442,6 +459,10 @@ async def accuracy_by_rule_version(
                 "operator_added": operator_added,
                 "precision": precision,
                 "recall": recall,
+                "dismissed_not_a_question": row["dismissed_not_a_question"],
+                "dismissed_member_discussion": row["dismissed_member_discussion"],
+                "dismissed_message_removed": row["dismissed_message_removed"],
+                "dismissed_other": row["dismissed_other"],
             }
         )
     return results
@@ -682,20 +703,58 @@ _CLASSIFICATION_LABELS_FOR_ITEMS_SQL = sa.text(
 # by its model, never pooled (K3). M24: `model_dismissed` over `model_opened` is the pilot's
 # false-positive gate for AI-assisted Attention Opening; `model_kept` are rule misses the model
 # caught, which the rule-recall floor's `operator_added` never sees (M19, amended).
+# TG-M5.3 K8 (`specs/011-…/contracts/dismissal-reasons.md` §3): the per-reason breakdown of
+# `model_dismissed`, with `ai.` prefixes, summing to it (K9). `model_dismissed` — and so M24's gate
+# — is unchanged; the breakdown is diagnostic only (K10).
+# TG-M5.3 C9′ (`specs/011-…/contracts/attention-metrics.md` §1, M23′): the union of two eras, each
+# item grouped by the record that opened it — a TG-M5.1 item by its prediction's model, instruction
+# and vocabulary (`era = 'classification'`), a TG-M5.3 item by its attention judgement's model and
+# attention instruction (`era = 'attention'`, no vocabulary). The two eras are never pooled; the
+# TG-M5.3 pilot reads the `attention` rows (M24).
+_MODEL_OPENED_DISMISSAL_BREAKDOWN = """
+           count(*) FILTER (WHERE ai.status = 'dismissed'
+                              AND ai.close_reason = 'not_a_question')
+                                                                   AS dismissed_not_a_question,
+           count(*) FILTER (WHERE ai.status = 'dismissed'
+                              AND ai.close_reason = 'member_discussion')
+                                                                   AS dismissed_member_discussion,
+           count(*) FILTER (WHERE ai.status = 'dismissed'
+                              AND ai.close_reason = 'message_removed')
+                                                                   AS dismissed_message_removed,
+           count(*) FILTER (WHERE ai.status = 'dismissed'
+                              AND (ai.close_reason IS NULL
+                                   OR ai.close_reason NOT IN ('not_a_question','member_discussion',
+                                                              'message_removed')))
+                                                                   AS dismissed_other"""
 _MODEL_OPENED_QUESTIONS_SQL = sa.text(
-    """
-    SELECT c.model_profile_id, c.prompt_version, c.taxonomy_version,
+    f"""
+    SELECT 'classification' AS era, c.model_profile_id, c.prompt_version, c.taxonomy_version,
            count(*)                                                AS model_opened,
            count(*) FILTER (WHERE ai.status = 'dismissed')         AS model_dismissed,
            count(*) FILTER (WHERE ai.status <> 'dismissed')        AS model_kept,
            count(*) FILTER (WHERE ai.status = 'answered')          AS model_answered,
-           count(*) FILTER (WHERE ai.status IN ('open','expired')) AS model_unanswered
+           count(*) FILTER (WHERE ai.status IN ('open','expired')) AS model_unanswered,
+           {_MODEL_OPENED_DISMISSAL_BREAKDOWN}
     FROM attention_items ai
     JOIN message_classifications c ON c.id = ai.message_classification_id
     WHERE ai.source = 'ai'
       AND ai.opened_at >= :period_from AND ai.opened_at < :period_to
       AND (:chat_id IS NULL OR ai.telegram_chat_id = :chat_id)
-    GROUP BY 1, 2, 3
+    GROUP BY 1, 2, 3, 4
+    UNION ALL
+    SELECT 'attention', j.model_profile_id, j.prompt_version, NULL::smallint,
+           count(*),
+           count(*) FILTER (WHERE ai.status = 'dismissed'),
+           count(*) FILTER (WHERE ai.status <> 'dismissed'),
+           count(*) FILTER (WHERE ai.status = 'answered'),
+           count(*) FILTER (WHERE ai.status IN ('open','expired')),
+           {_MODEL_OPENED_DISMISSAL_BREAKDOWN}
+    FROM attention_items ai
+    JOIN message_attention_judgements j ON j.id = ai.attention_judgement_id
+    WHERE ai.source = 'ai'
+      AND ai.opened_at >= :period_from AND ai.opened_at < :period_to
+      AND (:chat_id IS NULL OR ai.telegram_chat_id = :chat_id)
+    GROUP BY 1, 2, 3, 4
     """
 ).bindparams(sa.bindparam("chat_id", type_=sa.BigInteger))
 
@@ -798,13 +857,239 @@ async def classification_labels_for_items(
 async def model_opened_question_stats(
     session: AsyncSession, *, period_from: datetime, period_to: datetime, chat_id: int | None = None
 ) -> list[dict[str, Any]]:
-    """C9 (TG-M5.1): one row per `(model, prompt_version, taxonomy_version)` that opened a question
-    in the period — `model_opened` is always the denominator; a model that opened none has no row
-    (M22)."""
+    """C9′ (TG-M5.1, amended by TG-M5.3): one row per `(era, model, prompt_version,
+    taxonomy_version)` that opened a question in the period — `model_opened` is always the
+    denominator; a model that opened none has no row (M22). `era` is `classification` for a TG-M5.1
+    item and `attention` for a TG-M5.3 one, whose `taxonomy_version` is NULL (M23′). TG-M5.3 K8:
+    each row also carries the per-reason breakdown of `model_dismissed`."""
     rows = (
         await session.execute(
             _MODEL_OPENED_QUESTIONS_SQL,
             {"period_from": period_from, "period_to": period_to, "chat_id": chat_id},
+        )
+    ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+# TG-M5.3 — C10a: what happened to every message, for the attention judgement
+# (`specs/011-tg-m5-3-attention-judgement/contracts/attention-metrics.md` §2). Never grouped by
+# model, like C5. M26: the four outcomes partition the messages — a current judgement, then an
+# exclusion, then the **latest** failure, then "not judged yet".
+_ATTENTION_JUDGEMENT_VOLUME_SQL = sa.text(
+    """
+    SELECT count(*) AS messages,
+           count(*) FILTER (WHERE j.id IS NOT NULL)                                   AS judged,
+           count(*) FILTER (WHERE j.id IS NULL AND x.id IS NOT NULL)                  AS excluded,
+           count(*) FILTER (WHERE j.id IS NULL AND x.id IS NULL AND f.id IS NOT NULL) AS failed,
+           count(*) FILTER (WHERE j.id IS NULL AND x.id IS NULL AND f.id IS NULL)
+                                                                              AS not_judged_yet
+    FROM telegram_messages m
+    LEFT JOIN message_attention_judgements j
+      ON j.telegram_chat_id = m.telegram_chat_id
+     AND j.telegram_message_id = m.message_id AND j.is_current
+    LEFT JOIN message_attention_attempts x
+      ON x.telegram_chat_id = m.telegram_chat_id
+     AND x.telegram_message_id = m.message_id AND x.outcome = 'excluded'
+    LEFT JOIN LATERAL (
+      SELECT a.id FROM message_attention_attempts a
+      WHERE a.telegram_chat_id = m.telegram_chat_id AND a.telegram_message_id = m.message_id
+        AND a.outcome = 'failed'
+      ORDER BY a.created_at DESC, a.id DESC LIMIT 1
+    ) f ON true
+    WHERE m.sent_at >= :period_from AND m.sent_at < :period_to
+      AND (:chat_id IS NULL OR m.telegram_chat_id = :chat_id)
+    """
+).bindparams(sa.bindparam("chat_id", type_=sa.BigInteger))
+
+# M26's breakdowns, as 008 M15's for C5: exclusions (including `rule_opens`) by their one reason;
+# failures by the **latest** failure's reason, where neither a judgement nor an exclusion takes
+# precedence.
+_ATTENTION_EXCLUDED_BY_REASON_SQL = sa.text(
+    """
+    SELECT x.reason, count(*) AS n
+    FROM message_attention_attempts x
+    JOIN telegram_messages m
+      ON m.telegram_chat_id = x.telegram_chat_id AND m.message_id = x.telegram_message_id
+    WHERE x.outcome = 'excluded'
+      AND m.sent_at >= :period_from AND m.sent_at < :period_to
+      AND (:chat_id IS NULL OR m.telegram_chat_id = :chat_id)
+    GROUP BY x.reason
+    """
+).bindparams(sa.bindparam("chat_id", type_=sa.BigInteger))
+
+_ATTENTION_FAILED_BY_REASON_SQL = sa.text(
+    """
+    SELECT f.reason, count(*) AS n
+    FROM telegram_messages m
+    JOIN LATERAL (
+      SELECT a.reason FROM message_attention_attempts a
+      WHERE a.telegram_chat_id = m.telegram_chat_id AND a.telegram_message_id = m.message_id
+        AND a.outcome = 'failed'
+      ORDER BY a.created_at DESC, a.id DESC LIMIT 1
+    ) f ON true
+    WHERE NOT EXISTS (
+        SELECT 1 FROM message_attention_judgements j
+        WHERE j.telegram_chat_id = m.telegram_chat_id
+          AND j.telegram_message_id = m.message_id AND j.is_current
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM message_attention_attempts x
+        WHERE x.telegram_chat_id = m.telegram_chat_id
+          AND x.telegram_message_id = m.message_id AND x.outcome = 'excluded'
+      )
+      AND m.sent_at >= :period_from AND m.sent_at < :period_to
+      AND (:chat_id IS NULL OR m.telegram_chat_id = :chat_id)
+    GROUP BY f.reason
+    """
+).bindparams(sa.bindparam("chat_id", type_=sa.BigInteger))
+
+# TG-M5.3 — C10b: live judgements by intent, and timeliness, per model and attention instruction
+# (never pooled, K3). M28: `on_time` is a judgement recorded no later than its message's own
+# delayed judgement, `sent_at + gap` (Case A), shown as `on_time / judged`. M29: `asking` is not
+# "questions" — a message whose own words open the rules is AE2-skipped and never appears here.
+_ATTENTION_JUDGEMENT_INTENT_SQL = sa.text(
+    """
+    SELECT j.model_profile_id, j.prompt_version,
+           count(*)                                          AS judged,
+           count(*) FILTER (WHERE j.intent = 'asking')       AS asking,
+           count(*) FILTER (WHERE j.intent = 'discussion')   AS discussion,
+           count(*) FILTER (WHERE j.intent = 'informing')    AS informing,
+           count(*) FILTER (WHERE j.intent = 'social')       AS social,
+           count(*) FILTER (WHERE j.intent = 'offering')     AS offering,
+           count(*) FILTER (WHERE j.intent = 'other')        AS other,
+           count(*) FILTER (WHERE j.created_at <= m.sent_at + make_interval(secs => :gap_s))
+                                                             AS on_time
+    FROM message_attention_judgements j
+    JOIN telegram_messages m
+      ON m.telegram_chat_id = j.telegram_chat_id AND m.message_id = j.telegram_message_id
+    WHERE j.is_current AND j.path = 'live'
+      AND m.sent_at >= :period_from AND m.sent_at < :period_to
+      AND (:chat_id IS NULL OR m.telegram_chat_id = :chat_id)
+    GROUP BY 1, 2
+    """
+).bindparams(
+    sa.bindparam("chat_id", type_=sa.BigInteger),
+    sa.bindparam("gap_s", type_=sa.Float),
+)
+
+
+# TG-M5.3 — C10c: the misses a person noticed — operator-added items, by their anchor's attention
+# status and by burst size. M30: `multi_message` is exact — under TG-M3 §1 every member of a burst
+# of two or more has a same-sender, same-thread neighbour within the gap; a `sender_chat` anchor has
+# no `telegram_user_id`, so it is never multi-message. M31: L-B1's pilot measure — the operator
+# reviews the multi-message rows by hand; no "every member non-asking" count is computed. M32:
+# `judged_asking` here is reported, not explained.
+_ATTENTION_OPERATOR_ADDED_SQL = sa.text(
+    """
+    SELECT CASE WHEN j.id IS NOT NULL AND j.needs_response THEN 'judged_asking'
+                WHEN j.id IS NOT NULL                      THEN 'judged_' || j.intent
+                WHEN x.id IS NOT NULL                      THEN 'excluded_' || x.reason
+                WHEN f.id IS NOT NULL                      THEN 'failed'
+                ELSE 'none' END                                                  AS anchor_status,
+           EXISTS (SELECT 1 FROM telegram_messages n
+                   WHERE n.telegram_chat_id = m.telegram_chat_id
+                     AND n.telegram_user_id = m.telegram_user_id
+                     AND n.message_thread_id IS NOT DISTINCT FROM m.message_thread_id
+                     AND n.message_id <> m.message_id
+                     AND n.sent_at BETWEEN m.sent_at - make_interval(secs => :gap_s)
+                                       AND m.sent_at + make_interval(secs => :gap_s))
+                                                                             AS multi_message,
+           count(*)                                                          AS items
+    FROM attention_items ai
+    JOIN telegram_messages m
+      ON m.telegram_chat_id = ai.telegram_chat_id AND m.message_id = ai.telegram_message_id
+    LEFT JOIN message_attention_judgements j
+      ON j.telegram_chat_id = m.telegram_chat_id
+     AND j.telegram_message_id = m.message_id AND j.is_current
+    LEFT JOIN message_attention_attempts x
+      ON x.telegram_chat_id = m.telegram_chat_id
+     AND x.telegram_message_id = m.message_id AND x.outcome = 'excluded'
+    LEFT JOIN LATERAL (
+      SELECT a.id FROM message_attention_attempts a
+      WHERE a.telegram_chat_id = m.telegram_chat_id AND a.telegram_message_id = m.message_id
+        AND a.outcome = 'failed'
+      ORDER BY a.created_at DESC, a.id DESC LIMIT 1
+    ) f ON true
+    WHERE ai.source = 'operator'
+      AND ai.opened_at >= :period_from AND ai.opened_at < :period_to
+      AND (:chat_id IS NULL OR ai.telegram_chat_id = :chat_id)
+    GROUP BY 1, 2
+    """
+).bindparams(
+    sa.bindparam("chat_id", type_=sa.BigInteger),
+    sa.bindparam("gap_s", type_=sa.Float),
+)
+
+
+async def attention_judgement_volume_stats(
+    session: AsyncSession, *, period_from: datetime, period_to: datetime, chat_id: int | None = None
+) -> dict[str, Any]:
+    """C10a plus M26's by-reason breakdowns: `messages == judged + excluded + failed +
+    not_judged_yet`, always. M27: messages posted before an attention instruction was configured
+    stay "not judged yet" — there is no catch-up, so the period chosen decides what that means."""
+    params = {"period_from": period_from, "period_to": period_to, "chat_id": chat_id}
+    row = (await session.execute(_ATTENTION_JUDGEMENT_VOLUME_SQL, params)).mappings().one()
+    excluded_rows = (
+        (await session.execute(_ATTENTION_EXCLUDED_BY_REASON_SQL, params)).mappings().all()
+    )
+    failed_rows = (
+        (await session.execute(_ATTENTION_FAILED_BY_REASON_SQL, params)).mappings().all()
+    )
+    return {
+        "messages": row["messages"],
+        "judged": row["judged"],
+        "excluded": row["excluded"],
+        "failed": row["failed"],
+        "not_judged_yet": row["not_judged_yet"],
+        "excluded_by_reason": {r["reason"]: r["n"] for r in excluded_rows},
+        "failed_by_reason": {r["reason"]: r["n"] for r in failed_rows},
+    }
+
+
+async def attention_judgement_intent_stats(
+    session: AsyncSession,
+    *,
+    period_from: datetime,
+    period_to: datetime,
+    gap_s: int,
+    chat_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """C10b: one row per `(model, attention instruction)` with a live judgement in the period — a
+    model with none has no row (M22). `gap_s` is `MODERATION_BURST_GAP_S`, passed in rather than
+    read here (this module's explicit-parameter style)."""
+    rows = (
+        await session.execute(
+            _ATTENTION_JUDGEMENT_INTENT_SQL,
+            {
+                "period_from": period_from,
+                "period_to": period_to,
+                "chat_id": chat_id,
+                "gap_s": gap_s,
+            },
+        )
+    ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+async def attention_operator_added_stats(
+    session: AsyncSession,
+    *,
+    period_from: datetime,
+    period_to: datetime,
+    gap_s: int,
+    chat_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """C10c: one row per `(anchor_status, multi_message)` among the operator-added items opened in
+    the period. `gap_s` is `MODERATION_BURST_GAP_S`, passed in as for C10b."""
+    rows = (
+        await session.execute(
+            _ATTENTION_OPERATOR_ADDED_SQL,
+            {
+                "period_from": period_from,
+                "period_to": period_to,
+                "chat_id": chat_id,
+                "gap_s": gap_s,
+            },
         )
     ).mappings().all()
     return [dict(row) for row in rows]

@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Filament\Pages\LiveAttentionQueue;
 use App\Models\AttentionItem;
+use App\Models\MessageClassification;
+use App\Models\ModelProfile;
 use App\Models\Moderator;
 use App\Models\TelegramChat;
 use App\Models\TelegramMessage;
@@ -116,6 +118,36 @@ class LiveAttentionQueueTest extends TestCase
         ], $overrides));
     }
 
+    private function makeOpeningPrediction(TelegramChat $chat, TelegramMessage $message): MessageClassification
+    {
+        $profile = ModelProfile::forceCreate([
+            'name' => 'test-queue-opener-'.random_int(1, 1_000_000),
+            'provider' => 'fake',
+            'model' => 'fake-queue-opener',
+            'role' => 'moderation',
+            'params' => json_encode([]),
+            'is_active' => false,
+        ]);
+
+        return MessageClassification::forceCreate([
+            'telegram_chat_id' => $chat->id,
+            'telegram_message_id' => $message->message_id,
+            'model_profile_id' => $profile->id,
+            'prompt_version' => 'classify_v2',
+            'taxonomy_version' => 1,
+            'category' => 'QUESTION_COURSE',
+            'needs_response' => true,
+            'needs_moderation' => false,
+            'severity' => 'none',
+            'confidence' => '0.950',
+            'path' => 'live',
+            'route' => 'none',
+            'confidence_floor' => '0.600',
+            'incident_threshold' => '0.850',
+            'is_current' => true,
+        ]);
+    }
+
     public function test_the_page_loads(): void
     {
         $this->actingAsPanelOperator();
@@ -216,10 +248,17 @@ class LiveAttentionQueueTest extends TestCase
         $student = $this->makeStudent();
 
         $byRule = $this->makeItem($chat, $this->makeMessage($chat, $student, 1, 'متى الاختبار؟', now()->subMinutes(30)));
+        // TG-M5.3 `ck_attention_ai_link`: a model item carries the record that opened it — here a
+        // TG-M5.1-era prediction.
+        $modelMessage = $this->makeMessage($chat, $student, 2, 'في محاضرة بكرة', now()->subMinutes(20));
         $byModel = $this->makeItem(
             $chat,
-            $this->makeMessage($chat, $student, 2, 'في محاضرة بكرة', now()->subMinutes(20)),
-            ['source' => 'ai', 'rule_version' => null],
+            $modelMessage,
+            [
+                'source' => 'ai',
+                'rule_version' => null,
+                'message_classification_id' => $this->makeOpeningPrediction($chat, $modelMessage)->id,
+            ],
         );
         $byOperator = $this->makeItem(
             $chat,

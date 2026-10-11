@@ -23,6 +23,12 @@ BASELINE_REVISION = "0006"
 HEAD_REVISION = "0007"
 
 _NEW_TABLES = ("message_classifications", "message_classification_attempts")
+# TG-M5.3's `message_attention_judgements`/`_attempts` (revision 0008) FK into telegram_chats/
+# telegram_messages/model_profiles — this file's own tests never migrate past 0007, but a leftover
+# from whatever ran before this file must still be dropped, or the next lazy re-migration to
+# "head" collides with it (mirrors `tests/moderation/actors/test_migration_0004.py`'s
+# `_LATER_TABLES`).
+_LATER_TABLES = ("message_attention_attempts", "message_attention_judgements")
 _PRIOR_TABLES = (
     "telegram_updates",
     "ingestion_state",
@@ -93,7 +99,7 @@ def _empty_schema(test_url: str) -> Iterator[None]:
             with engine.begin() as conn:
                 for view in _PRIOR_VIEWS:
                     conn.execute(text(f"DROP VIEW IF EXISTS {view} CASCADE"))
-                for table in (*_NEW_TABLES, *_PRIOR_TABLES):
+                for table in (*_LATER_TABLES, *_NEW_TABLES, *_PRIOR_TABLES):
                     conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
         finally:

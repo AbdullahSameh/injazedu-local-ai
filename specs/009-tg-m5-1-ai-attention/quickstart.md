@@ -1,5 +1,14 @@
 # Quickstart: TG-M5.1 — AI-assisted Attention Opening
 
+> **Amended by TG-M5.3 (2026-10-09).** **§2–§3 describe TG-M5.1's era.**
+> - **Two settings are now needed.** The switch needs `MODERATION_AI_ATTENTION_FROM` **and**
+>   `MODERATION_ATTENTION_PROMPT_VERSION` (D-TG-199). With either one blank, no model item opens.
+> - **What opens an item:** a live attention judgement, not a classification. A classification's
+>   `needs_response` is measurement only again.
+> - **Today:** no attention instruction is qualified under the operator's Policy D′ (011 research §2, W-7′), so
+>   neither setting may be set for opening.
+> - **The current procedure** is `specs/011-tg-m5-3-attention-judgement/quickstart.md` §5–§8.
+
 ## 1. Smoke first, with the switch blank
 
 `make check` passes with Ollama quit. With `MODERATION_AI_ATTENTION_FROM` blank, everything behaves exactly
@@ -56,11 +65,17 @@ as TG-M5 left it: the model's needs-response judgement is measured and never act
 Blank `MODERATION_AI_ATTENTION_FROM` and recreate `ai-worker` and `ai-classifier`. Items already opened stay
 (TG-M3 E4: nothing retracts an item), and nothing new opens.
 
+> **Amended by TG-M5.3 (2026-10-09).** Blanking either setting now stops opening. Blanking
+> `MODERATION_ATTENTION_PROMPT_VERSION`, or deactivating the attention profile, also stops every attention call
+> (011 quickstart §8).
+
 ## 5. Read the pilot
 
 On Classification Accuracy, under "Questions the model opened", the **dismissed as not a real question** ratio
 is the operational gate. Read it after a week, with its denominator. "Model-opened and kept", beside the rule
 baseline, is the count of rule misses the model caught.
+
+> **Amended by TG-M5.3 (2026-10-07).** The line now reads "Model-opened, dismissed (any reason)". The **dismissed (any reason)** ratio is the operational gate; its breakdown says why (not a real question · member discussion · message removed · other). The gate's value is unchanged: it still counts every dismissal reason (`specs/011-tg-m5-3-attention-judgement/contracts/dismissal-reasons.md` K10, K11).
 
 ## 6. Known limitations
 

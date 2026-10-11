@@ -1,4 +1,4 @@
-.PHONY: doctor up down down-hard logs health migrate migrate-down seed-profiles profiles seed-admin psql check test-db-reset mem-report automation-up logs-ui smoke-llm smoke-moderation smoke-attention qualify-moderation test-llm check-lane tg-doctor
+.PHONY: doctor up down down-hard logs health migrate migrate-down seed-profiles profiles seed-admin psql check test-db-reset mem-report automation-up logs-ui smoke-llm smoke-moderation smoke-attention qualify qualify-moderation test-llm check-lane tg-doctor
 
 COMPOSE := docker compose -f infra/docker-compose.yml --env-file .env
 
@@ -41,14 +41,14 @@ doctor: ## Check prerequisites: Docker memory, Ollama, .env completeness (FR-034
 up: ## Start the default services (FR-001)
 	$(COMPOSE) up -d --build
 
-down: ## Stop everything, keep volumes (FR-002)
-	$(COMPOSE) down
+down: ## Stop everything, keep volumes (FR-002); '*' includes opt-in profiles (dozzle, n8n, migrate)
+	$(COMPOSE) --profile '*' down
 
 down-hard: ## Stop and delete the volume — prompts, names the database (FR-002)
 	@db=$$(grep '^POSTGRES_DB=' .env | cut -d= -f2); \
 	echo "This will permanently DELETE the '$$db' database volume — all data is lost."; \
 	read -p "Type 'yes' to continue: " confirm && [ "$$confirm" = "yes" ] || (echo "Aborted."; exit 1)
-	$(COMPOSE) down -v
+	$(COMPOSE) --profile '*' down -v
 
 logs: ## Tail all services' logs
 	$(COMPOSE) logs -f
@@ -97,7 +97,7 @@ smoke-moderation: ## Classify FIXTURES=<path outside the repo> against the real 
 		$(COMPOSE) --profile tools run --rm migrate python -m app.scripts.smoke_moderation $(ARGS); \
 	fi
 
-smoke-attention: ## Benchmark needs_response on FIXTURES=<path outside the repo> before MODERATION_AI_ATTENTION_FROM (TG-M5.1)
+smoke-attention: ## Quick check of the attention pair on FIXTURES=<path outside the repo>, ARGS='--profile … --prompt …'; the qualification's own path (TG-M5.3)
 	@if [ -n "$(FIXTURES)" ]; then \
 		$(COMPOSE) --profile tools run --rm -T migrate python -m app.scripts.smoke_attention $(ARGS) < "$(FIXTURES)"; \
 	else \
@@ -107,7 +107,22 @@ smoke-attention: ## Benchmark needs_response on FIXTURES=<path outside the repo>
 # `~/…` is expanded here: zsh leaves `FIXTURES_DIR=~/…` unexpanded on the command line.
 _QUALIFY_FIXTURES = $(abspath $(patsubst ~/%,$(HOME)/%,$(FIXTURES_DIR)))
 
-qualify-moderation: ## Qualify PROFILE=<profile> [PROMPT=<version>] over FIXTURES_DIR=<dir outside the repo> [REPEAT=2]; read-only (TG-M5.2)
+qualify: ## Qualify TASK=attention|moderation PROFILE=<profile> over FIXTURES_DIR=<dir outside the repo> [PROMPT=<version> | CANDIDATE=<file in FIXTURES_DIR>] [REPEAT=2] [MODERATION_P95_MS=<ms>] [SERVING=single|concurrent]; read-only (TG-M5.3)
+	@if [ -z "$(TASK)" ] || [ -z "$(PROFILE)" ] || [ -z "$(FIXTURES_DIR)" ]; then \
+		echo "usage: make qualify TASK=attention|moderation PROFILE=<profile> FIXTURES_DIR=<dir outside the repo> [PROMPT=<version> | CANDIDATE=<file in FIXTURES_DIR>] [REPEAT=2] [MODERATION_P95_MS=<ms>] [SERVING=single|concurrent]" >&2; \
+		exit 2; \
+	fi
+	@if [ ! -d "$(_QUALIFY_FIXTURES)" ]; then \
+		echo "qualify: no fixtures directory at $(_QUALIFY_FIXTURES)" >&2; \
+		exit 2; \
+	fi
+	$(COMPOSE) --profile tools run --rm -T -v "$(_QUALIFY_FIXTURES)":/fixtures:ro migrate \
+		python -m app.scripts.qualification --task $(TASK) --profile $(PROFILE) \
+		$(if $(PROMPT),--prompt $(PROMPT)) $(if $(CANDIDATE),--candidate-file /fixtures/$(CANDIDATE)) \
+		$(if $(MODERATION_P95_MS),--moderation-p95-ms $(MODERATION_P95_MS)) $(if $(SERVING),--serving $(SERVING)) \
+		--fixtures-dir /fixtures --repeat $(or $(REPEAT),2)
+
+qualify-moderation: ## Alias of `make qualify TASK=moderation`: PROFILE=<profile> [PROMPT=<version>] FIXTURES_DIR=<dir outside the repo> [REPEAT=2]; read-only (TG-M5.2)
 	@if [ -z "$(PROFILE)" ] || [ -z "$(FIXTURES_DIR)" ]; then \
 		echo "usage: make qualify-moderation PROFILE=<profile> FIXTURES_DIR=<dir outside the repo> [PROMPT=<version>] [REPEAT=2]" >&2; \
 		exit 2; \
@@ -117,7 +132,7 @@ qualify-moderation: ## Qualify PROFILE=<profile> [PROMPT=<version>] over FIXTURE
 		exit 2; \
 	fi
 	$(COMPOSE) --profile tools run --rm -T -v "$(_QUALIFY_FIXTURES)":/fixtures:ro migrate \
-		python -m app.scripts.qualify_moderation --profile $(PROFILE) $(if $(PROMPT),--prompt $(PROMPT)) \
+		python -m app.scripts.qualification --task moderation --profile $(PROFILE) $(if $(PROMPT),--prompt $(PROMPT)) \
 		--fixtures-dir /fixtures --repeat $(or $(REPEAT),2)
 
 test-llm: ## Run only @pytest.mark.llm tests — the ones `make check` excludes (FR-027)

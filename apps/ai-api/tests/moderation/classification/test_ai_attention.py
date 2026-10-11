@@ -1,14 +1,17 @@
-"""TG-M5.1 — the live prediction as a second opener of question items
-(`specs/009-tg-m5-1-ai-attention/contracts/attention-opening.md`).
+"""TG-M5.1 — a live model judgement as a second opener of question items
+(`specs/009-tg-m5-1-ai-attention/contracts/attention-opening.md`), re-pointed by TG-M5.3 to the
+attention judgement (`specs/011-tg-m5-3-attention-judgement/contracts/attention-judgement.md` §6-§7,
+D-TG-191, `tasks.md` T044).
 
 The rule set keeps the first word on every burst; only when it declines does `open_item` consult the
-burst's stored predictions, through the one gate (`proposes_attention`, `within_attention_window`),
-and open `source='ai'` — on TG-M3's own anchor, `opened_at`, attribution, stamping and C10 lookback.
-A prediction that lands after the burst was judged re-flags its message through E5's own mechanism
-(`request_rejudgement`), and the ordinary sweep converges. Every model answer here is scripted or
-inserted directly — no model runtime, no network.
+burst's stored **attention judgements**, through the one gate (`judgement_proposes`,
+`within_attention_window`, `vetoed`), and open `source='ai'` linked to that judgement — on TG-M3's
+own anchor, `opened_at`, attribution, stamping and C10 lookback. A judgement that lands after the
+burst was judged re-flags its message through E5's own mechanism (`request_rejudgement`, W2), and
+the ordinary sweep converges. The classification no longer proposes or re-flags anything (W3).
+Every model answer here is scripted or inserted directly — no model runtime, no network.
 
-`sent_at` is a real wall-clock offset (the sweep's cutoff and the prediction's `created_at` are
+`sent_at` is a real wall-clock offset (the sweep's cutoff and the judgement's `created_at` are
 the database's own clock, and G6 compares the two), mirroring `tests/moderation/attention/
 test_sweep.py`.
 """
@@ -30,9 +33,11 @@ from app.application.moderation.attention import (
     open_item,
     request_rejudgement,
 )
+from app.application.moderation.attention_judgement import judge_one
 from app.application.moderation.classification import classify_one
 from app.infrastructure.models_moderation import (
     attention_items,
+    message_attention_judgements,
     message_classifications,
     moderation_incidents,
     telegram_messages,
@@ -44,8 +49,18 @@ from app.workers.tasks.moderation.sweep_unjudged_bursts import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from tests.moderation.attention_judgement import conftest as attention_judgement_conftest
+
+# Re-exported, by name, from the attention judgement package (T014's pattern): the judgement
+# builders have one definition, and pytest finds a fixture by the attribute name in this module.
+insert_attention_judgement = attention_judgement_conftest.insert_attention_judgement
+seeded_attention_profile = attention_judgement_conftest.seeded_attention_profile
+
 _GAP_S = 90
 _MAX_AGE_S = 86400
+
+_PROMPT_VERSION = "attention_test"
+_INSTRUCTIONS = {_PROMPT_VERSION: "TEST"}
 
 # Synthetic wording only — never real student text. No rule-set signal in either (no `؟`, no
 # interrogative or support pattern on a token boundary, no mention, no reply).
@@ -53,20 +68,6 @@ _IMPLICIT_QUESTION = "في محاضرة بكرة"
 _RULE_QUESTION = "متى المحاضرة؟"
 _GREETING = "السلام عليكم يا شباب"
 
-_NEEDS_RESPONSE = {
-    "category": "QUESTION_COURSE",
-    "needs_response": True,
-    "needs_moderation": False,
-    "severity": "none",
-    "confidence": 0.95,
-}
-_NO_RESPONSE = {
-    "category": "CHITCHAT",
-    "needs_response": False,
-    "needs_moderation": False,
-    "severity": "none",
-    "confidence": 0.95,
-}
 
 
 def _rand_id() -> int:
@@ -85,7 +86,14 @@ def _ai(*, enabled_from: datetime | None = None) -> AiAttention:
 
 
 def _settings_with_switch(settings: Any, enabled_from: datetime | None) -> Any:
-    return settings.model_copy(update={"moderation_ai_attention_from": enabled_from})
+    """The switch and the test-only attention instruction (D-TG-199: the opener needs both);
+    `model_copy` skips the allowlist validator, so the test-only version needs no entry."""
+    return settings.model_copy(
+        update={
+            "moderation_ai_attention_from": enabled_from,
+            "moderation_attention_prompt_version": _PROMPT_VERSION,
+        }
+    )
 
 
 async def _judge(
@@ -135,6 +143,32 @@ async def _classify(
     )
 
 
+async def _attend(
+    session_factory: async_sessionmaker[AsyncSession],
+    scripted_gateway: Any,
+    redis: Any,
+    settings: Any,
+    *,
+    chat_pk: int,
+    message_id: int,
+    intent: str,
+    path: str = "live",
+) -> str:
+    """One attention judgement, exactly `judge_attention_once` with a scripted answer."""
+    gateway, _calls = scripted_gateway(responses=[{"intent": intent}])
+    return await judge_one(
+        session_factory,
+        gateway,
+        ProfileRegistry(session_factory),
+        redis,
+        settings,
+        chat_pk=chat_pk,
+        message_id=message_id,
+        path=path,
+        instructions=_INSTRUCTIONS,
+    )
+
+
 async def _items(
     session_factory: async_sessionmaker[AsyncSession], *, chat_pk: int
 ) -> list[dict[str, Any]]:
@@ -172,16 +206,16 @@ async def _message(
         return dict(row)
 
 
-async def _prediction_id(
+async def _judgement_id(
     session_factory: async_sessionmaker[AsyncSession], *, chat_pk: int, message_id: int
 ) -> int:
     async with session_factory() as session:
         return (
             await session.execute(
-                sa.select(message_classifications.c.id).where(
-                    message_classifications.c.telegram_chat_id == chat_pk,
-                    message_classifications.c.telegram_message_id == message_id,
-                    message_classifications.c.is_current.is_(True),
+                sa.select(message_attention_judgements.c.id).where(
+                    message_attention_judgements.c.telegram_chat_id == chat_pk,
+                    message_attention_judgements.c.telegram_message_id == message_id,
+                    message_attention_judgements.c.is_current.is_(True),
                 )
             )
         ).scalar_one()
@@ -219,12 +253,14 @@ async def seeded(
     classification_session_factory: async_sessionmaker[AsyncSession],
     classification_chat_id: int,
     classification_seeded_profile: None,
+    seeded_attention_profile: Any,
     insert_chat: Any,
     insert_user: Any,
     insert_moderator: Any,
     insert_assignment: Any,
 ) -> dict[str, Any]:
-    """A measured group with a primary owner since yesterday and one student."""
+    """A measured group with a primary owner since yesterday, one student, and an active
+    attention profile beside the active moderation one."""
     chat_pk = await insert_chat(chat_id=classification_chat_id)
     owner = await insert_moderator(display_name="Owner")
     await insert_assignment(
@@ -233,23 +269,18 @@ async def seeded(
         valid_from=_now() - timedelta(days=2),
     )
     user_pk = await insert_user(tg_user_id=_rand_id())
-    async with classification_session_factory() as session:
-        profile_id = (
-            await session.execute(
-                sa.text("SELECT id FROM model_profiles WHERE role = 'moderation' AND is_active")
-            )
-        ).scalar_one()
-    return {"chat_pk": chat_pk, "user_pk": user_pk, "owner": owner, "profile_id": profile_id}
+    await seeded_attention_profile(active=True)
+    return {"chat_pk": chat_pk, "user_pk": user_pk, "owner": owner}
 
 
 # --- 1-3: who opens ------------------------------------------------------------------------------
 
 
-async def test_a_rule_question_opens_one_rule_item_with_no_classification_link(
+async def test_a_rule_question_opens_one_rule_item_with_no_model_link(
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
-    insert_prediction: Any,
+    insert_attention_judgement: Any,
 ) -> None:
     sent_at = _now() - timedelta(minutes=10)
     await insert_message(
@@ -259,13 +290,8 @@ async def test_a_rule_question_opens_one_rule_item_with_no_classification_link(
         telegram_user_id=seeded["user_pk"],
         original_text=_RULE_QUESTION,
     )
-    await insert_prediction(
-        telegram_chat_id=seeded["chat_pk"],
-        telegram_message_id=1,
-        model_profile_id=seeded["profile_id"],
-        category="QUESTION_COURSE",
-        severity="none",
-        needs_response=True,
+    await insert_attention_judgement(
+        telegram_chat_id=seeded["chat_pk"], telegram_message_id=1, intent="asking"
     )
 
     await _judge(
@@ -279,10 +305,11 @@ async def test_a_rule_question_opens_one_rule_item_with_no_classification_link(
     [item] = await _items(classification_session_factory, chat_pk=seeded["chat_pk"])
     assert item["source"] == "rule"
     assert item["rule_version"] == 1
+    assert item["attention_judgement_id"] is None
     assert item["message_classification_id"] is None
 
 
-async def test_a_later_needs_response_prediction_never_adds_or_changes_a_rule_item(
+async def test_a_later_asking_judgement_never_adds_or_changes_a_rule_item(
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
@@ -290,6 +317,8 @@ async def test_a_later_needs_response_prediction_never_adds_or_changes_a_rule_it
     classification_redis: Any,
     classification_settings: Any,
 ) -> None:
+    """A message whose own words open the rules is never judged (AE2), so the late judgement here
+    is a rule-declined member of the same burst."""
     await _drain_existing_backlog(classification_session_factory)
     sent_at = _now() - timedelta(minutes=10)
     await insert_message(
@@ -298,6 +327,13 @@ async def test_a_later_needs_response_prediction_never_adds_or_changes_a_rule_it
         sent_at=sent_at,
         telegram_user_id=seeded["user_pk"],
         original_text=_RULE_QUESTION,
+    )
+    await insert_message(
+        telegram_chat_id=seeded["chat_pk"],
+        message_id=2,
+        sent_at=sent_at + timedelta(seconds=20),
+        telegram_user_id=seeded["user_pk"],
+        original_text=_IMPLICIT_QUESTION,
     )
     await _judge(
         classification_session_factory,
@@ -309,18 +345,18 @@ async def test_a_later_needs_response_prediction_never_adds_or_changes_a_rule_it
     [before] = await _items(classification_session_factory, chat_pk=seeded["chat_pk"])
 
     settings = _settings_with_switch(classification_settings, _now() - timedelta(days=1))
-    outcome = await _classify(
+    outcome = await _attend(
         classification_session_factory,
         scripted_gateway,
         classification_redis,
         settings,
         chat_pk=seeded["chat_pk"],
-        message_id=1,
-        answer=_NEEDS_RESPONSE,
+        message_id=2,
+        intent="asking",
     )
-    assert outcome == "classified"
+    assert outcome == "judged"
     message = await _message(
-        classification_session_factory, chat_pk=seeded["chat_pk"], message_id=1
+        classification_session_factory, chat_pk=seeded["chat_pk"], message_id=2
     )
     assert message["attention_evaluated_at"] is not None  # an item exists — nothing to re-judge
     await sweep_unjudged_bursts_once(classification_session_factory, gap_s=_GAP_S, ai=_ai())
@@ -332,7 +368,7 @@ async def test_an_implicit_question_the_rules_miss_opens_a_model_item(
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
-    insert_prediction: Any,
+    insert_attention_judgement: Any,
 ) -> None:
     sent_at = _now() - timedelta(minutes=10)
     await insert_message(
@@ -342,13 +378,8 @@ async def test_an_implicit_question_the_rules_miss_opens_a_model_item(
         telegram_user_id=seeded["user_pk"],
         original_text=_IMPLICIT_QUESTION,
     )
-    prediction_id = await insert_prediction(
-        telegram_chat_id=seeded["chat_pk"],
-        telegram_message_id=1,
-        model_profile_id=seeded["profile_id"],
-        category="QUESTION_COURSE",
-        severity="none",
-        needs_response=True,
+    judgement_id = await insert_attention_judgement(
+        telegram_chat_id=seeded["chat_pk"], telegram_message_id=1, intent="asking"
     )
 
     item_id = await _judge(
@@ -363,7 +394,8 @@ async def test_an_implicit_question_the_rules_miss_opens_a_model_item(
     assert item["id"] == item_id
     assert item["source"] == "ai"
     assert item["rule_version"] is None
-    assert item["message_classification_id"] == prediction_id
+    assert item["attention_judgement_id"] == judgement_id
+    assert item["message_classification_id"] is None
     assert item["status"] == "open"
     assert item["opened_at"] == sent_at
     assert item["telegram_message_id"] == 1
@@ -378,41 +410,11 @@ async def test_an_implicit_question_the_rules_miss_opens_a_model_item(
 # --- 4: what never opens ------------------------------------------------------------------------
 
 
-_DECLINED_CASES: dict[str, dict[str, Any]] = {
-    "needs_response_false": {"category": "QUESTION_COURSE", "needs_response": False},
-    "below_the_floor": {"needs_response": True, "confidence": "0.400", "route": "review"},
-    "chitchat": {"category": "CHITCHAT", "needs_response": True},
-    "advert": {
-        "category": "SPAM_OR_AD",
-        "needs_response": True,
-        "needs_moderation": True,
-        "severity": "high",
-        "route": "incident",
-    },
-    "abuse": {
-        "category": "ABUSE",
-        "needs_response": True,
-        "needs_moderation": True,
-        "severity": "high",
-        "route": "incident",
-    },
-    "catch_up": {
-        "needs_response": True,
-        "path": "catch_up",
-        "route": "measurement_only",
-        "confidence_floor": None,
-        "incident_threshold": None,
-    },
-}
-
-
-@pytest.mark.parametrize("case", sorted(_DECLINED_CASES))
-async def test_a_prediction_the_gate_rejects_opens_nothing(
-    case: str,
+async def test_with_the_switch_blank_an_asking_judgement_opens_nothing(
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
-    insert_prediction: Any,
+    insert_attention_judgement: Any,
 ) -> None:
     sent_at = _now() - timedelta(minutes=10)
     await insert_message(
@@ -422,52 +424,8 @@ async def test_a_prediction_the_gate_rejects_opens_nothing(
         telegram_user_id=seeded["user_pk"],
         original_text=_IMPLICIT_QUESTION,
     )
-    fields: dict[str, Any] = {"category": "QUESTION_COURSE", "severity": "none"}
-    fields.update(_DECLINED_CASES[case])
-    await insert_prediction(
-        telegram_chat_id=seeded["chat_pk"],
-        telegram_message_id=1,
-        model_profile_id=seeded["profile_id"],
-        **fields,
-    )
-
-    item_id = await _judge(
-        classification_session_factory,
-        chat_pk=seeded["chat_pk"],
-        user_pk=seeded["user_pk"],
-        around=sent_at,
-        ai=_ai(),
-    )
-
-    assert item_id is None
-    assert await _items(classification_session_factory, chat_pk=seeded["chat_pk"]) == []
-    message = await _message(
-        classification_session_factory, chat_pk=seeded["chat_pk"], message_id=1
-    )
-    assert message["attention_evaluated_at"] is not None
-
-
-async def test_with_the_switch_blank_a_needs_response_prediction_opens_nothing(
-    classification_session_factory: async_sessionmaker[AsyncSession],
-    seeded: dict[str, Any],
-    insert_message: Any,
-    insert_prediction: Any,
-) -> None:
-    sent_at = _now() - timedelta(minutes=10)
-    await insert_message(
-        telegram_chat_id=seeded["chat_pk"],
-        message_id=1,
-        sent_at=sent_at,
-        telegram_user_id=seeded["user_pk"],
-        original_text=_IMPLICIT_QUESTION,
-    )
-    await insert_prediction(
-        telegram_chat_id=seeded["chat_pk"],
-        telegram_message_id=1,
-        model_profile_id=seeded["profile_id"],
-        category="QUESTION_COURSE",
-        severity="none",
-        needs_response=True,
+    await insert_attention_judgement(
+        telegram_chat_id=seeded["chat_pk"], telegram_message_id=1, intent="asking"
     )
 
     assert (
@@ -483,11 +441,11 @@ async def test_with_the_switch_blank_a_needs_response_prediction_opens_nothing(
     assert await _items(classification_session_factory, chat_pk=seeded["chat_pk"]) == []
 
 
-async def test_a_prediction_recorded_before_the_switch_opens_nothing(
+async def test_a_judgement_recorded_before_the_switch_opens_nothing(
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
-    insert_prediction: Any,
+    insert_attention_judgement: Any,
 ) -> None:
     sent_at = _now() - timedelta(minutes=10)
     await insert_message(
@@ -497,13 +455,10 @@ async def test_a_prediction_recorded_before_the_switch_opens_nothing(
         telegram_user_id=seeded["user_pk"],
         original_text=_IMPLICIT_QUESTION,
     )
-    await insert_prediction(
+    await insert_attention_judgement(
         telegram_chat_id=seeded["chat_pk"],
         telegram_message_id=1,
-        model_profile_id=seeded["profile_id"],
-        category="QUESTION_COURSE",
-        severity="none",
-        needs_response=True,
+        intent="asking",
         created_at=sent_at + timedelta(seconds=2),
     )
 
@@ -520,11 +475,11 @@ async def test_a_prediction_recorded_before_the_switch_opens_nothing(
     assert await _items(classification_session_factory, chat_pk=seeded["chat_pk"]) == []
 
 
-async def test_a_prediction_recorded_max_age_after_the_question_opens_nothing(
+async def test_a_judgement_recorded_max_age_after_the_question_opens_nothing(
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
-    insert_prediction: Any,
+    insert_attention_judgement: Any,
 ) -> None:
     # Decision 2 (2026-10-03): it would be born expired, against a moderator whose queue never
     # showed it.
@@ -536,13 +491,8 @@ async def test_a_prediction_recorded_max_age_after_the_question_opens_nothing(
         telegram_user_id=seeded["user_pk"],
         original_text=_IMPLICIT_QUESTION,
     )
-    await insert_prediction(
-        telegram_chat_id=seeded["chat_pk"],
-        telegram_message_id=1,
-        model_profile_id=seeded["profile_id"],
-        category="QUESTION_COURSE",
-        severity="none",
-        needs_response=True,
+    await insert_attention_judgement(
+        telegram_chat_id=seeded["chat_pk"], telegram_message_id=1, intent="asking"
     )
 
     assert (
@@ -563,7 +513,7 @@ async def test_a_moderators_or_bots_message_never_opens_whatever_the_model_says(
     seeded: dict[str, Any],
     insert_user: Any,
     insert_message: Any,
-    insert_prediction: Any,
+    insert_attention_judgement: Any,
 ) -> None:
     bot_pk = await insert_user(tg_user_id=_rand_id(), is_bot=True)
     sent_at = _now() - timedelta(minutes=10)
@@ -574,13 +524,8 @@ async def test_a_moderators_or_bots_message_never_opens_whatever_the_model_says(
         telegram_user_id=bot_pk,
         original_text=_IMPLICIT_QUESTION,
     )
-    await insert_prediction(
-        telegram_chat_id=seeded["chat_pk"],
-        telegram_message_id=1,
-        model_profile_id=seeded["profile_id"],
-        category="QUESTION_COURSE",
-        severity="none",
-        needs_response=True,
+    await insert_attention_judgement(
+        telegram_chat_id=seeded["chat_pk"], telegram_message_id=1, intent="asking"
     )
 
     assert (
@@ -595,7 +540,7 @@ async def test_a_moderators_or_bots_message_never_opens_whatever_the_model_says(
     )
 
 
-async def test_an_acknowledgement_is_never_classified_and_never_opens(
+async def test_an_acknowledgement_is_never_judged_and_never_opens(
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
@@ -613,14 +558,14 @@ async def test_an_acknowledgement_is_never_classified_and_never_opens(
     )
     settings = _settings_with_switch(classification_settings, _now() - timedelta(days=1))
     assert (
-        await _classify(
+        await _attend(
             classification_session_factory,
             scripted_gateway,
             classification_redis,
             settings,
             chat_pk=seeded["chat_pk"],
             message_id=1,
-            answer=_NEEDS_RESPONSE,
+            intent="asking",
         )
         == "excluded"
     )
@@ -640,7 +585,7 @@ async def test_an_acknowledgement_is_never_classified_and_never_opens(
 # --- 5-8: both orderings, replays, catch-up ------------------------------------------------------
 
 
-async def test_case_a_classified_before_the_settle_opens_at_judgement(
+async def test_case_a_judged_before_the_settle_opens_at_burst_judgement(
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
@@ -657,16 +602,16 @@ async def test_case_a_classified_before_the_settle_opens_at_judgement(
         original_text=_IMPLICIT_QUESTION,
     )
     settings = _settings_with_switch(classification_settings, _now() - timedelta(days=1))
-    await _classify(
+    await _attend(
         classification_session_factory,
         scripted_gateway,
         classification_redis,
         settings,
         chat_pk=seeded["chat_pk"],
         message_id=1,
-        answer=_NEEDS_RESPONSE,
+        intent="asking",
     )
-    # Not yet judged: the request is a no-op, the pending judgement will see the prediction.
+    # Not yet judged: the request is a no-op, the pending burst judgement will see the judgement.
     message = await _message(
         classification_session_factory, chat_pk=seeded["chat_pk"], message_id=1
     )
@@ -682,12 +627,12 @@ async def test_case_a_classified_before_the_settle_opens_at_judgement(
 
     [item] = await _items(classification_session_factory, chat_pk=seeded["chat_pk"])
     assert item["source"] == "ai"
-    assert item["message_classification_id"] == await _prediction_id(
+    assert item["attention_judgement_id"] == await _judgement_id(
         classification_session_factory, chat_pk=seeded["chat_pk"], message_id=1
     )
 
 
-async def test_case_b_classified_after_the_settle_is_reconciled_by_the_sweep(
+async def test_case_b_judged_after_the_settle_is_reconciled_by_the_sweep(
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
@@ -716,14 +661,14 @@ async def test_case_b_classified_after_the_settle_is_reconciled_by_the_sweep(
     )
 
     settings = _settings_with_switch(classification_settings, _now() - timedelta(days=1))
-    await _classify(
+    await _attend(
         classification_session_factory,
         scripted_gateway,
         classification_redis,
         settings,
         chat_pk=seeded["chat_pk"],
         message_id=1,
-        answer=_NEEDS_RESPONSE,
+        intent="asking",
     )
     message = await _message(
         classification_session_factory, chat_pk=seeded["chat_pk"], message_id=1
@@ -735,10 +680,10 @@ async def test_case_b_classified_after_the_settle_is_reconciled_by_the_sweep(
 
     [item] = await _items(classification_session_factory, chat_pk=seeded["chat_pk"])
     assert item["source"] == "ai"
-    assert item["opened_at"] == sent_at  # the question's time, never the classification's
+    assert item["opened_at"] == sent_at  # the question's time, never the judgement's
 
 
-async def test_a_needs_no_response_prediction_never_puts_a_message_back_on_the_work_list(
+async def test_a_needs_no_response_judgement_never_puts_a_message_back_on_the_work_list(
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
@@ -762,14 +707,14 @@ async def test_a_needs_no_response_prediction_never_puts_a_message_back_on_the_w
         ai=_ai(),
     )
     settings = _settings_with_switch(classification_settings, _now() - timedelta(days=1))
-    await _classify(
+    await _attend(
         classification_session_factory,
         scripted_gateway,
         classification_redis,
         settings,
         chat_pk=seeded["chat_pk"],
         message_id=1,
-        answer=_NO_RESPONSE,
+        intent="social",
     )
 
     message = await _message(
@@ -778,7 +723,7 @@ async def test_a_needs_no_response_prediction_never_puts_a_message_back_on_the_w
     assert message["attention_evaluated_at"] is not None
 
 
-async def test_with_the_switch_blank_the_classifier_never_touches_the_work_list(
+async def test_with_the_switch_blank_the_attention_judgement_never_touches_the_work_list(
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
@@ -786,6 +731,8 @@ async def test_with_the_switch_blank_the_classifier_never_touches_the_work_list(
     classification_redis: Any,
     classification_settings: Any,
 ) -> None:
+    """Shadow mode: the instruction is set, the switch is blank — the judgement is recorded and
+    re-flags nothing (W2)."""
     sent_at = _now() - timedelta(minutes=10)
     await insert_message(
         telegram_chat_id=seeded["chat_pk"],
@@ -801,20 +748,72 @@ async def test_with_the_switch_blank_the_classifier_never_touches_the_work_list(
         around=sent_at,
         ai=None,
     )
+    outcome = await _attend(
+        classification_session_factory,
+        scripted_gateway,
+        classification_redis,
+        _settings_with_switch(classification_settings, None),
+        chat_pk=seeded["chat_pk"],
+        message_id=1,
+        intent="asking",
+    )
+
+    assert outcome == "judged"
+    message = await _message(
+        classification_session_factory, chat_pk=seeded["chat_pk"], message_id=1
+    )
+    assert message["attention_evaluated_at"] is not None
+
+
+async def test_with_the_switch_set_the_classifier_never_touches_the_work_list(
+    classification_session_factory: async_sessionmaker[AsyncSession],
+    seeded: dict[str, Any],
+    insert_message: Any,
+    scripted_gateway: Any,
+    classification_redis: Any,
+    classification_settings: Any,
+) -> None:
+    """W3: the classification's needs-response is measurement only — a live, confident
+    `needs_response=True` prediction re-flags nothing and opens nothing."""
+    await _drain_existing_backlog(classification_session_factory)
+    sent_at = _now() - timedelta(minutes=10)
+    await insert_message(
+        telegram_chat_id=seeded["chat_pk"],
+        message_id=1,
+        sent_at=sent_at,
+        telegram_user_id=seeded["user_pk"],
+        original_text=_IMPLICIT_QUESTION,
+    )
+    await _judge(
+        classification_session_factory,
+        chat_pk=seeded["chat_pk"],
+        user_pk=seeded["user_pk"],
+        around=sent_at,
+        ai=_ai(),
+    )
+    settings = _settings_with_switch(classification_settings, _now() - timedelta(days=1))
     await _classify(
         classification_session_factory,
         scripted_gateway,
         classification_redis,
-        classification_settings,
+        settings,
         chat_pk=seeded["chat_pk"],
         message_id=1,
-        answer=_NEEDS_RESPONSE,
+        answer={
+            "category": "QUESTION_COURSE",
+            "needs_response": True,
+            "needs_moderation": False,
+            "severity": "none",
+            "confidence": 0.95,
+        },
     )
 
     message = await _message(
         classification_session_factory, chat_pk=seeded["chat_pk"], message_id=1
     )
     assert message["attention_evaluated_at"] is not None
+    await sweep_unjudged_bursts_once(classification_session_factory, gap_s=_GAP_S, ai=_ai())
+    assert await _items(classification_session_factory, chat_pk=seeded["chat_pk"]) == []
 
 
 async def test_replays_and_concurrent_judgements_converge_on_one_item(
@@ -836,14 +835,14 @@ async def test_replays_and_concurrent_judgements_converge_on_one_item(
     )
     settings = _settings_with_switch(classification_settings, _now() - timedelta(days=1))
     for _ in range(2):
-        await _classify(
+        await _attend(
             classification_session_factory,
             scripted_gateway,
             classification_redis,
             settings,
             chat_pk=seeded["chat_pk"],
             message_id=1,
-            answer=_NEEDS_RESPONSE,
+            intent="asking",
         )
 
     async def judge() -> int | None:
@@ -864,7 +863,7 @@ async def test_replays_and_concurrent_judgements_converge_on_one_item(
     assert set(results) == {items[0]["id"]}
 
 
-async def test_a_classification_racing_an_open_judgement_still_converges(
+async def test_an_attention_judgement_racing_an_open_burst_judgement_still_converges(
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
@@ -872,8 +871,9 @@ async def test_a_classification_racing_an_open_judgement_still_converges(
     classification_redis: Any,
     classification_settings: Any,
 ) -> None:
-    """The judgement declines and holds `chat_lock` uncommitted while the prediction is recorded:
-    the classifier waits for the lock, then re-flags the now-judged message — never lost."""
+    """The burst judgement declines and holds `chat_lock` uncommitted while the attention
+    judgement is recorded: `judge_one` waits for the lock, then re-flags the now-judged message —
+    never lost."""
     await _drain_existing_backlog(classification_session_factory)
     sent_at = _now() - timedelta(minutes=10)
     await insert_message(
@@ -895,21 +895,21 @@ async def test_a_classification_racing_an_open_judgement_still_converges(
             gap_s=_GAP_S,
         )
         assert await open_item(judging, burst, ai=_ai()) is None
-        classifying = asyncio.create_task(
-            _classify(
+        attending = asyncio.create_task(
+            _attend(
                 classification_session_factory,
                 scripted_gateway,
                 classification_redis,
                 settings,
                 chat_pk=seeded["chat_pk"],
                 message_id=1,
-                answer=_NEEDS_RESPONSE,
+                intent="asking",
             )
         )
         await asyncio.sleep(0.5)
-        assert not classifying.done()  # blocked on the judgement's chat_lock
+        assert not attending.done()  # blocked on the burst judgement's chat_lock
         await judging.commit()
-    assert await classifying == "classified"
+    assert await attending == "judged"
 
     await sweep_unjudged_bursts_once(classification_session_factory, gap_s=_GAP_S, ai=_ai())
 
@@ -934,7 +934,7 @@ async def test_request_rejudgement_is_a_no_op_once_an_item_exists_or_before_judg
         assert (
             await request_rejudgement(session, telegram_chat_id=seeded["chat_pk"], message_id=1)
             is False
-        )  # not judged yet — the pending judgement will see the prediction
+        )  # not judged yet — the pending burst judgement will see the attention judgement
         await session.commit()
     await _judge(
         classification_session_factory,
@@ -951,7 +951,7 @@ async def test_request_rejudgement_is_a_no_op_once_an_item_exists_or_before_judg
         await session.commit()
 
 
-async def test_a_catch_up_classification_never_reopens_judgement_or_opens_an_item(
+async def test_a_catch_up_judgement_never_reopens_judgement_or_opens_an_item(
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
@@ -959,6 +959,7 @@ async def test_a_catch_up_classification_never_reopens_judgement_or_opens_an_ite
     classification_redis: Any,
     classification_settings: Any,
 ) -> None:
+    """W2 re-flags only after a live insert; A1 never opens from a catch-up row (N3)."""
     await _drain_existing_backlog(classification_session_factory)
     sent_at = _now() - timedelta(minutes=10)
     await insert_message(
@@ -976,14 +977,14 @@ async def test_a_catch_up_classification_never_reopens_judgement_or_opens_an_ite
         ai=_ai(),
     )
     settings = _settings_with_switch(classification_settings, _now() - timedelta(days=1))
-    await _classify(
+    await _attend(
         classification_session_factory,
         scripted_gateway,
         classification_redis,
         settings,
         chat_pk=seeded["chat_pk"],
         message_id=1,
-        answer=_NEEDS_RESPONSE,
+        intent="asking",
         path="catch_up",
     )
 
@@ -1012,7 +1013,7 @@ async def test_a_moderators_direct_reply_answers_a_model_item(
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
-    insert_prediction: Any,
+    insert_attention_judgement: Any,
 ) -> None:
     sent_at = _now() - timedelta(minutes=10)
     await insert_message(
@@ -1022,13 +1023,8 @@ async def test_a_moderators_direct_reply_answers_a_model_item(
         telegram_user_id=seeded["user_pk"],
         original_text=_IMPLICIT_QUESTION,
     )
-    await insert_prediction(
-        telegram_chat_id=seeded["chat_pk"],
-        telegram_message_id=1,
-        model_profile_id=seeded["profile_id"],
-        category="QUESTION_COURSE",
-        severity="none",
-        needs_response=True,
+    await insert_attention_judgement(
+        telegram_chat_id=seeded["chat_pk"], telegram_message_id=1, intent="asking"
     )
     item_id = await _judge(
         classification_session_factory,
@@ -1067,7 +1063,7 @@ async def test_a_moderators_group_message_answers_only_the_oldest_open_item(
     seeded: dict[str, Any],
     insert_user: Any,
     insert_message: Any,
-    insert_prediction: Any,
+    insert_attention_judgement: Any,
 ) -> None:
     other_pk = await insert_user(tg_user_id=_rand_id())
     first_at = _now() - timedelta(minutes=20)
@@ -1086,13 +1082,8 @@ async def test_a_moderators_group_message_answers_only_the_oldest_open_item(
         telegram_user_id=other_pk,
         original_text=_RULE_QUESTION,
     )
-    await insert_prediction(
-        telegram_chat_id=seeded["chat_pk"],
-        telegram_message_id=1,
-        model_profile_id=seeded["profile_id"],
-        category="QUESTION_COURSE",
-        severity="none",
-        needs_response=True,
+    await insert_attention_judgement(
+        telegram_chat_id=seeded["chat_pk"], telegram_message_id=1, intent="asking"
     )
     model_item = await _judge(
         classification_session_factory,
@@ -1132,7 +1123,7 @@ async def test_a_moderators_group_message_answers_only_the_oldest_open_item(
     assert by_id[rule_item]["status"] == "open"  # C3: one message never clears a backlog
 
 
-async def test_a_question_answered_before_the_late_prediction_opens_already_answered(
+async def test_a_question_answered_before_the_late_judgement_opens_already_answered(
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
@@ -1174,14 +1165,14 @@ async def test_a_question_answered_before_the_late_prediction_opens_already_answ
     )
 
     settings = _settings_with_switch(classification_settings, _now() - timedelta(days=1))
-    await _classify(
+    await _attend(
         classification_session_factory,
         scripted_gateway,
         classification_redis,
         settings,
         chat_pk=seeded["chat_pk"],
         message_id=1,
-        answer=_NEEDS_RESPONSE,
+        intent="asking",
     )
     await sweep_unjudged_bursts_once(classification_session_factory, gap_s=_GAP_S, ai=_ai())
 
@@ -1199,7 +1190,7 @@ async def test_opened_at_is_the_bursts_earliest_member_even_when_the_model_flagg
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
-    insert_prediction: Any,
+    insert_attention_judgement: Any,
 ) -> None:
     greeting_at = _now() - timedelta(minutes=10)
     question_at = greeting_at + timedelta(seconds=20)
@@ -1217,20 +1208,11 @@ async def test_opened_at_is_the_bursts_earliest_member_even_when_the_model_flagg
         telegram_user_id=seeded["user_pk"],
         original_text=_IMPLICIT_QUESTION,
     )
-    await insert_prediction(
-        telegram_chat_id=seeded["chat_pk"],
-        telegram_message_id=1,
-        model_profile_id=seeded["profile_id"],
-        category="CHITCHAT",
-        severity="none",
+    await insert_attention_judgement(
+        telegram_chat_id=seeded["chat_pk"], telegram_message_id=1, intent="social"
     )
-    question_prediction = await insert_prediction(
-        telegram_chat_id=seeded["chat_pk"],
-        telegram_message_id=2,
-        model_profile_id=seeded["profile_id"],
-        category="QUESTION_COURSE",
-        severity="none",
-        needs_response=True,
+    question_judgement = await insert_attention_judgement(
+        telegram_chat_id=seeded["chat_pk"], telegram_message_id=2, intent="asking"
     )
 
     item_id = await _judge(
@@ -1244,7 +1226,7 @@ async def test_opened_at_is_the_bursts_earliest_member_even_when_the_model_flagg
     [item] = await _items(classification_session_factory, chat_pk=seeded["chat_pk"])
     assert item["telegram_message_id"] == 1
     assert item["opened_at"] == greeting_at
-    assert item["message_classification_id"] == question_prediction
+    assert item["attention_judgement_id"] == question_judgement
     for message_id in (1, 2):
         message = await _message(
             classification_session_factory, chat_pk=seeded["chat_pk"], message_id=message_id
@@ -1256,9 +1238,9 @@ async def test_an_edited_member_keeps_its_first_posted_judgement_and_the_e3_cloc
     classification_session_factory: async_sessionmaker[AsyncSession],
     seeded: dict[str, Any],
     insert_message: Any,
-    insert_prediction: Any,
+    insert_attention_judgement: Any,
 ) -> None:
-    # Decision 3 (2026-10-03): the prediction of the first-posted words still counts; the anchor
+    # Decision 3 (2026-10-03): the judgement of the first-posted words still counts; the anchor
     # and the clock are E3's — the edited member, at `edited_at`.
     sent_at = _now() - timedelta(minutes=10)
     edited_at = sent_at + timedelta(seconds=15)
@@ -1270,13 +1252,8 @@ async def test_an_edited_member_keeps_its_first_posted_judgement_and_the_e3_cloc
         original_text=_IMPLICIT_QUESTION,
         edited_at=edited_at,
     )
-    await insert_prediction(
-        telegram_chat_id=seeded["chat_pk"],
-        telegram_message_id=1,
-        model_profile_id=seeded["profile_id"],
-        category="QUESTION_COURSE",
-        severity="none",
-        needs_response=True,
+    await insert_attention_judgement(
+        telegram_chat_id=seeded["chat_pk"], telegram_message_id=1, intent="asking"
     )
 
     await _judge(
@@ -1292,10 +1269,11 @@ async def test_an_edited_member_keeps_its_first_posted_judgement_and_the_e3_cloc
     assert item["opened_at"] == edited_at
 
 
-async def test_the_responsible_moderator_is_the_owner_at_the_question_not_at_classification(
+async def test_the_responsible_moderator_is_the_owner_at_the_question_not_at_judgement(
     classification_session_factory: async_sessionmaker[AsyncSession],
     classification_chat_id: int,
     classification_seeded_profile: None,
+    seeded_attention_profile: Any,
     insert_chat: Any,
     insert_user: Any,
     insert_moderator: Any,
@@ -1306,6 +1284,7 @@ async def test_the_responsible_moderator_is_the_owner_at_the_question_not_at_cla
     classification_settings: Any,
 ) -> None:
     await _drain_existing_backlog(classification_session_factory)
+    await seeded_attention_profile(active=True)
     chat_pk = await insert_chat(chat_id=classification_chat_id)
     before = await insert_moderator(display_name="Before")
     after = await insert_moderator(display_name="After")
@@ -1334,14 +1313,14 @@ async def test_the_responsible_moderator_is_the_owner_at_the_question_not_at_cla
         classification_session_factory, chat_pk=chat_pk, user_pk=user_pk, around=sent_at, ai=_ai()
     )
     settings = _settings_with_switch(classification_settings, _now() - timedelta(days=1))
-    await _classify(
+    await _attend(
         classification_session_factory,
         scripted_gateway,
         classification_redis,
         settings,
         chat_pk=chat_pk,
         message_id=1,
-        answer=_NEEDS_RESPONSE,
+        intent="asking",
     )
     await sweep_unjudged_bursts_once(classification_session_factory, gap_s=_GAP_S, ai=_ai())
 
@@ -1349,7 +1328,7 @@ async def test_the_responsible_moderator_is_the_owner_at_the_question_not_at_cla
     assert item["responsible_moderator_id"] == before["moderator_id"]
 
 
-# --- decision 1: dual-purpose predictions open both units, independently -----------------------
+# --- decision 1: one message, two units of work, each from its own judgement -------------------
 
 
 @pytest.mark.parametrize(
@@ -1379,7 +1358,7 @@ async def test_the_responsible_moderator_is_the_owner_at_the_question_not_at_cla
         ),
     ],
 )
-async def test_a_dual_purpose_prediction_opens_both_units_independently(
+async def test_an_incident_from_the_classification_and_a_question_from_the_attention_judgement(
     answer: dict[str, Any],
     expected_route: str,
     incident_opens: bool,
@@ -1390,6 +1369,9 @@ async def test_a_dual_purpose_prediction_opens_both_units_independently(
     classification_redis: Any,
     classification_settings: Any,
 ) -> None:
+    """On one message: the classification routes the violation side (and opens an incident when
+    confident), the attention judgement opens the question item — each from its own record, and
+    the item links the judgement, never the prediction (O3′)."""
     sent_at = _now() - timedelta(minutes=10)
     await insert_message(
         telegram_chat_id=seeded["chat_pk"],
@@ -1407,6 +1389,15 @@ async def test_a_dual_purpose_prediction_opens_both_units_independently(
         chat_pk=seeded["chat_pk"],
         message_id=1,
         answer=answer,
+    )
+    await _attend(
+        classification_session_factory,
+        scripted_gateway,
+        classification_redis,
+        settings,
+        chat_pk=seeded["chat_pk"],
+        message_id=1,
+        intent="asking",
     )
     await _judge(
         classification_session_factory,
@@ -1436,6 +1427,10 @@ async def test_a_dual_purpose_prediction_opens_both_units_independently(
     assert incidents == (1 if incident_opens else 0)
     [item] = await _items(classification_session_factory, chat_pk=seeded["chat_pk"])
     assert item["source"] == "ai"
+    assert item["attention_judgement_id"] == await _judgement_id(
+        classification_session_factory, chat_pk=seeded["chat_pk"], message_id=1
+    )
+    assert item["message_classification_id"] is None
 
 
 # --- re-derivation reaches the same answer as live judgement -------------------------------------
@@ -1446,7 +1441,7 @@ async def test_rederive_with_attention_reaches_the_live_answer_and_never_reaches
     classification_chat_id: int,
     seeded: dict[str, Any],
     insert_message: Any,
-    insert_prediction: Any,
+    insert_attention_judgement: Any,
 ) -> None:
     switched_on_at = _now() - timedelta(minutes=30)
     before_at = _now() - timedelta(minutes=50)
@@ -1469,13 +1464,10 @@ async def test_rederive_with_attention_reaches_the_live_answer_and_never_reaches
         (1, before_at + timedelta(seconds=2)),
         (2, after_at + timedelta(seconds=2)),
     ):
-        await insert_prediction(
+        await insert_attention_judgement(
             telegram_chat_id=seeded["chat_pk"],
             telegram_message_id=message_id,
-            model_profile_id=seeded["profile_id"],
-            category="QUESTION_COURSE",
-            severity="none",
-            needs_response=True,
+            intent="asking",
             created_at=recorded_at,
         )
 

@@ -43,6 +43,9 @@ _PRIOR_TABLES = (
 _LATER_TABLES = (
     "moderation_actions",
     "moderation_incidents",
+    # TG-M5.3's revision 0008, for the same reason.
+    "message_attention_attempts",
+    "message_attention_judgements",
     "message_classification_attempts",
     "message_classifications",
 )

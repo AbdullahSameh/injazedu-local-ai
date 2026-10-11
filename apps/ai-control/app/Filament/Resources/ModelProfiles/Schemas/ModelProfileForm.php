@@ -22,7 +22,7 @@ class ModelProfileForm
                     ->unique(ignoreRecord: true)
                     ->helperText('The seed\'s conflict target — re-seeding never overwrites this row.'),
                 Select::make('role')
-                    ->options(['llm' => 'llm', 'embedding' => 'embedding', 'moderation' => 'moderation'])
+                    ->options(['llm' => 'llm', 'embedding' => 'embedding', 'moderation' => 'moderation', 'attention' => 'attention'])
                     ->required()
                     ->native(false),
                 Select::make('provider')

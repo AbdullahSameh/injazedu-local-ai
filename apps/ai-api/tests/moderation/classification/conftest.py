@@ -94,13 +94,15 @@ def classification_test_database_url() -> str:
 
 
 def _ensure_schema_at_head(sqlalchemy_url: str) -> None:
-    """Repairs the schema to head if `message_classifications` (the table `0007` creates) is
-    missing, mirroring `tests/moderation/incidents/conftest.py`'s guard."""
+    """Repairs the schema to head if `message_attention_judgements` (the table the latest
+    revision, `0008`, creates) is missing, mirroring `tests/moderation/incidents/conftest.py`'s
+    guard. TG-M5.3: it checks the newest table, not `0007`'s, so a test database left at `0007` is
+    brought to head before `ck_attention_ai_link` and the attention tables are relied on."""
     engine = create_engine(sqlalchemy_url)
     try:
         with engine.connect() as conn:
             exists = conn.execute(
-                text("SELECT to_regclass('message_classifications')")
+                text("SELECT to_regclass('message_attention_judgements')")
             ).scalar_one()
     finally:
         engine.dispose()
@@ -597,7 +599,8 @@ def insert_attention_item(
 ):
     """Inserts one `attention_items` row directly (`data-model.md` §1 of TG-M3/TG-M4), bypassing
     the rule set entirely — for T055's proof that classification never creates, closes or
-    otherwise touches one."""
+    otherwise touches one. A `source='ai'` row passes its one link here, at insert: TG-M5.3's
+    `ck_attention_ai_link` refuses an `ai` row with no link, so it cannot be added afterwards."""
 
     async def _insert(
         *,
@@ -611,6 +614,9 @@ def insert_attention_item(
         first_response_message_id: int | None = None,
         first_response_at: datetime | None = None,
         first_response_kind: str | None = None,
+        close_reason: str | None = None,
+        message_classification_id: int | None = None,
+        attention_judgement_id: int | None = None,
     ) -> int:
         async with classification_session_factory() as session:
             row_id = (
@@ -627,6 +633,9 @@ def insert_attention_item(
                         first_response_message_id=first_response_message_id,
                         first_response_at=first_response_at,
                         first_response_kind=first_response_kind,
+                        close_reason=close_reason,
+                        message_classification_id=message_classification_id,
+                        attention_judgement_id=attention_judgement_id,
                     )
                     .returning(attention_items.c.id)
                 )

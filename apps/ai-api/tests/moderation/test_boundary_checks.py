@@ -23,6 +23,9 @@ DOMAIN_INCIDENT = REPO_ROOT / "apps" / "ai-api" / "app" / "domain" / "moderation
 DOMAIN_CLASSIFICATION = (
     REPO_ROOT / "apps" / "ai-api" / "app" / "domain" / "moderation" / "classification.py"
 )
+DOMAIN_ATTENTION_JUDGEMENT = (
+    REPO_ROOT / "apps" / "ai-api" / "app" / "domain" / "moderation" / "attention_judgement.py"
+)
 EVIDENCE_MODULE = (
     REPO_ROOT / "apps" / "ai-api" / "app" / "application" / "moderation" / "evidence.py"
 )
@@ -245,4 +248,19 @@ def test_domain_classification_imports_nothing_but_the_standard_library_and_atte
     ]
     assert offenders == [], (
         f"non-stdlib, non-domain-moderation import(s) in {DOMAIN_CLASSIFICATION}: {offenders}"
+    )
+
+
+def test_domain_attention_judgement_imports_nothing_but_the_standard_library_and_domain() -> None:
+    """TG-M5.3 (D-TG-185): `app/domain/moderation/attention_judgement.py` is pure — no import
+    outside the standard library and `app.domain.moderation` (the rule set's `evaluate` for AE2,
+    the classification's `MessageFacts` and `eligibility` for AE1). It holds the only definition
+    of the intents, needs-response, the attention exclusion, the gate and the veto (N2)."""
+    offenders = [
+        name
+        for name in _non_stdlib_imports(DOMAIN_ATTENTION_JUDGEMENT)
+        if not (name == "app.domain.moderation" or name.startswith("app.domain.moderation."))
+    ]
+    assert offenders == [], (
+        f"non-stdlib, non-domain-moderation import(s) in {DOMAIN_ATTENTION_JUDGEMENT}: {offenders}"
     )

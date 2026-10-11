@@ -49,6 +49,8 @@ reported a deletion — a standing footnote says it does not.
 **P8.** Every write goes through the guarded update of `contracts/attention-rules.md` C8, so a
 double-submitted dismissal is harmless.
 
+> **Amended by TG-M5.3 (2026-10-07).** A third row action, **Dismiss (member discussion)** (`dismiss_member_discussion`, labelled "Member discussion"), writes as the other two with `close_reason='member_discussion'`, on an open item of any source. All three dismiss actions require confirmation, and the confirmation states the three meanings: *not a real question* — not a question or request at all; *member discussion* — a real question or discussion between members, no moderator was needed; *message removed* — your own judgement that the message is gone (P7). P5 and P8 hold unchanged (`specs/011-tg-m5-3-attention-judgement/contracts/dismissal-reasons.md` K1–K4).
+
 ---
 
 ## §3 — The figures

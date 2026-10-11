@@ -37,7 +37,6 @@ from app.application.gateway import (
     StructuredRequest,
 )
 from app.application.gateway.registry import ProfileRegistry
-from app.application.moderation.attention import request_rejudgement
 from app.application.moderation.incidents import insert_incident
 from app.application.moderation.text import redact
 from app.domain.moderation.classification import (
@@ -45,7 +44,6 @@ from app.domain.moderation.classification import (
     MessageFacts,
     Prediction,
     eligibility,
-    proposes_attention,
     quantise,
     route_prediction,
 )
@@ -358,8 +356,9 @@ async def classify_one(
     and quantise (O3-O4), route (R1-R6) and insert (O5). Returns a short outcome label —
     `"no_active_model"`, `"claimed_elsewhere"`, `"already_classified"`, `"excluded"`, `"failed"` or
     `"classified"` — for the caller to log or count. A transient `GatewayError` is re-raised for the
-    task-level retry (US3, T053). Since TG-M5.1, a live prediction proposing a question item puts
-    its message back on the attention work list (`request_rejudgement`); it never opens one here.
+    task-level retry (US3, T053). It never opens or re-flags a question item: since TG-M5.3 (W3,
+    `specs/011-…/contracts/attention-judgement.md` §7) the prediction's needs-response is
+    measurement only, and the attention judgement alone requests re-judgement (`judge_one`).
     """
     try:
         profile = await registry.resolve("moderation")
@@ -473,20 +472,6 @@ async def classify_one(
                         "incident opened",
                         extra={"incident_id": incident_id, "message_id": message_id},
                     )
-
-            if settings.moderation_ai_attention_from is not None and proposes_attention(
-                path=path,
-                route=route,
-                needs_response=prediction.needs_response,
-                category=prediction.category,
-            ):
-                # TG-M5.1 (attention-opening I1): this prediction proposes a question item. If
-                # the burst was already judged without it, put the message back on the sweep's
-                # work list — in this same transaction, so the prediction and the request commit
-                # together. Whether an item opens is `open_item`'s decision alone.
-                await request_rejudgement(
-                    session, telegram_chat_id=chat_pk, message_id=message_id
-                )
 
             await session.commit()
             return "classified"

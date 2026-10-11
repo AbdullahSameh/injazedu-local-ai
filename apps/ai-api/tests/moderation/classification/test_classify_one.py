@@ -8,7 +8,7 @@ FR-001…FR-005, FR-011…FR-017, SC-006).
 from __future__ import annotations
 
 import random
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -21,6 +21,7 @@ from app.application.moderation.messages import apply_edit
 from app.infrastructure.models_moderation import (
     message_classification_attempts,
     message_classifications,
+    telegram_messages,
     telegram_updates,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -478,3 +479,65 @@ async def test_prediction_is_untouched_by_a_later_edit_or_opened_incident(
     after = await _fetch_prediction(classification_session_factory, chat_pk=chat_pk, message_id=1)
     assert after == before
     assert len(calls) == 1
+
+
+async def test_a_needs_response_prediction_never_puts_its_message_back_on_the_work_list(
+    classification_session_factory: async_sessionmaker[AsyncSession],
+    classification_chat_id: int,
+    insert_chat: Any,
+    insert_user: Any,
+    insert_message: Any,
+    scripted_gateway: Any,
+    classification_redis: Any,
+    classification_settings: Any,
+) -> None:
+    """TG-M5.3 W3 (`specs/011-…/contracts/attention-judgement.md` §7, `tasks.md` T043): with the
+    switch set, a live `needs_response=True` prediction on an already-judged message leaves
+    `attention_evaluated_at` untouched — the classification's needs-response is measurement only,
+    and only the attention judgement requests re-judgement."""
+    chat_pk = await insert_chat(chat_id=classification_chat_id)
+    user_pk = await insert_user(tg_user_id=random.randint(10_000_000, 2_000_000_000))
+    message_pk = await insert_message(
+        telegram_chat_id=chat_pk,
+        message_id=1,
+        sent_at=_SENT_AT,
+        telegram_user_id=user_pk,
+        original_text="في محاضرة بكرة",
+    )
+    judged_at = _SENT_AT + timedelta(seconds=95)
+    async with classification_session_factory() as session:
+        await session.execute(
+            telegram_messages.update()
+            .where(telegram_messages.c.id == message_pk)
+            .values(attention_evaluated_at=judged_at)
+        )
+        await session.commit()
+    settings = classification_settings.model_copy(
+        update={"moderation_ai_attention_from": _SENT_AT - timedelta(days=1)}
+    )
+    gateway, _calls = scripted_gateway(responses=[dict(_VALID_ANSWER)])
+
+    outcome = await classify_one(
+        classification_session_factory,
+        gateway,
+        ProfileRegistry(classification_session_factory),
+        classification_redis,
+        settings,
+        chat_pk=chat_pk,
+        message_id=1,
+        path="live",
+    )
+
+    assert outcome == "classified"
+    row = await _fetch_prediction(classification_session_factory, chat_pk=chat_pk, message_id=1)
+    assert row is not None
+    assert (row["needs_response"], row["route"]) == (True, "none")
+    async with classification_session_factory() as session:
+        evaluated_at = (
+            await session.execute(
+                sa.select(telegram_messages.c.attention_evaluated_at).where(
+                    telegram_messages.c.id == message_pk
+                )
+            )
+        ).scalar_one()
+    assert evaluated_at == judged_at

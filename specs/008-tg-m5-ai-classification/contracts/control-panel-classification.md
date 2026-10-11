@@ -116,6 +116,8 @@ measurement."*
 
 > **Amended by TG-M5.1 (2026-10-03).** A **Questions the model opened** section per model block: dismissed as not a real question · answered · still unanswered, each over `model_opened` (C9). Below the rule baseline: "Model-opened and kept: n" (M19, amended). It appears only where the figure is non-zero.
 
+> **Amended by TG-M5.3 (2026-10-07).** No dismissal count is described as "not a real question" any more (K11). The TG-M5.1 section reads: dismissed (any reason), with its per-reason breakdown · answered · still unanswered — "Model-opened, dismissed (any reason): n / N", then "not a real question a · member discussion b · message removed c · other d". The rule baseline's header reads "Rule-dismissed (any reason)", with the same breakdown per rule version under the table; the precision cell is unchanged. Each part is a count, never a ratio or a percentage (K12). See `specs/011-tg-m5-3-attention-judgement/contracts/dismissal-reasons.md` §4.
+
 - **A1.** A ratio with a zero denominator reads "no labelled examples" (M21). A model with no predictions in the
   period has no block (M22).
 - **A2.** No percentage is computed or shown; the numerator and denominator are the figure.

@@ -74,6 +74,38 @@ _ROSTER: tuple[dict[str, object], ...] = (
         # off at the plan's token budget (research Finding 1, operator item 1).
         "is_active": False,
     },
+    # TG-M5.3 (D-TG-190): the attention judgement's own role, one profile per candidate model,
+    # with the moderation params. Both seeded inactive: the operator qualifies a pair
+    # (`make qualify TASK=attention ...`) before activating one, and blank
+    # `MODERATION_ATTENTION_PROMPT_VERSION` means no call either way.
+    {
+        "name": "ollama-gemma4-e2b-attention",
+        "provider": "ollama",
+        "base_url": "http://host.docker.internal:11434/v1",
+        "model": "gemma4:e2b-it-qat",
+        "role": "attention",
+        "params": (
+            '{"num_ctx": 2048, "num_predict": 128, "temperature": 0, '
+            '"reasoning_effort": "none"}'
+        ),
+        "dim": None,
+        "api_key_env": None,
+        "is_active": False,
+    },
+    {
+        "name": "ollama-gemma4-e4b-attention",
+        "provider": "ollama",
+        "base_url": "http://host.docker.internal:11434/v1",
+        "model": "gemma4:e4b-it-qat",
+        "role": "attention",
+        "params": (
+            '{"num_ctx": 2048, "num_predict": 128, "temperature": 0, '
+            '"reasoning_effort": "none"}'
+        ),
+        "dim": None,
+        "api_key_env": None,
+        "is_active": False,
+    },
     {
         "name": "ollama-embeddinggemma-300m",
         "provider": "ollama",
