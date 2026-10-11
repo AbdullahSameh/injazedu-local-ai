@@ -2,7 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Filament\Pages\ClassificationAccuracy;
+use App\Filament\Pages\PossibleViolations;
 use App\Filament\Resources\Incidents\Pages\ListIncidents;
+use App\Models\MessageClassification;
+use App\Models\ModelProfile;
 use App\Models\ModerationIncident;
 use App\Models\Moderator;
 use App\Models\TelegramChat;
@@ -103,6 +107,67 @@ class IncidentMetricsTest extends TestCase
             'category' => 'SPAM_OR_AD',
             'severity' => 'low',
             'responsible_moderator_id' => $responsibleModeratorId,
+        ]);
+    }
+
+    private function makeModerationProfile(): ModelProfile
+    {
+        return ModelProfile::forceCreate([
+            'name' => 'test-moderation-'.random_int(1, 1_000_000),
+            'provider' => 'ollama',
+            'base_url' => 'http://host.docker.internal:11434/v1',
+            'model' => 'gemma4:e2b-it-qat',
+            'role' => 'moderation',
+            'params' => json_encode(['reasoning_effort' => 'none']),
+            'is_active' => false,
+        ]);
+    }
+
+    private function makeClassification(
+        TelegramChat $chat,
+        TelegramMessage $message,
+        ModelProfile $profile,
+        array $overrides = [],
+    ): MessageClassification {
+        return MessageClassification::forceCreate(array_merge([
+            'telegram_chat_id' => $chat->id,
+            'telegram_message_id' => $message->message_id,
+            'model_profile_id' => $profile->id,
+            'prompt_version' => 'classify_v1',
+            'taxonomy_version' => 1,
+            'category' => 'SPAM_OR_AD',
+            'needs_response' => false,
+            'needs_moderation' => true,
+            'severity' => 'high',
+            'confidence' => '0.930',
+            'path' => 'live',
+            'route' => 'incident',
+            'confidence_floor' => '0.600',
+            'incident_threshold' => '0.850',
+            'is_current' => true,
+        ], $overrides));
+    }
+
+    /**
+     * TG-M5, D-TG-159: a model-opened incident (`source='ai'`) — needs an opening prediction
+     * (`ck_incident_ai_link`) and no `opened_by_user_id` (`ck_incident_opener`).
+     */
+    private function makeModelOpenedIncident(
+        TelegramChat $chat,
+        TelegramMessage $message,
+        MessageClassification $classification,
+        \DateTimeInterface $detectedAt,
+    ): ModerationIncident {
+        return ModerationIncident::forceCreate([
+            'telegram_chat_id' => $chat->id,
+            'telegram_message_id' => $message->message_id,
+            'opened_at' => $message->sent_at,
+            'detected_at' => $detectedAt,
+            'source' => 'ai',
+            'opened_by_user_id' => null,
+            'category' => 'SPAM_OR_AD',
+            'severity' => 'high',
+            'message_classification_id' => $classification->id,
         ]);
     }
 
@@ -217,6 +282,46 @@ class IncidentMetricsTest extends TestCase
         $this->assertArrayNotHasKey('latency', $row);
     }
 
+    /**
+     * T066 (US6): detection latency is grouped by opener (`classification-metrics.md` C8,
+     * D-TG-159) — one row for "Operator" and one for "Model", each with its own count and p90
+     * suppression judged on its own sample size; every other incident figure is unchanged and
+     * still counts the model-opened incident (M17: false positives, and every source, count).
+     */
+    public function test_detection_latency_renders_one_row_per_opener(): void
+    {
+        $this->actingAsPanelOperator();
+        $chat = $this->makeChat();
+
+        $operatorDetectedAt = now()->subDays(1);
+        $operatorMessage = $this->makeMessage($chat, 1, $operatorDetectedAt);
+        $this->makeIncident($chat, $operatorMessage, $operatorDetectedAt);
+
+        $profile = $this->makeModerationProfile();
+        $aiDetectedAt = now()->subDays(1);
+        $aiMessage = $this->makeMessage($chat, 2, $aiDetectedAt);
+        $classification = $this->makeClassification($chat, $aiMessage, $profile);
+        $this->makeModelOpenedIncident($chat, $aiMessage, $classification, $aiDetectedAt);
+
+        $row = collect(Livewire::test(ListIncidents::class)->instance()->figuresByGroup())
+            ->firstWhere('label', 'Figures Group');
+
+        $this->assertNotNull($row);
+        $this->assertSame(2, $row['flagged']); // both sources counted in every other figure
+        $this->assertArrayHasKey('operator', $row['latency']);
+        $this->assertArrayHasKey('ai', $row['latency']);
+        $this->assertSame(1, $row['latency']['operator']['flagged']);
+        $this->assertSame(1, $row['latency']['ai']['flagged']);
+
+        Livewire::test(ListIncidents::class)
+            ->assertSeeText('Operator')
+            ->assertSeeText('Model');
+    }
+
+    /**
+     * T078 (W4): the standing prohibition holds on every Moderation Intelligence page, not only
+     * the Incidents list — Possible Violations and Classification Accuracy gain the same check.
+     */
     public function test_the_page_contains_no_average_and_no_composite_score(): void
     {
         $this->actingAsPanelOperator();
@@ -226,15 +331,29 @@ class IncidentMetricsTest extends TestCase
         $message = $this->makeMessage($chat, 1, $detectedAt);
         $this->makeIncident($chat, $message, $detectedAt);
 
-        $html = Livewire::test(ListIncidents::class)->html();
+        $profile = $this->makeModerationProfile();
+        $profile->forceFill(['is_active' => true])->save();
+        $listedMessage = $this->makeMessage($chat, 2, $detectedAt);
+        $this->makeClassification($chat, $listedMessage, $profile, [
+            'route' => 'possible_violation',
+            'route_reason' => 'uncertain',
+        ]);
 
-        $this->assertStringNotContainsIgnoringCase('average', $html);
-        $this->assertStringNotContainsIgnoringCase(' avg', $html);
-        $this->assertStringNotContainsIgnoringCase('score', $html);
+        $htmls = [
+            'Incidents' => Livewire::test(ListIncidents::class)->html(),
+            'Possible Violations' => Livewire::test(PossibleViolations::class)->html(),
+            'Classification Accuracy' => Livewire::test(ClassificationAccuracy::class)->html(),
+        ];
+
+        foreach ($htmls as $page => $html) {
+            $this->assertStringNotContainsIgnoringCase('average', $html, $page);
+            $this->assertStringNotContainsIgnoringCase(' avg', $html, $page);
+            $this->assertStringNotContainsIgnoringCase('score', $html, $page);
+        }
     }
 
-    private function assertStringNotContainsIgnoringCase(string $needle, string $haystack): void
+    private function assertStringNotContainsIgnoringCase(string $needle, string $haystack, string $message = ''): void
     {
-        $this->assertStringNotContainsString(strtolower($needle), strtolower($haystack));
+        $this->assertStringNotContainsString(strtolower($needle), strtolower($haystack), $message);
     }
 }

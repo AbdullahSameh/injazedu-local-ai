@@ -953,6 +953,11 @@ Filament without touching the assessment generator — and `model_runs` slices p
 "how much does moderation classification cost us" is answerable on day one. Seed:
 `ollama-gemma4-e2b-moderation` (same model, `temperature: 0`, `num_predict: 128`, `num_ctx: 2048`).
 
+**Correction (TG-M5, research Finding 1).** The seed also sets `reasoning_effort: "none"` — the
+installed model reasons before answering, and at this plan's 128-token budget every answer was cut
+off before it completed. The seeded profile is **inactive**; an operator switches it on only after
+running the smoke test against real fixtures (quickstart.md §2–§4).
+
 The **lane stays `llm`** — it exists to stop three concurrent generations on a 16 GB machine, and a
 moderation call is still a generation. Lane selection is by operation, not by role; no change needed.
 
@@ -994,6 +999,11 @@ regression waiting to be toggled.
 The prompt template lives in `app/prompts/moderation/classify_v1.md`, is versioned by filename, and
 its version string is stored on every prediction. **No prompt text ever goes near n8n** (rule §5.1‑7).
 
+**Correction (TG-M5 amendment 2026-10-01, research Finding 7).** A second instruction, `classify_v2.md`, is
+opt-in, chosen by `MODERATION_PROMPT_VERSION` (default `classify_v1`). `classify_v1` missed greeting-wrapped
+adverts and private-contact service offers. The thresholds are unchanged. The group's "students may not post
+links" rule is deterministic and goes to a later rule source (`source = 'rule'`), never into a prompt.
+
 ### 15.6 Confidence and human correction
 
 - `confidence` is the model's **self-report** and is weakly calibrated. It is used as a **routing
@@ -1005,6 +1015,14 @@ its version string is stored on every prediction. **No prompt text ever goes nea
 - `≥ 0.85` → normal.
 - Every prediction, correction, model profile, prompt version and reviewer is preserved (§10.10,
   §10.11). **The AI result is never overwritten.**
+
+**Correction (TG-M5, clarification 1 and Finding 2).** `0.60 … 0.85` opens **no** incident: the
+prediction is stored and the message is listed as a possible violation, for a person to act on — it
+does not open an attention item, and it does not cap an incident's severity as `low_confidence`. A
+prediction the model contradicts itself on (needs moderation with no violating category, or the
+reverse) is listed too, whatever its confidence. Because confidence barely moves in practice (0.90–
+1.00 on almost everything — research Finding 2), it is never treated as a safety signal; the
+**pilot false-positive rate of model-opened incidents is the operational gate** (operator item 3).
 
 ### 15.7 Reprocessing — D‑TG‑15
 
@@ -1396,12 +1414,20 @@ quit and with no Telegram token set**.
 | `scripts/scan_secrets.sh`       | bot-token shape                                                                             | none                                                  |
 | `infra/docker-compose.yml`      | one new `ai-telegram` service, `mem_limit: 256m`                                            | low — measured stack is 0.27 GiB against a 5 GB cap   |
 | `apps/ai-control`               | new navigation group + resources; `ModelProfileResource` gains `Platform`                   | low                                                   |
-| `alembic/versions/`             | revisions `0003`…`0009`                                                                     | none — assessment milestones continue from `0010`     |
+| `alembic/versions/`             | revisions `0003`…`0009` — *TG-M5.3 (2026-10-09): `0008` taken by `0008_moderation_attention_judgement`; later moderation revisions take the next free numbers* | none — assessment milestones continue from `0010`     |
 | Assessment domain               | **untouched**                                                                               | —                                                     |
 
 **Alembic numbering.** Moderation takes `0003`…`0009`. If assessment M2 lands first it takes the next
 free number; Alembic's `down_revision` chain is linear, so whichever ships first wins and the other
 rebases its `down_revision`. Worth stating in the spec so two tracks do not both write `0003`.
+
+> **Amended by TG-M5.3 (2026-10-09).** The reservation was used out of this plan's order.
+> - **Taken so far:** TG-M3 `0005`, TG-M4 `0006`, TG-M5 `0007`, and TG-M5.3 `0008_moderation_attention_judgement`
+>   (`specs/011-tg-m5-3-attention-judgement/`, D-TG-192).
+> - **Later moderation revisions** take the next free numbers, whatever this plan names them. That includes
+>   §10.11's `classification_reviews` and the alerts revision, both written above as `0008`.
+> - **If that runs past `0009`,** the assessment track's "continue from `0010`" rule above becomes "next free
+>   number", decided when the first collision would occur.
 
 ---
 
@@ -1606,6 +1632,21 @@ Ollama quit.
 profile, prompt version, taxonomy version and confidence. Ollama being down does not stop response
 tracking.
 **Non-goals.** No auto-moderation, no embeddings, no RAG, no model A/B.
+
+**Correction (TG-M5).** The pre-filter does **not** skip a bot account's message or a message that
+already has a response — both are classified (they are excluded only for the other seven reasons
+of `contracts/classification-pipeline.md` §3: retention, service, media, no text, a moderator's own
+message, the group speaking as itself, or an acknowledgement). It additionally excludes the group's
+own linked channel's automatic forwards, which this milestone's plan text above never named. And
+the model opens no question item anywhere in this pipeline: its needs-response judgement is
+measured against the rule set's own items, never acted on (the second clarification).
+
+**Amendment (TG-M5.1, 2026-10-03).** On the evidence TG-M5 produced (`classify_v2` judges implicit
+questions such as «في محاضرة اليوم» as needing an answer; the rule set, kept to clear question forms,
+cannot), a **live** prediction may now open a question item **the rule set declined** — through TG-M3's own
+`open_item`, on the same anchor, clock and owner, behind the dated switch `MODERATION_AI_ATTENTION_FROM`
+(blank = the TG-M5 behaviour above). Catch-up stays measurement only. Plan of record:
+`docs/plan/telegram/tg-m5-1-ai-attention-plan.md`; spec and contract: `specs/009-tg-m5-1-ai-attention/`.
 
 ---
 

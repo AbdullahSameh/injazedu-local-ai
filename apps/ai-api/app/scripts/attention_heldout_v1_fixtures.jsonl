@@ -1,0 +1,55 @@
+{"text": "ودي أطلع شهادة إتمام الدورة باسمي بالإنجليزي", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "عاوز أعرف نتيجتي في الاختبار النهائي اتحطت ولا لسه", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "أرسلوا لنا ملف الجدول الجديد لو سمحتوا", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "ياريت تبعتوا لينك الزوم بتاع محاضرة بكرة", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "حولت الرسوم أمس والإيصال للحين ما جاني", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "رابط الجروب الجديد بيقولي انتهت صلاحيته", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "زر تسليم الواجب معطل عندي والوقت قرب يخلص", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "الزوم بيطلعني برا كل ما أدخل المحاضرة", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "اختبار السبت في القاعة الكبيرة صح", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "الشهادة هتوصل على الإيميل مش بالبريد صح كده", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "يا شباب أحد شاف الدرجات نزلت في المنصة", "needs_response": true, "intent": "asking", "label_class": "clear", "peer": true}
+{"text": "يا جماعة حد عرف يفتح ملف الجدول اللي نزل النهارده", "needs_response": true, "intent": "asking", "label_class": "clear", "peer": true}
+{"text": "سددت الرسوم وأرفقت الإيصال بس حالة الطلب للحين معلقة", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "عرفت إن الامتحان في قاعة ٤ بس رقم مقعدي مش مكتوب في الكشف", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "استلمت الشهادة بس اسم الأب مكتوب غلط فيها", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "رابط الجروب كان شغال امبارح والنهارده بيقول الرابط غير صالح", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "السلام عليكم ورحمة الله، ودي أعرف موعد تسليم الواجب الجاي", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "متى تنزل الدرجات؟", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "فين ملف الجدول؟", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "هل لازم نجيب الإيصال يوم الاختبار", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "ازاي أسلم الواجب على المنصة", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "الشهادات تنزل في حسابك بالمنصة بعد آخر محاضرة بأسبوعين", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "الدرجات اتحطت على المنصة الساعة ٨ الصبح في خانة النتائج", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "تسليم الواجب الثالث آخر يوم له الخميس الساعة ١٢ بالليل", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "الإيصال بيوصل على الإيميل خلال ساعة بعد التحويل", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "رابط الجروب الجديد موجود في الرسالة المثبتة فوق", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "الامتحان النهائي في قاعة ٣ الدور التاني جنب المكتبة", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "محاضرة الزوم بكرة الساعة ٧ وبنفس الرابط اللي في المثبت", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "ملف الجدول الجديد اتبعت في القناة وفيه مواعيد المراجعات", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "خلاص اشتغل معي زر تسليم الواجب بعد ما حدثت التطبيق", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "الإيصال وصلني الحمد لله", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "تمام لقيت ملف الجدول في القناة", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "اتصلح اسمي في الشهادة، شكرا يا جماعة", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "دخلت الزوم عادي الحين", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "المشرف قال إن الدرجات تنزل يوم الأحد", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "الإدارة بلغت إن الامتحان اتنقل لقاعة ٥", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "نزل إعلان إن رابط الجروب القديم بيتقفل آخر الشهر", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "محاضرة الزوم امبارح كانت حلوة جدا الله يجزاهم خير", "needs_response": false, "intent": "social", "label_class": "clear"}
+{"text": "مبروك للي نجحوا، الدرجات هالمرة حلوة ما شاء الله", "needs_response": false, "intent": "social", "label_class": "clear"}
+{"text": "يوم الاختبار في القاعة كان مرتب والله", "needs_response": false, "intent": "social", "label_class": "clear"}
+{"text": "شكرا", "needs_response": false, "intent": "social", "label_class": "clear"}
+{"text": "جزاك الله خير", "needs_response": false, "intent": "social", "label_class": "clear"}
+{"text": "الشهادات نزلت", "needs_response": true, "intent": "asking", "label_class": "ambiguous"}
+{"text": "الدرجات اتحطت", "needs_response": true, "intent": "asking", "label_class": "ambiguous"}
+{"text": "تسليم الواجب الثالث الخميس", "needs_response": true, "intent": "asking", "label_class": "ambiguous"}
+{"text": "الإيصال بيوصل على الإيميل", "needs_response": true, "intent": "asking", "label_class": "ambiguous"}
+{"text": "رابط الجروب اتغير", "needs_response": true, "intent": "asking", "label_class": "ambiguous"}
+{"text": "الامتحان في قاعة ٣", "needs_response": true, "intent": "asking", "label_class": "ambiguous"}
+{"text": "محاضرة الزوم بكرة", "needs_response": true, "intent": "asking", "label_class": "ambiguous"}
+{"text": "ملف الجدول الجديد نزل", "needs_response": true, "intent": "asking", "label_class": "ambiguous"}
+{"text": "الامتحان اتنقل", "needs_response": true, "intent": "asking", "label_class": "ambiguous"}
+{"text": "رابط الجروب القديم بيتقفل", "needs_response": true, "intent": "asking", "label_class": "ambiguous"}
+{"text": "يا شباب أنتو سلمتو الواجب الثالث ولا تنتظرون آخر يوم", "needs_response": false, "intent": "discussion", "label_class": "clear", "peer": true}
+{"text": "يا محمد جبت كام في النهائي", "needs_response": false, "intent": "discussion", "label_class": "clear", "peer": true}
+{"text": "يا جماعة حد فيكم حاس إن قاعة الامتحان كانت برد", "needs_response": false, "intent": "discussion", "label_class": "clear", "peer": true}

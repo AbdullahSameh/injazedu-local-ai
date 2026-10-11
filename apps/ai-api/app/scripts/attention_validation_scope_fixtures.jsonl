@@ -1,0 +1,18 @@
+{"text": "يا بنات اللي قدمت على جدارة السنة اللي فاتت طلع اسمها بسرعة ولا طولت", "needs_response": false, "intent": "discussion", "label_class": "clear", "peer": true}
+{"text": "يا شباب حد قدم على الابتعاث هالسنة ويعرف الأوراق المطلوبة", "needs_response": false, "intent": "discussion", "label_class": "clear", "peer": true}
+{"text": "حد عارف نتيجة تنسيق المرحلة الأولى طلعت ولا لسه", "needs_response": false, "intent": "discussion", "label_class": "clear", "peer": true}
+{"text": "أحد جرب يعدل طلبه في القبول الموحد بعد إغلاق البوابة", "needs_response": false, "intent": "discussion", "label_class": "clear", "peer": true}
+{"text": "ودي أعرف وش الأوراق اللي يطلبها برنامج الابتعاث", "needs_response": false, "intent": "discussion", "label_class": "clear"}
+{"text": "القبول الموحد لسه مطلعش النتايج والناس كلها مستنية", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "موقع جدارة معلق عندي والصفحة ما تحمل أبد", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "منصة الابتعاث رجعت طلبي للمرة الثانية بسبب نقص في المرفقات", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "سجلت في الدورة قبل يومين وللحين ما جاني تأكيد التسجيل", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "يا جماعة صفحة نتيجة الاختبار التجريبي مش بتحمل عندكم ولا عندي بس", "needs_response": true, "intent": "asking", "label_class": "clear", "peer": true}
+{"text": "يا شباب موعد محاضرة المراجعة اتغير ولا لسه زي ما هو", "needs_response": true, "intent": "asking", "label_class": "clear", "peer": true}
+{"text": "منصة الدورة معلقة عندي والصفحة ما تحمل", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "ودي أعرف نتيجة الاختبار التجريبي تنزل بالجوال ولا لازم الكمبيوتر", "needs_response": true, "intent": "asking", "label_class": "clear"}
+{"text": "تأكيد التسجيل في الدورة وصلني على الإيميل خلاص", "needs_response": false, "intent": "informing", "label_class": "clear"}
+{"text": "التسجيل فتح ولا لسه", "needs_response": true, "intent": "asking", "label_class": "ambiguous"}
+{"text": "النتايج طلعت عند أحد", "needs_response": true, "intent": "asking", "label_class": "ambiguous", "peer": true}
+{"text": "أسئلة التناظر اللفظي في الاختبار الرسمي تجيني صعبة ومو عارف أبدأ فيها", "needs_response": true, "intent": "asking", "label_class": "ambiguous"}
+{"text": "لسه مش فاهمة فكرة قطع استيعاب المقروء الطويلة", "needs_response": true, "intent": "asking", "label_class": "ambiguous"}

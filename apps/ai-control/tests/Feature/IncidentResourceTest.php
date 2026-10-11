@@ -345,14 +345,19 @@ class IncidentResourceTest extends TestCase
             ->assertDontSeeText('sent on behalf of a channel');
     }
 
-    public function test_the_model_classification_note_is_present(): void
+    /**
+     * TG-M5 D1: the placeholder line is gone — replaced by the model's view of the anchor
+     * message (`ModelViewDisplayTest` covers the full "why flagged" behaviour).
+     */
+    public function test_the_model_classification_note_is_replaced_by_the_models_view(): void
     {
         $this->actingAsPanelOperator();
         $chat = $this->makeChat();
         $incident = $this->makeIncident($chat, $this->makeMessage($chat, 1));
 
         Livewire::test(ViewIncident::class, ['record' => $incident->getKey()])
-            ->assertSeeText('No model classification — arrives with TG-M5');
+            ->assertSeeText('operator-assigned')
+            ->assertDontSeeText('No model classification — arrives with TG-M5');
     }
 
     public function test_arabic_fields_carry_dir_auto(): void

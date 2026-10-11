@@ -75,6 +75,8 @@ WHERE opened_at >= :from AND opened_at < :to
 means nothing without whether twelve or twelve hundred were asked.
 **M10.** `dismissed` items leave the calculation entirely — out of the numerator and out of the
 denominator. They were never real questions.
+
+> **Amended by TG-M5.3 (2026-10-07).** M10's rationale reads: *"`dismissed` items leave the calculation entirely. None of them needed a moderator's answer: not a real question, a member discussion, or a removed message."* The SQL is unchanged, and every dismissal reason still leaves the calculation (`specs/011-tg-m5-3-attention-judgement/contracts/dismissal-reasons.md` K5, K6).
 **M11.** `expired` items stay in the unanswered count **permanently**, and their own count is shown
 beside it.
 
@@ -123,6 +125,8 @@ recall    ≈ rule_opened ÷ (rule_opened + operator_added)
 set that ever ran.
 **M16.** `recall` is an approximation and is labelled as one: it can only see the misses an operator
 happened to notice and add. It is a floor, not a measurement.
+
+> **Amended by TG-M5.3 (2026-10-07).** The statement gains four columns per `rule_version`, the per-reason breakdown of `rule_dismissed`: `dismissed_not_a_question`, `dismissed_member_discussion`, `dismissed_message_removed` and `dismissed_other` (free text or NULL), each `count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed' AND …)` as written in `specs/011-tg-m5-3-attention-judgement/contracts/dismissal-reasons.md` §3. The first four columns are unchanged, so `rule_dismissed` still counts every reason and precision keeps its value; the parts sum to `rule_dismissed` and no gate reads them (K7, K9, K10).
 
 ---
 

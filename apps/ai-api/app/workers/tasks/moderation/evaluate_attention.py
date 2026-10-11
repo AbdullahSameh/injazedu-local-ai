@@ -10,16 +10,20 @@ Finding 3) costs a slower judgement, never a missed one.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import UTC, datetime
 
 import dramatiq
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.application.moderation.attention import assemble_burst, open_item
+from app.application.moderation.attention import (
+    AiAttention,
+    ai_attention_from_settings,
+    assemble_burst,
+    open_item,
+)
 from app.infrastructure.config import load_settings
-from app.infrastructure.db import make_engine, make_session_factory
+from app.infrastructure.db import run_with_worker_session
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +36,11 @@ async def evaluate_attention_once(
     message_thread_id: int | None,
     around: datetime,
     gap_s: int,
+    ai: AiAttention | None = None,
 ) -> int | None:
     """Assembles the burst settled around `around` and judges it — one transaction, so the
     per-chat advisory lock (`chat_lock`, held inside `open_item`) covers the whole read-then-write
-    (C11, D-TG-81)."""
+    (C11, D-TG-81). `ai` is TG-M5.1's switch (`None` = rule-only)."""
     async with session_factory() as session:
         burst = await assemble_burst(
             session,
@@ -45,7 +50,7 @@ async def evaluate_attention_once(
             around=around,
             gap_s=gap_s,
         )
-        item_id = await open_item(session, burst)
+        item_id = await open_item(session, burst, ai=ai)
         await session.commit()
 
     if item_id is not None:
@@ -54,11 +59,6 @@ async def evaluate_attention_once(
             extra={"chat_id": telegram_chat_id, "item_id": item_id},
         )
     return item_id
-
-
-def _default_session_factory() -> async_sessionmaker[AsyncSession]:
-    settings = load_settings()
-    return make_session_factory(make_engine(settings))
 
 
 @dramatiq.actor(max_retries=3)
@@ -73,13 +73,14 @@ def evaluate_attention(
     `datetime` directly."""
     settings = load_settings()
     around = datetime.fromtimestamp(around_timestamp, tz=UTC)
-    asyncio.run(
-        evaluate_attention_once(
-            _default_session_factory(),
+    run_with_worker_session(
+        lambda session_factory: evaluate_attention_once(
+            session_factory,
             telegram_chat_id=telegram_chat_id,
             telegram_user_id=telegram_user_id,
             message_thread_id=message_thread_id,
             around=around,
             gap_s=settings.moderation_burst_gap_s,
+            ai=ai_attention_from_settings(settings),
         )
     )

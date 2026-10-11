@@ -82,3 +82,20 @@ def test_digit_runs_survive_unaltered() -> None:
 def test_arabic_doubling_below_threshold_survives() -> None:
     # Collapse threshold is 3, not 2 — "الله" has two adjacent lams and must not be touched.
     assert normalize("الله") == "الله"
+
+
+def test_latin_letter_runs_survive_unaltered() -> None:
+    # ⚠ Regression: step 7's collapse is contract §2 N5's "Latin script ... preserved" applying to
+    # a *run* of Latin letters too, not just mixed-script text. A bare `[^\W\d_]` collapse (any
+    # Unicode letter, not Arabic-only) silently turned "www" into "w" before `redact` ever ran,
+    # breaking every scheme-less URL redaction (contract §3's own worked example,
+    # `www.injaz.sa` → `«رابط»`) — found via TG-M5's classification pipeline tests.
+    assert normalize("www.example.com") == "www.example.com"
+    assert normalize("soooo good") == "soooo good"
+
+
+def test_arabic_punctuation_runs_survive_unaltered() -> None:
+    # Contract §2: "Punctuation is not collapsed. ؟؟؟؟ survives" — a range-based Arabic-block
+    # collapse (rather than a precise letters-only one) would wrongly sweep in Arabic punctuation,
+    # which sits in the same Unicode block as the letters.
+    assert normalize("؟؟؟؟") == "؟؟؟؟"

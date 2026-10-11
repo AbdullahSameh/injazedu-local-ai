@@ -39,9 +39,12 @@ echo "== architecture (SC-001, SC-005) =="
 #   - app/application/probes/model_runtime.py  — M0's health probe (`/api/version`)
 #   - app/scripts/smoke_llm.py                 — the fast-fail reachability pre-check (T049)
 #   - app/scripts/check_profiles_pulled.py     — `make doctor`'s "is it pulled?" check (T069)
+#   - app/scripts/smoke_moderation.py          — TG-M5's live-model smoke test's own reachability
+#                                                 pre-check, mirroring smoke_llm.py (tasks.md T041)
 _ARCH_IMPORT_ALLOWLIST='apps/ai-api/app/application/probes/model_runtime\.py'
 _ARCH_IMPORT_ALLOWLIST="${_ARCH_IMPORT_ALLOWLIST}|apps/ai-api/app/scripts/smoke_llm\.py"
 _ARCH_IMPORT_ALLOWLIST="${_ARCH_IMPORT_ALLOWLIST}|apps/ai-api/app/scripts/check_profiles_pulled\.py"
+_ARCH_IMPORT_ALLOWLIST="${_ARCH_IMPORT_ALLOWLIST}|apps/ai-api/app/scripts/smoke_moderation\.py"
 
 if grep -rnE '^\s*(import|from)\s+(httpx|ollama|openai)\b' --include='*.py' apps/ai-api/app \
     | grep -v '^apps/ai-api/app/providers/' \

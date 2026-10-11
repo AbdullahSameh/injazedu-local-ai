@@ -4,6 +4,9 @@
 **Revision**: `0005_moderation_attention` — down-revision `0004`, confirmed head (research probe 9).
 `0006`–`0009` stay reserved for TG-M4…TG-M6.
 
+> **Amended by TG-M5.3 (2026-10-09).** TG-M4 took `0006`, TG-M5 `0007` and TG-M5.3 `0008`. Later moderation
+> revisions take the next free numbers.
+
 One table created, one table altered, nothing else touched. Alembic owns all of it; the panel owns
 none of it.
 
@@ -20,9 +23,9 @@ research Finding 2.
 | `telegram_chat_id` | bigint | no | FK → `telegram_chats.id` |
 | `telegram_message_id` | bigint | no | **the burst's earliest message**, not any later one |
 | `opened_at` | timestamptz | no | = that message's `sent_at` (FR-005). Never the judgement time |
-| `source` | varchar(20) | no | `rule` \| `operator`. `ai` is reserved for TG-M5 and never written here |
+| `source` | varchar(20) | no | `rule` \| `operator`. `ai` is reserved for TG-M5 and never written here  — *TG-M5.1 (2026-10-03): `ai` is written by `open_item` for a burst the rules declined, see `specs/009-tg-m5-1-ai-attention/`* |
 | `rule_version` | smallint | yes | which rule set opened it; NULL for `source='operator'` (FR-049) |
-| `message_classification_id` | bigint | yes | shaped for TG-M5, always NULL here. No FK until `0007` creates the table |
+| `message_classification_id` | bigint | yes | shaped for TG-M5, always NULL here. No FK until `0007` creates the table  — *TG-M5.1: set on `ai` items only, at insert* |
 | `responsible_moderator_id` | bigint | yes | FK → `moderators.id`. Snapshotted from `responsible_at(chat, opened_at)`; NULL is a real answer (FR-042) |
 | `status` | varchar(20) | no | `open` \| `answered` \| `dismissed` \| `expired`, default `open` |
 | `first_response_message_id` | bigint | yes | the closing message's Telegram id |
@@ -33,6 +36,8 @@ research Finding 2.
 | `closed_by_user_id` | bigint | yes | the panel account that dismissed or hand-opened it |
 | `close_reason` | varchar(40) | yes | `not_a_question` \| `message_removed` \| `expired` \| operator text (FR-046) |
 | `created_at` | timestamptz | no | `server_default now()`. Never used for period selection (FR-064) |
+
+> **Amended by TG-M5.3 (2026-10-07).** `close_reason` vocabulary: `not_a_question`, `member_discussion` (**new**: a real question or discussion between members; no moderator needed) and `message_removed` are written by the operator's three dismissals (`status = 'dismissed'`); `expired` by expiry; anything else is operator free text (FR-046), counted as `other` in the dismissal breakdowns. The column stays `varchar(40)` with no CHECK, and no revision is taken (`specs/011-tg-m5-3-attention-judgement/data-model.md` §5).
 
 ### Constraints
 
@@ -46,6 +51,17 @@ research Finding 2.
 | `ck_attention_answered_complete` | `status <> 'answered' OR (first_response_at IS NOT NULL AND first_response_message_id IS NOT NULL AND first_response_kind IS NOT NULL)` | an answered item with no recorded response is a metric that cannot be defended |
 | `ck_attention_response_order` | `first_response_at IS NULL OR first_response_at > opened_at` | FR-028 at the storage layer, not only in code |
 | `ck_attention_rule_version` | `(source = 'rule') = (rule_version IS NOT NULL)` | FR-012 and FR-049 in one clause |
+
+> **Amended by TG-M5.3 (2026-10-09).** Revision `0008_moderation_attention_judgement` adds one column and one
+> check to `attention_items`:
+> - **`attention_judgement_id`:** bigint, nullable, FK `fk_attention_judgement` →
+>   `message_attention_judgements.id`. It is set at insert on a TG-M5.3 model item and never updated.
+> - **`ck_attention_ai_link`:** an `ai` item carries exactly one of `message_classification_id` and
+>   `attention_judgement_id`, and a `rule` or `operator` item carries neither.
+>
+> Historical TG-M5.1 items keep their classification link, and new model items carry only the judgement link.
+> Nothing in the state machine, the anchor or the constraints above changes
+> (`specs/011-tg-m5-3-attention-judgement/data-model.md` §3).
 
 ### Indexes
 

@@ -2,8 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Filament\Pages\ClassificationAccuracy;
+use App\Filament\Pages\PossibleViolations;
 use App\Filament\Resources\Incidents\Pages\ListIncidents;
 use App\Filament\Resources\Incidents\Pages\ViewIncident;
+use App\Models\MessageClassification;
+use App\Models\ModelProfile;
 use App\Models\ModerationIncident;
 use App\Models\Moderator;
 use App\Models\TelegramChat;
@@ -78,6 +82,45 @@ class IncidentWordingTest extends TestCase
             'entity_flags' => [],
             'source_update_id' => $this->makeCapturedUpdate($chat, 'message'),
         ]);
+    }
+
+    private function makeModerationProfile(): ModelProfile
+    {
+        return ModelProfile::forceCreate([
+            'name' => 'wording-moderation-'.random_int(1, 1_000_000),
+            'provider' => 'ollama',
+            'base_url' => 'http://host.docker.internal:11434/v1',
+            'model' => 'gemma4:e2b-it-qat',
+            'role' => 'moderation',
+            'params' => json_encode(['reasoning_effort' => 'none']),
+            'is_active' => true,
+        ]);
+    }
+
+    private function makeClassification(
+        TelegramChat $chat,
+        TelegramMessage $message,
+        ModelProfile $profile,
+        array $overrides = [],
+    ): MessageClassification {
+        return MessageClassification::forceCreate(array_merge([
+            'telegram_chat_id' => $chat->id,
+            'telegram_message_id' => $message->message_id,
+            'model_profile_id' => $profile->id,
+            'prompt_version' => 'classify_v1',
+            'taxonomy_version' => 1,
+            'category' => 'SPAM_OR_AD',
+            'needs_response' => false,
+            'needs_moderation' => true,
+            'severity' => 'low',
+            'confidence' => '0.720',
+            'path' => 'live',
+            'route' => 'possible_violation',
+            'route_reason' => 'uncertain',
+            'confidence_floor' => '0.600',
+            'incident_threshold' => '0.850',
+            'is_current' => true,
+        ], $overrides));
     }
 
     private function insertAction(array $overrides): void
@@ -238,6 +281,45 @@ class IncidentWordingTest extends TestCase
 
         $html = Livewire::test(ViewIncident::class, ['record' => $incident->getKey()])->html();
         $this->assertStringContainsString('Text removed', $html);
+
+        $cleaned = $this->stripAllowedWords($html);
+        $this->assertDoesNotMatchRegularExpression('/delet/i', $cleaned);
+        $this->assertDoesNotMatchRegularExpression('/remov/i', $cleaned);
+    }
+
+    /**
+     * T078 (W3): the new pages follow the same rule as every incident page — once the "Text
+     * removed" marker is stripped, no `delet`/`remov` substring remains, including with a purged
+     * anchor.
+     */
+    public function test_no_delet_or_remov_substring_remains_on_the_possible_violations_page(): void
+    {
+        $this->actingAsPanelOperator();
+        $chat = $this->makeChat();
+        $profile = $this->makeModerationProfile();
+        $message = $this->makeMessage($chat, 1);
+        $message->forceFill(['original_text' => null, 'text_purged_at' => now()])->save();
+        $this->makeClassification($chat, $message->fresh(), $profile);
+
+        $html = Livewire::test(PossibleViolations::class)->html();
+        $this->assertStringContainsString('Text removed', $html);
+
+        $cleaned = $this->stripAllowedWords($html);
+        $this->assertDoesNotMatchRegularExpression('/delet/i', $cleaned);
+        $this->assertDoesNotMatchRegularExpression('/remov/i', $cleaned);
+    }
+
+    public function test_no_delet_or_remov_substring_remains_on_the_classification_accuracy_page(): void
+    {
+        $this->actingAsPanelOperator();
+        $chat = $this->makeChat();
+        $profile = $this->makeModerationProfile();
+        $this->makeClassification($chat, $this->makeMessage($chat, 1), $profile, [
+            'route' => 'incident',
+            'route_reason' => null,
+        ]);
+
+        $html = Livewire::test(ClassificationAccuracy::class)->html();
 
         $cleaned = $this->stripAllowedWords($html);
         $this->assertDoesNotMatchRegularExpression('/delet/i', $cleaned);

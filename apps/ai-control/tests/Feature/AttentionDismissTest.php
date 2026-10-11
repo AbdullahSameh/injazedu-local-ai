@@ -19,6 +19,10 @@ use Tests\TestCase;
  * double-submitted dismissal updates zero rows the second time and does not corrupt the first;
  * a later moderator message does not reopen or close it (`control-panel-attention.md` §2,
  * FR-047, FR-048, contract §4 C8).
+ *
+ * TG-M5.3 (`specs/011-tg-m5-3-attention-judgement/contracts/dismissal-reasons.md` K1-K4): a third
+ * reason, "Member discussion", through the same guarded write, on an item of any source, and one
+ * confirmation that states all three meanings (K2).
  */
 class AttentionDismissTest extends TestCase
 {
@@ -124,6 +128,85 @@ class AttentionDismissTest extends TestCase
         $item->refresh();
         $this->assertSame('dismissed', $item->status);
         $this->assertSame('message_removed', $item->close_reason);
+    }
+
+    public function test_dismissing_member_discussion_records_that_reason(): void
+    {
+        $user = $this->actingAsPanelOperator();
+        $chat = $this->makeChat();
+        $item = $this->makeItem($chat, $this->makeMessage($chat, $this->makeStudent(), 1, now()->subMinutes(10)));
+
+        Livewire::test(LiveAttentionQueue::class)
+            ->callTableAction('dismiss_member_discussion', $item)
+            ->assertCanNotSeeTableRecords([$item->fresh()]);
+
+        $item->refresh();
+        $this->assertSame('dismissed', $item->status);
+        $this->assertSame('member_discussion', $item->close_reason);
+        $this->assertSame($user->id, $item->closed_by_user_id);
+        $this->assertNotNull($item->closed_at);
+    }
+
+    public function test_a_second_dismissal_after_member_discussion_changes_nothing(): void
+    {
+        $this->actingAsPanelOperator();
+        $chat = $this->makeChat();
+        $item = $this->makeItem($chat, $this->makeMessage($chat, $this->makeStudent(), 1, now()->subMinutes(10)));
+
+        Livewire::test(LiveAttentionQueue::class)
+            ->callTableAction('dismiss_member_discussion', $item);
+        $first = $item->fresh();
+
+        // A second operator's dismissal of the same item, through the same guarded write (C8).
+        $secondOperator = User::factory()->create(['is_panel_operator' => true]);
+        $rows = $item->closeIfOpen('dismissed', [
+            'close_reason' => 'not_a_question',
+            'closed_at' => now()->addMinute(),
+            'closed_by_user_id' => $secondOperator->id,
+        ]);
+
+        $this->assertSame(0, $rows);
+        $item->refresh();
+        $this->assertSame('dismissed', $item->status);
+        $this->assertSame('member_discussion', $item->close_reason);
+        $this->assertSame($first->closed_by_user_id, $item->closed_by_user_id);
+        $this->assertEquals($first->closed_at, $item->closed_at);
+    }
+
+    public function test_member_discussion_is_offered_on_an_item_of_any_source(): void
+    {
+        $this->actingAsPanelOperator();
+        $chat = $this->makeChat();
+        $item = $this->makeItem(
+            $chat,
+            $this->makeMessage($chat, $this->makeStudent(), 1, now()->subMinutes(10)),
+            ['source' => 'operator', 'rule_version' => null],
+        );
+
+        Livewire::test(LiveAttentionQueue::class)
+            ->assertTableActionVisible('dismiss_member_discussion', $item)
+            ->callTableAction('dismiss_member_discussion', $item);
+
+        $this->assertSame('member_discussion', $item->fresh()->close_reason);
+    }
+
+    public function test_every_dismissal_confirmation_states_the_three_meanings(): void
+    {
+        $this->actingAsPanelOperator();
+        $chat = $this->makeChat();
+        $item = $this->makeItem($chat, $this->makeMessage($chat, $this->makeStudent(), 1, now()->subMinutes(10)));
+
+        foreach (['dismiss_not_a_question', 'dismiss_member_discussion', 'dismiss_message_removed'] as $action) {
+            Livewire::test(LiveAttentionQueue::class)
+                ->mountTableAction($action, $item)
+                ->assertMountedActionModalSee([
+                    'Not a real question: not a question or request at all; nothing to answer.',
+                    'Member discussion: a real question or discussion between members; no moderator was needed.',
+                    'Message removed: your own judgement that the message is gone. Telegram reports no deletion.',
+                ]);
+        }
+
+        $this->assertSame('open', $item->fresh()->status);
     }
 
     public function test_a_dismissed_item_stops_ageing_and_leaves_the_unanswered_count(): void

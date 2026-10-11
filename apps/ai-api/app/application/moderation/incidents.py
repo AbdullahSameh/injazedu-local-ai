@@ -32,6 +32,81 @@ from app.infrastructure.models_moderation import (
 logger = logging.getLogger(__name__)
 
 
+async def insert_incident(
+    session: AsyncSession,
+    *,
+    telegram_chat_id: int,
+    telegram_message_id: int,
+    category: str,
+    severity: str,
+    source: str = "operator",
+    opened_by_user_id: int | None = None,
+    message_classification_id: int | None = None,
+    prompted_by_classification_id: int | None = None,
+) -> int | None:
+    """The one insert both `open_incident` (below) and TG-M5's classifier use, **on the caller's
+    own session** — never committing (D-TG-153): a model-opened incident is written in the same
+    transaction as its prediction (pipeline contract A1), so neither can exist without the other
+    having been decided.
+
+    `opened_at` = the anchor's `sent_at`, `detected_at` = one `SELECT now()` on this session, and
+    `responsible_moderator_id` = `responsible_at(chat, detected_at)` (I5) — the owner at the
+    **flagging** moment, resolved via TG-M2's single definition so it reads the identical `now()`
+    value `detected_at` is stamped with (D-TG-48).
+
+    `ON CONFLICT ON CONSTRAINT uq_incident_anchor DO NOTHING RETURNING id` (I2, R2, pipeline A3):
+    opening the same anchor twice is not an error — the second attempt returns `None`. Raises
+    `ValueError` on a service message (FR-007) or an unrecognised label (I4).
+    """
+    if category not in CATEGORIES:
+        raise ValueError(f"unknown category: {category!r}")
+    if severity not in SEVERITIES:
+        raise ValueError(f"unknown severity: {severity!r}")
+
+    message = (
+        await session.execute(
+            sa.select(telegram_messages.c.sent_at, telegram_messages.c.is_service).where(
+                telegram_messages.c.telegram_chat_id == telegram_chat_id,
+                telegram_messages.c.message_id == telegram_message_id,
+            )
+        )
+    ).one()
+    if message.is_service:
+        raise ValueError("cannot open an incident on a service message")
+
+    # Read once, within this transaction: Postgres' `now()` is `transaction_timestamp()`
+    # (identical across every statement in one transaction), so the owner resolved below is
+    # the owner at the exact instant this incident is stamped as detected — never a second,
+    # separately-read clock value (mirrors `assignments.py`'s own rationale).
+    detected_at = (await session.execute(sa.select(sa.func.now()))).scalar_one()
+
+    responsible_moderator_id = await responsible_at(
+        session, telegram_chat_id=telegram_chat_id, t=detected_at
+    )
+
+    insert_stmt = (
+        pg_insert(moderation_incidents)
+        .values(
+            telegram_chat_id=telegram_chat_id,
+            telegram_message_id=telegram_message_id,
+            opened_at=message.sent_at,
+            detected_at=detected_at,
+            source=source,
+            opened_by_user_id=opened_by_user_id,
+            category=category,
+            severity=severity,
+            message_classification_id=message_classification_id,
+            prompted_by_classification_id=prompted_by_classification_id,
+            responsible_moderator_id=responsible_moderator_id,
+        )
+        .on_conflict_do_nothing(constraint="uq_incident_anchor")
+        .returning(moderation_incidents.c.id)
+    )
+    result = await session.execute(insert_stmt)
+    inserted_id: int | None = result.scalar_one_or_none()
+    return inserted_id
+
+
 async def open_incident(
     session_factory: async_sessionmaker[AsyncSession],
     *,
@@ -39,65 +114,23 @@ async def open_incident(
     telegram_message_id: int,
     category: str,
     severity: str,
-    opened_by_user_id: int,
+    opened_by_user_id: int | None,
     source: str = "operator",
 ) -> int | None:
-    """Opens exactly one incident against a stored, non-service message (I1-I7): `opened_at` =
-    the anchor's `sent_at`, `detected_at` = the database's `now()` at insert, and
-    `responsible_moderator_id` = `responsible_at(chat, detected_at)` (I5) — the owner at the
-    **flagging** moment, resolved via TG-M2's single definition in the same transaction so it
-    reads the identical `now()` value `detected_at` is stamped with (D-TG-48).
-
-    `ON CONFLICT ON CONSTRAINT uq_incident_anchor DO NOTHING RETURNING id` (I2, R2): opening the
-    same anchor twice is not an error — the second attempt returns `None`. Raises `ValueError` on
-    a service message (FR-007) or an unrecognised label (I4). Writes nothing else and touches no
-    attention item (I6, I7). Logs `incident_id` and `message_id` only (FR-081, N8).
+    """A thin wrapper over `insert_incident`: opens its own session, commits, and logs
+    `incident_id` / `message_id` only (FR-081, N8). Writes nothing else and touches no attention
+    item (I6, I7) — used by today's tests and, until the panel's own opener takes over, production.
     """
-    if category not in CATEGORIES:
-        raise ValueError(f"unknown category: {category!r}")
-    if severity not in SEVERITIES:
-        raise ValueError(f"unknown severity: {severity!r}")
-
     async with session_factory() as session:
-        message = (
-            await session.execute(
-                sa.select(telegram_messages.c.sent_at, telegram_messages.c.is_service).where(
-                    telegram_messages.c.telegram_chat_id == telegram_chat_id,
-                    telegram_messages.c.message_id == telegram_message_id,
-                )
-            )
-        ).one()
-        if message.is_service:
-            raise ValueError("cannot open an incident on a service message")
-
-        # Read once, within this transaction: Postgres' `now()` is `transaction_timestamp()`
-        # (identical across every statement in one transaction), so the owner resolved below is
-        # the owner at the exact instant this incident is stamped as detected — never a second,
-        # separately-read clock value (mirrors `assignments.py`'s own rationale).
-        detected_at = (await session.execute(sa.select(sa.func.now()))).scalar_one()
-
-        responsible_moderator_id = await responsible_at(
-            session, telegram_chat_id=telegram_chat_id, t=detected_at
+        inserted_id = await insert_incident(
+            session,
+            telegram_chat_id=telegram_chat_id,
+            telegram_message_id=telegram_message_id,
+            category=category,
+            severity=severity,
+            source=source,
+            opened_by_user_id=opened_by_user_id,
         )
-
-        insert_stmt = (
-            pg_insert(moderation_incidents)
-            .values(
-                telegram_chat_id=telegram_chat_id,
-                telegram_message_id=telegram_message_id,
-                opened_at=message.sent_at,
-                detected_at=detected_at,
-                source=source,
-                opened_by_user_id=opened_by_user_id,
-                category=category,
-                severity=severity,
-                responsible_moderator_id=responsible_moderator_id,
-            )
-            .on_conflict_do_nothing(constraint="uq_incident_anchor")
-            .returning(moderation_incidents.c.id)
-        )
-        result = await session.execute(insert_stmt)
-        inserted_id = result.scalar_one_or_none()
         await session.commit()
 
     if inserted_id is not None:

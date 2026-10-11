@@ -3,6 +3,8 @@
 namespace App\Filament\Resources\Incidents\Schemas;
 
 use App\Filament\Resources\Incidents\Support\IncidentDisplay;
+use App\Filament\Support\ModelView;
+use App\Models\MessageClassification;
 use App\Models\ModerationIncident;
 use App\Models\User;
 use Filament\Infolists\Components\RepeatableEntry;
@@ -69,17 +71,46 @@ class IncidentInfolist
                     TextEntry::make('opened_by')
                         ->label('Opened by')
                         ->getStateUsing(
-                            fn (ModerationIncident $record): string => User::find($record->opened_by_user_id)
-                                ?->name ?? '—'
+                            fn (ModerationIncident $record): string => $record->source === 'ai'
+                                ? 'Opened by the model'
+                                : (User::find($record->opened_by_user_id)?->name ?? '—')
                         ),
                     TextEntry::make('category'),
                     TextEntry::make('severity'),
                     TextEntry::make('classification')
                         ->label('Classification')
-                        ->getStateUsing(fn (): string => 'operator-assigned'),
-                    TextEntry::make('model_note')
-                        ->label('Model')
-                        ->getStateUsing(fn (): string => 'No model classification — arrives with TG-M5')
+                        ->getStateUsing(
+                            fn (ModerationIncident $record): string => $record->source === 'ai'
+                                ? "the model's"
+                                : 'operator-assigned'
+                        ),
+                    // §2.3, independent and list-prompted operator flags: The model's view of the
+                    // anchor message — read (§5), never computed (P2).
+                    TextEntry::make('models_view')
+                        ->label("The model's view")
+                        ->getStateUsing(
+                            fn (ModerationIncident $record): string => ModelView::status(
+                                $record->telegram_chat_id,
+                                $record->telegram_message_id,
+                            )
+                        )
+                        ->visible(fn (ModerationIncident $record): bool => $record->source !== 'ai')
+                        ->columnSpanFull(),
+                    // §2.3, list-prompted only: the listing prediction's model and self-reported
+                    // confidence (V2, FR-044).
+                    TextEntry::make('list_prompted')
+                        ->label('Flagged from the possible-violations list')
+                        ->getStateUsing(fn (ModerationIncident $record): string => self::listPromptedText($record))
+                        ->visible(
+                            fn (ModerationIncident $record): bool => $record->prompted_by_classification_id !== null
+                        )
+                        ->columnSpanFull(),
+                    // §2.3, model-opened only: the opening prediction, in full — D1 (the
+                    // TG-M4 placeholder line) is gone.
+                    TextEntry::make('opening_prediction')
+                        ->label('The opening prediction')
+                        ->getStateUsing(fn (ModerationIncident $record): string => self::openingPredictionText($record))
+                        ->visible(fn (ModerationIncident $record): bool => $record->source === 'ai')
                         ->columnSpanFull(),
                 ])
                 ->columns(4),
@@ -191,6 +222,54 @@ class IncidentInfolist
                 TextEntry::make('source'),
                 TextEntry::make('note')->extraAttributes(['dir' => 'auto']),
             ]);
+    }
+
+    /**
+     * §2.3: the listing prediction's model and self-reported confidence — read from
+     * `prompted_by_classification_id`, never recomputed.
+     */
+    private static function listPromptedText(ModerationIncident $record): string
+    {
+        $prediction = MessageClassification::find($record->prompted_by_classification_id);
+
+        if ($prediction === null) {
+            return '—';
+        }
+
+        return sprintf(
+            '%s, %s',
+            $prediction->modelProfile?->name ?? '—',
+            ModelView::confidence($prediction->confidence),
+        );
+    }
+
+    /**
+     * §2.3: the prediction that opened the incident — category, severity, needs-response,
+     * needs-moderation, self-reported confidence, model, instruction version, vocabulary version
+     * and when it was made — read from `message_classification_id` (`ck_incident_ai_link`
+     * guarantees it is set and points at this incident's own message).
+     */
+    private static function openingPredictionText(ModerationIncident $record): string
+    {
+        $prediction = MessageClassification::find($record->message_classification_id);
+
+        if ($prediction === null) {
+            return '—';
+        }
+
+        return sprintf(
+            '%s · severity %s · needs response: %s · needs moderation: %s · %s · model %s · '
+                .'instruction %s · vocabulary %d · %s',
+            $prediction->category,
+            $prediction->severity,
+            $prediction->needs_response ? 'yes' : 'no',
+            $prediction->needs_moderation ? 'yes' : 'no',
+            ModelView::confidence($prediction->confidence),
+            $prediction->modelProfile?->name ?? '—',
+            $prediction->prompt_version,
+            $prediction->taxonomy_version,
+            self::formatMoment($prediction->created_at),
+        );
     }
 
     private static function entityFlagsSummary(ModerationIncident $record): string

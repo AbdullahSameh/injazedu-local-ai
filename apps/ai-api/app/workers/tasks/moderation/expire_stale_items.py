@@ -11,7 +11,6 @@ to run the sweep.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import dramatiq
@@ -19,7 +18,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.infrastructure.config import load_settings
-from app.infrastructure.db import make_engine, make_session_factory
+from app.infrastructure.db import run_with_worker_session
 from app.infrastructure.models_moderation import attention_items
 
 logger = logging.getLogger(__name__)
@@ -55,17 +54,12 @@ async def expire_stale_items_once(
     return result.rowcount  # type: ignore[attr-defined,no-any-return]
 
 
-def _default_session_factory() -> async_sessionmaker[AsyncSession]:
-    settings = load_settings()
-    return make_session_factory(make_engine(settings))
-
-
 @dramatiq.actor(max_retries=3)
 def expire_stale_items() -> None:
     settings = load_settings()
-    handled = asyncio.run(
-        expire_stale_items_once(
-            _default_session_factory(), max_age_s=settings.moderation_item_max_age_s
+    handled = run_with_worker_session(
+        lambda session_factory: expire_stale_items_once(
+            session_factory, max_age_s=settings.moderation_item_max_age_s
         )
     )
     logger.info("expired stale attention items: %d rows", handled)

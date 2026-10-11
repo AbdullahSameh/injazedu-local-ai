@@ -69,7 +69,7 @@ services:
 
   ai-worker:
     build: ../apps/ai-api
-    command: ["dramatiq", "app.workers.main", "--processes", "${WORKER_PROCESSES}", "--threads", "${WORKER_THREADS}"]
+    command: ["dramatiq", "app.workers.main", "--processes", "${WORKER_PROCESSES}", "--threads", "${WORKER_THREADS}", "--queues", "default"]
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
@@ -77,7 +77,57 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       WORKER_HEARTBEAT_INTERVAL_S: ${WORKER_HEARTBEAT_INTERVAL_S}
       WORKER_HEARTBEAT_TTL_S: ${WORKER_HEARTBEAT_TTL_S}
+      # TG-M5.1: question judgement (`evaluate_attention`, the sweep) runs here and reads the
+      # switch and the ageing ceiling its gate compares against (attention-opening G5-G6).
+      MODERATION_AI_ATTENTION_FROM: ${MODERATION_AI_ATTENTION_FROM:-}
+      MODERATION_ITEM_MAX_AGE_S: ${MODERATION_ITEM_MAX_AGE_S:-86400}
+      # TG-M5.3 (FR-307, D-TG-189): the attention instruction. Blank = nothing judged.
+      MODERATION_ATTENTION_PROMPT_VERSION: ${MODERATION_ATTENTION_PROMPT_VERSION:-}
     mem_limit: 1g
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # A dedicated, single-thread queue for `moderation_classify` (research Finding 4, operator item
+  # 2 — approved): a classification waiting on the model's one-at-a-time lane must never hold a
+  # worker thread that `default` traffic needs, so this queue's actor runs in its own service.
+  # TG-M5.3 (D-TG-187): it also consumes `moderation_attention`. `judge_attention` has priority 0
+  # and `classify_message` 10, so Attention runs first when both wait here (research Finding 18).
+  # That is today's deployment policy, not a contract: separate services or more threads are a
+  # change to this file only.
+  ai-classifier:
+    build: ../apps/ai-api
+    command: ["dramatiq", "app.workers.main", "--queues", "moderation_attention", "moderation_classify", "--processes", "1", "--threads", "1"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL}
+      WORKER_HEARTBEAT_INTERVAL_S: ${WORKER_HEARTBEAT_INTERVAL_S}
+      WORKER_HEARTBEAT_TTL_S: ${WORKER_HEARTBEAT_TTL_S}
+      MODERATION_CONFIDENCE_FLOOR: ${MODERATION_CONFIDENCE_FLOOR:-0.60}
+      MODERATION_INCIDENT_CONFIDENCE: ${MODERATION_INCIDENT_CONFIDENCE:-0.85}
+      MODERATION_CLASSIFY_MAX_ATTEMPTS: ${MODERATION_CLASSIFY_MAX_ATTEMPTS:-5}
+      MODERATION_CLASSIFY_RETRY_BASE_S: ${MODERATION_CLASSIFY_RETRY_BASE_S:-30}
+      MODERATION_PROMPT_VERSION: ${MODERATION_PROMPT_VERSION:-classify_v1}
+      # TG-M5.1: a live prediction proposing a question puts its message back on the attention
+      # work list only while the switch is set (attention-opening I1).
+      MODERATION_AI_ATTENTION_FROM: ${MODERATION_AI_ATTENTION_FROM:-}
+      # TG-M5.3 (FR-307, D-TG-189): the attention instruction `judge_attention` sends. Blank = no
+      # attention call and nothing recorded (shadow mode starts when it is set).
+      MODERATION_ATTENTION_PROMPT_VERSION: ${MODERATION_ATTENTION_PROMPT_VERSION:-}
+      GATEWAY_CALL_TIMEOUT_S: ${GATEWAY_CALL_TIMEOUT_S:-180}
+      GATEWAY_MAX_RETRIES: ${GATEWAY_MAX_RETRIES:-2}
+      GATEWAY_RETRY_BASE_S: ${GATEWAY_RETRY_BASE_S:-0.5}
+      GATEWAY_BREAKER_THRESHOLD: ${GATEWAY_BREAKER_THRESHOLD:-5}
+      GATEWAY_BREAKER_OPEN_S: ${GATEWAY_BREAKER_OPEN_S:-30}
+      GATEWAY_LANE_LEASE_TTL_S: ${GATEWAY_LANE_LEASE_TTL_S:-30}
+      GATEWAY_LANE_RENEW_S: ${GATEWAY_LANE_RENEW_S:-10}
+      GATEWAY_PROFILE_CACHE_TTL_S: ${GATEWAY_PROFILE_CACHE_TTL_S:-30}
+      GATEWAY_CAPTURE_PAYLOADS: ${GATEWAY_CAPTURE_PAYLOADS:-false}
+    mem_limit: 384m
     depends_on:
       postgres:
         condition: service_healthy
@@ -130,6 +180,8 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       MODERATION_PERCENTILE_MIN_SAMPLES: ${MODERATION_PERCENTILE_MIN_SAMPLES:-10}
       MODERATION_INCIDENT_MAX_AGE_S: ${MODERATION_INCIDENT_MAX_AGE_S:-86400}
+      # TG-M5.3 (attention-metrics C10): the settle gap the attention figures' timeliness reads.
+      MODERATION_BURST_GAP_S: ${MODERATION_BURST_GAP_S:-90}
     ports:
       - "${CONTROL_PORT}:8080"
     mem_limit: 640m
@@ -149,6 +201,15 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL}
       TELEGRAM_ALLOWED_UPDATES: ${TELEGRAM_ALLOWED_UPDATES}
+      # classify_chat (catch-up) and smoke-moderation run here: they send the instruction the
+      # classifier sends, and the smoke test prints routes at the thresholds in force (D-TG-163).
+      MODERATION_CONFIDENCE_FLOOR: ${MODERATION_CONFIDENCE_FLOOR:-0.60}
+      MODERATION_INCIDENT_CONFIDENCE: ${MODERATION_INCIDENT_CONFIDENCE:-0.85}
+      MODERATION_PROMPT_VERSION: ${MODERATION_PROMPT_VERSION:-classify_v1}
+      # rederive_chat --with-attention re-judges here with the same switch the live paths use, so it
+      # reaches the same answer (TG-M5.1, attention-opening L2).
+      MODERATION_AI_ATTENTION_FROM: ${MODERATION_AI_ATTENTION_FROM:-}
+      MODERATION_ITEM_MAX_AGE_S: ${MODERATION_ITEM_MAX_AGE_S:-86400}
     restart: "no"
     depends_on:
       postgres:
@@ -160,6 +221,20 @@ services:
     mem_limit: 768m
     depends_on:
       - postgres
+
+  # Development-only log viewer — opt-in via the `devtools` profile, never started by `make up`.
+  # The Docker socket is read-only and container actions stay off (Dozzle's default): it reads
+  # logs and stats, it cannot start, stop or exec anything. Bound to localhost only.
+  dozzle:
+    image: amir20/dozzle:latest
+    profiles: ["devtools"]
+    environment:
+      DOZZLE_NO_ANALYTICS: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "127.0.0.1:${DOZZLE_HOST_PORT:-9999}:8080"
+    mem_limit: 64m
 
 volumes:
   postgres-data:

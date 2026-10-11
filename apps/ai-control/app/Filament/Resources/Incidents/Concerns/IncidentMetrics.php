@@ -179,27 +179,31 @@ trait IncidentMetrics
     }
 
     /**
-     * §4 — Detection latency: a figure about the system, never about a moderator (M16) — this
-     * method takes no `$moderatorId` parameter by construction. Includes false positives (M17):
-     * a wrong flag took exactly as long to raise as a right one.
+     * §4, amended for TG-M5 (`classification-metrics.md` C8, D-TG-159): grouped by `i.source` —
+     * one block per opener, keyed `'operator'` / `'ai'`. Still a figure about the system, never
+     * about a moderator (M16) — this method takes no `$moderatorId` parameter by construction.
+     * Includes false positives (M17): a wrong flag took exactly as long to raise as a right one.
+     * A source with no incidents in the period has no key at all — never a zero-filled block.
      *
-     * @return array{flagged: int, median: float|null, p90: float|null, p90_suppressed: bool,
-     *               max: float|null}
+     * @return array<string, array{flagged: int, median: float|null, p90: float|null,
+     *               p90_suppressed: bool, max: float|null}>
      */
     private function detectionLatencyStats(Carbon $from, Carbon $to, ?int $chatId = null): array
     {
-        $row = DB::selectOne(
+        $rows = DB::select(
             <<<'SQL'
-            SELECT count(*)                                                         AS flagged,
+            SELECT i.source,
+                   count(*)                                                         AS flagged,
                    percentile_cont(0.5) WITHIN GROUP (ORDER BY lat)                 AS latency_median,
                    percentile_cont(0.9) WITHIN GROUP (ORDER BY lat)                 AS latency_p90,
                    max(lat)                                                         AS latency_max
             FROM (
-              SELECT extract(epoch FROM i.detected_at - i.opened_at) AS lat
+              SELECT i.source, extract(epoch FROM i.detected_at - i.opened_at) AS lat
               FROM moderation_incidents i
               WHERE i.detected_at >= :period_from AND i.detected_at < :period_to
                 AND (:chat_id1::bigint IS NULL OR i.telegram_chat_id = :chat_id2::bigint)
-            ) l
+            ) i
+            GROUP BY i.source
             SQL,
             [
                 'period_from' => $from,
@@ -209,17 +213,22 @@ trait IncidentMetrics
             ],
         );
 
-        $flagged = (int) $row->flagged;
-        $suppressed = $flagged < $this->incidentPercentileMinSamples();
-        $p90 = $row->latency_p90;
+        $result = [];
+        foreach ($rows as $row) {
+            $flagged = (int) $row->flagged;
+            $suppressed = $flagged < $this->incidentPercentileMinSamples();
+            $p90 = $row->latency_p90;
 
-        return [
-            'flagged' => $flagged,
-            'median' => $row->latency_median !== null ? (float) $row->latency_median : null,
-            'p90' => (! $suppressed && $p90 !== null) ? (float) $p90 : null,
-            'p90_suppressed' => $suppressed,
-            'max' => $row->latency_max !== null ? (float) $row->latency_max : null,
-        ];
+            $result[$row->source] = [
+                'flagged' => $flagged,
+                'median' => $row->latency_median !== null ? (float) $row->latency_median : null,
+                'p90' => (! $suppressed && $p90 !== null) ? (float) $p90 : null,
+                'p90_suppressed' => $suppressed,
+                'max' => $row->latency_max !== null ? (float) $row->latency_max : null,
+            ];
+        }
+
+        return $result;
     }
 
     /**

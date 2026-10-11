@@ -353,7 +353,11 @@ attention_items = sa.Table(
     sa.Column("opened_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("source", sa.String(length=20), nullable=False),
     sa.Column("rule_version", sa.SmallInteger(), nullable=True),
-    # Shaped for TG-M5, always NULL here. No FK until 0007 creates message_classifications.
+    # `fk_attention_classification` (below, deferred past `message_classifications`' own
+    # definition). NULL on every rule- and operator-opened row. TG-M5 kept it NULL everywhere
+    # (data-model.md §5, the second clarification); since TG-M5.1 a `source='ai'` row carries the
+    # prediction that opened it, written once at insert and never updated
+    # (specs/009-tg-m5-1-ai-attention/contracts/attention-opening.md O3).
     sa.Column("message_classification_id", sa.BigInteger(), nullable=True),
     sa.Column(
         "responsible_moderator_id",
@@ -468,7 +472,8 @@ moderation_incidents = sa.Table(
     sa.Column("opened_by_user_id", sa.BigInteger(), nullable=True),
     sa.Column("category", sa.String(length=30), nullable=False),
     sa.Column("severity", sa.String(length=10), nullable=False),
-    # Shaped for TG-M5, always NULL here. No FK until 0007 creates message_classifications.
+    # The prediction that opened this incident — set, and required (`ck_incident_ai_link`),
+    # only when `source = 'ai'`; `fk_incident_classification` (below) is composite.
     sa.Column("message_classification_id", sa.BigInteger(), nullable=True),
     # Snapshotted from responsible_at(chat, detected_at) — the owner at the flag, not the anchor
     # message (I5). NULL is a real answer: nobody owned the group then.
@@ -507,6 +512,54 @@ moderation_incidents = sa.Table(
         "source <> 'operator' OR message_classification_id IS NULL",
         name="ck_incident_operator_labels",
     ),
+)
+
+# --- TG-M5: AI Classification (data-model.md §2-§5, revision 0007) -----------------------------
+#
+# `message_classifications` is added below, on the same metadata; `moderation_incidents` and
+# `attention_items` gain their TG-M5 links here too, so this one Python module always reflects
+# the schema alembic revision 0007 creates — Core `Table`/`Column` objects are declarative
+# metadata, not migrations (data-model.md §0).
+
+moderation_incidents.append_column(
+    sa.Column("prompted_by_classification_id", sa.BigInteger(), nullable=True)
+)
+# Composite, `MATCH SIMPLE`: a NULL link is unchecked; a non-NULL link must cite a prediction
+# about this incident's own message (probe 9 E2, E3, D-TG-145) — the string-form refcolumns
+# resolve against `message_classifications` lazily, so table definition order does not matter.
+moderation_incidents.append_constraint(
+    sa.ForeignKeyConstraint(
+        ["message_classification_id", "telegram_chat_id", "telegram_message_id"],
+        [
+            "message_classifications.id",
+            "message_classifications.telegram_chat_id",
+            "message_classifications.telegram_message_id",
+        ],
+        name="fk_incident_classification",
+    )
+)
+moderation_incidents.append_constraint(
+    sa.ForeignKeyConstraint(
+        ["prompted_by_classification_id", "telegram_chat_id", "telegram_message_id"],
+        [
+            "message_classifications.id",
+            "message_classifications.telegram_chat_id",
+            "message_classifications.telegram_message_id",
+        ],
+        name="fk_incident_prompted_by",
+    )
+)
+moderation_incidents.append_constraint(
+    sa.CheckConstraint(
+        "source <> 'ai' OR message_classification_id IS NOT NULL",
+        name="ck_incident_ai_link",
+    )
+)
+moderation_incidents.append_constraint(
+    sa.CheckConstraint(
+        "prompted_by_classification_id IS NULL OR source = 'operator'",
+        name="ck_incident_prompted_by",
+    )
 )
 
 sa.Index(
@@ -656,6 +709,339 @@ sa.Index(
     "ix_actions_incident",
     moderation_actions.c.moderation_incident_id,
     postgresql_where=moderation_actions.c.moderation_incident_id.is_not(None),
+)
+
+# TG-M5's own link, deferred here since `attention_items` (revision 0005) predates
+# `message_classifications`. TG-M5 kept it NULL on every row (data-model.md §5, the second
+# clarification); TG-M5.1 sets it on `source='ai'` rows only — no schema change.
+attention_items.append_constraint(
+    sa.ForeignKeyConstraint(
+        ["message_classification_id"],
+        ["message_classifications.id"],
+        name="fk_attention_classification",
+    )
+)
+
+# message_classifications and message_classification_attempts — immutable predictions and the
+# messages that produced none (data-model.md §2-§3, revision 0007). A prediction is a claim,
+# recorded once with its provenance and never changed: no application code issues an `UPDATE`
+# or `DELETE` against either table (D-TG-147); the panel's Eloquent models throw on both.
+
+message_classifications = sa.Table(
+    "message_classifications",
+    metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+    sa.Column(
+        "telegram_chat_id",
+        sa.BigInteger(),
+        sa.ForeignKey("telegram_chats.id"),
+        nullable=False,
+    ),
+    sa.Column("telegram_message_id", sa.BigInteger(), nullable=False),
+    sa.Column(
+        "model_profile_id",
+        sa.BigInteger(),
+        sa.ForeignKey("model_profiles.id", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    sa.Column(
+        "model_run_id",
+        sa.BigInteger(),
+        sa.ForeignKey("model_runs.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column("prompt_version", sa.String(length=40), nullable=False),
+    sa.Column("taxonomy_version", sa.SmallInteger(), nullable=False),
+    sa.Column("category", sa.String(length=30), nullable=False),
+    sa.Column("needs_response", sa.Boolean(), nullable=False),
+    sa.Column("needs_moderation", sa.Boolean(), nullable=False),
+    sa.Column("severity", sa.String(length=10), nullable=False),
+    sa.Column("confidence", sa.Numeric(4, 3), nullable=False),
+    sa.Column("path", sa.String(length=20), nullable=False),
+    sa.Column("route", sa.String(length=20), nullable=False),
+    sa.Column("route_reason", sa.String(length=20), nullable=True),
+    sa.Column("confidence_floor", sa.Numeric(4, 3), nullable=True),
+    sa.Column("incident_threshold", sa.Numeric(4, 3), nullable=True),
+    sa.Column("is_current", sa.Boolean(), nullable=False, server_default=sa.true()),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
+    sa.ForeignKeyConstraint(
+        ["telegram_chat_id", "telegram_message_id"],
+        ["telegram_messages.telegram_chat_id", "telegram_messages.message_id"],
+        name="fk_classification_message",
+    ),
+    sa.UniqueConstraint(
+        "id", "telegram_chat_id", "telegram_message_id", name="uq_classification_identity"
+    ),
+    sa.CheckConstraint(
+        "category IN ('QUESTION_COURSE', 'QUESTION_ACCESS', 'COMPLAINT', 'CHITCHAT', "
+        "'SPAM_OR_AD', 'ABUSE', 'OTHER')",
+        name="ck_classification_category",
+    ),
+    sa.CheckConstraint(
+        "severity IN ('none', 'low', 'medium', 'high')", name="ck_classification_severity"
+    ),
+    sa.CheckConstraint(
+        "confidence >= 0 AND confidence <= 1", name="ck_classification_confidence"
+    ),
+    sa.CheckConstraint("path IN ('live', 'catch_up')", name="ck_classification_path"),
+    sa.CheckConstraint(
+        "route IN ('incident', 'possible_violation', 'review', 'none', 'measurement_only')",
+        name="ck_classification_route",
+    ),
+    sa.CheckConstraint(
+        "(path = 'catch_up') = (route = 'measurement_only')",
+        name="ck_classification_route_path",
+    ),
+    sa.CheckConstraint(
+        "(route = 'possible_violation') = (route_reason IS NOT NULL) "
+        "AND (route_reason IS NULL OR route_reason IN ('uncertain', 'inconsistent'))",
+        name="ck_classification_route_reason",
+    ),
+    sa.CheckConstraint(
+        "(path = 'live') = (confidence_floor IS NOT NULL AND incident_threshold IS NOT NULL) "
+        "AND (confidence_floor IS NULL OR confidence_floor <= incident_threshold)",
+        name="ck_classification_thresholds",
+    ),
+)
+
+sa.Index(
+    "uq_classification_current",
+    message_classifications.c.telegram_chat_id,
+    message_classifications.c.telegram_message_id,
+    unique=True,
+    postgresql_where=message_classifications.c.is_current,
+)
+sa.Index(
+    "ix_classifications_possible",
+    message_classifications.c.created_at,
+    postgresql_where=message_classifications.c.route == "possible_violation",
+)
+sa.Index(
+    "ix_classifications_profile",
+    message_classifications.c.model_profile_id,
+    message_classifications.c.prompt_version,
+    message_classifications.c.taxonomy_version,
+)
+
+message_classification_attempts = sa.Table(
+    "message_classification_attempts",
+    metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+    sa.Column(
+        "telegram_chat_id",
+        sa.BigInteger(),
+        sa.ForeignKey("telegram_chats.id"),
+        nullable=False,
+    ),
+    sa.Column("telegram_message_id", sa.BigInteger(), nullable=False),
+    sa.Column("path", sa.String(length=20), nullable=False),
+    sa.Column("outcome", sa.String(length=20), nullable=False),
+    sa.Column("reason", sa.String(length=40), nullable=False),
+    sa.Column(
+        "model_profile_id",
+        sa.BigInteger(),
+        sa.ForeignKey("model_profiles.id"),
+        nullable=True,
+    ),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
+    sa.ForeignKeyConstraint(
+        ["telegram_chat_id", "telegram_message_id"],
+        ["telegram_messages.telegram_chat_id", "telegram_messages.message_id"],
+        name="fk_attempt_message",
+    ),
+    sa.CheckConstraint("path IN ('live', 'catch_up')", name="ck_attempt_path"),
+    sa.CheckConstraint("outcome IN ('excluded', 'failed')", name="ck_attempt_outcome"),
+    sa.CheckConstraint(
+        "(outcome = 'excluded' AND reason IN "
+        "('no_text', 'media', 'service', 'moderator', 'group_itself', 'linked_channel', "
+        "'acknowledgement', 'text_removed')) "
+        "OR (outcome = 'failed' AND reason IN "
+        "('provider_unreachable', 'model_timeout', 'circuit_open', 'model_truncated', "
+        "'structured_output_invalid', 'confidence_out_of_range', 'model_not_available', "
+        "'provider_rejected', 'provider_auth'))",
+        name="ck_attempt_reason",
+    ),
+    sa.CheckConstraint(
+        "(outcome = 'failed') = (model_profile_id IS NOT NULL)", name="ck_attempt_profile"
+    ),
+)
+
+sa.Index(
+    "uq_attempt_exclusion",
+    message_classification_attempts.c.telegram_chat_id,
+    message_classification_attempts.c.telegram_message_id,
+    unique=True,
+    postgresql_where=message_classification_attempts.c.outcome == "excluded",
+)
+sa.Index(
+    "ix_attempts_message",
+    message_classification_attempts.c.telegram_chat_id,
+    message_classification_attempts.c.telegram_message_id,
+    message_classification_attempts.c.created_at,
+)
+
+# --- TG-M5.3: A Separate Attention Judgement (specs/011-…/data-model.md §1-§3, revision 0008) ---
+#
+# message_attention_judgements and message_attention_attempts mirror revision 0007's
+# classification tables (D-TG-184): one immutable intent per message, and the messages that
+# produced none. A judgement is recorded once and never updated or deleted. There is no text
+# column, no confidence and no route, and no CHECK relates `needs_response` to `intent`: the
+# mapping has one definition, `app.domain.moderation.attention_judgement.needs_response_for`.
+
+message_attention_judgements = sa.Table(
+    "message_attention_judgements",
+    metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+    sa.Column(
+        "telegram_chat_id",
+        sa.BigInteger(),
+        sa.ForeignKey("telegram_chats.id"),
+        nullable=False,
+    ),
+    # The judged message, not the burst's anchor.
+    sa.Column("telegram_message_id", sa.BigInteger(), nullable=False),
+    sa.Column(
+        "model_profile_id",
+        sa.BigInteger(),
+        sa.ForeignKey("model_profiles.id", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    # Nullable, as in 0007 (Finding 6): a `model_runs` write can fail without failing the
+    # judgement it was made for.
+    sa.Column(
+        "model_run_id",
+        sa.BigInteger(),
+        sa.ForeignKey("model_runs.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column("prompt_version", sa.String(length=40), nullable=False),
+    sa.Column("intent", sa.String(length=20), nullable=False),
+    # `needs_response_for(intent)`, computed once at insert (D-TG-185) and never recomputed.
+    sa.Column("needs_response", sa.Boolean(), nullable=False),
+    # `live` only in this milestone; `catch_up` is allowed so a later milestone needs no DDL.
+    sa.Column("path", sa.String(length=20), nullable=False),
+    sa.Column("is_current", sa.Boolean(), nullable=False, server_default=sa.true()),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
+    sa.ForeignKeyConstraint(
+        ["telegram_chat_id", "telegram_message_id"],
+        ["telegram_messages.telegram_chat_id", "telegram_messages.message_id"],
+        name="fk_attention_judgement_message",
+    ),
+    sa.UniqueConstraint(
+        "id", "telegram_chat_id", "telegram_message_id", name="uq_attention_judgement_identity"
+    ),
+    sa.CheckConstraint(
+        "intent IN ('asking', 'discussion', 'informing', 'social', 'offering', 'other')",
+        name="ck_attention_judgement_intent",
+    ),
+    sa.CheckConstraint("path IN ('live', 'catch_up')", name="ck_attention_judgement_path"),
+)
+
+# One current judgement per message: the idempotent insert's `ON CONFLICT` target (I1).
+sa.Index(
+    "uq_attention_judgement_current",
+    message_attention_judgements.c.telegram_chat_id,
+    message_attention_judgements.c.telegram_message_id,
+    unique=True,
+    postgresql_where=message_attention_judgements.c.is_current,
+)
+sa.Index(
+    "ix_attention_judgements_profile",
+    message_attention_judgements.c.model_profile_id,
+    message_attention_judgements.c.prompt_version,
+)
+
+message_attention_attempts = sa.Table(
+    "message_attention_attempts",
+    metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+    sa.Column(
+        "telegram_chat_id",
+        sa.BigInteger(),
+        sa.ForeignKey("telegram_chats.id"),
+        nullable=False,
+    ),
+    sa.Column("telegram_message_id", sa.BigInteger(), nullable=False),
+    sa.Column("path", sa.String(length=20), nullable=False),
+    sa.Column("outcome", sa.String(length=20), nullable=False),
+    sa.Column("reason", sa.String(length=40), nullable=False),
+    sa.Column(
+        "model_profile_id",
+        sa.BigInteger(),
+        sa.ForeignKey("model_profiles.id"),
+        nullable=True,
+    ),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
+    sa.ForeignKeyConstraint(
+        ["telegram_chat_id", "telegram_message_id"],
+        ["telegram_messages.telegram_chat_id", "telegram_messages.message_id"],
+        name="fk_attention_attempt_message",
+    ),
+    sa.CheckConstraint("path IN ('live', 'catch_up')", name="ck_attention_attempt_path"),
+    sa.CheckConstraint(
+        "outcome IN ('excluded', 'failed')", name="ck_attention_attempt_outcome"
+    ),
+    # The exclusions are E1-E8 plus `rule_opens` (AE2); the failures are 0007's, minus
+    # `confidence_out_of_range` — there is no confidence.
+    sa.CheckConstraint(
+        "(outcome = 'excluded' AND reason IN "
+        "('no_text', 'media', 'service', 'moderator', 'group_itself', 'linked_channel', "
+        "'acknowledgement', 'text_removed', 'rule_opens')) "
+        "OR (outcome = 'failed' AND reason IN "
+        "('provider_unreachable', 'model_timeout', 'circuit_open', 'model_truncated', "
+        "'structured_output_invalid', 'model_not_available', 'provider_rejected', "
+        "'provider_auth'))",
+        name="ck_attention_attempt_reason",
+    ),
+    sa.CheckConstraint(
+        "(outcome = 'failed') = (model_profile_id IS NOT NULL)",
+        name="ck_attention_attempt_profile",
+    ),
+)
+
+# An exclusion is recorded once (AE3); failures are appended.
+sa.Index(
+    "uq_attention_attempt_exclusion",
+    message_attention_attempts.c.telegram_chat_id,
+    message_attention_attempts.c.telegram_message_id,
+    unique=True,
+    postgresql_where=message_attention_attempts.c.outcome == "excluded",
+)
+sa.Index(
+    "ix_attention_attempts_message",
+    message_attention_attempts.c.telegram_chat_id,
+    message_attention_attempts.c.telegram_message_id,
+    message_attention_attempts.c.created_at,
+)
+
+# attention_items: which judgement opened it (data-model.md §3). Set at insert on a TG-M5.3 model
+# item, never updated. The FK is to `id` alone, like `fk_attention_classification`: the opening
+# judgement may belong to a later burst member than the anchor. Historical TG-M5.1 items keep
+# `message_classification_id`; `ck_attention_ai_link` makes a model item carry exactly one of the
+# two links, and a rule or operator item neither.
+attention_items.append_column(sa.Column("attention_judgement_id", sa.BigInteger(), nullable=True))
+attention_items.append_constraint(
+    sa.ForeignKeyConstraint(
+        ["attention_judgement_id"],
+        ["message_attention_judgements.id"],
+        name="fk_attention_judgement",
+    )
+)
+attention_items.append_constraint(
+    sa.CheckConstraint(
+        "CASE WHEN source = 'ai' "
+        "THEN num_nonnulls(message_classification_id, attention_judgement_id) = 1 "
+        "ELSE num_nonnulls(message_classification_id, attention_judgement_id) = 0 END",
+        name="ck_attention_ai_link",
+    )
 )
 
 # The two views (data-model.md §3) — the only definitions of linkage and derived state (lifecycle

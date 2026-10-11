@@ -44,6 +44,7 @@ class TextResponse(BaseModel):
     usage: Usage
     latency_ms: int
     profile_name: str
+    model_run_id: int | None = None
 
 
 class StructuredResponse[T: BaseModel](BaseModel):
@@ -53,6 +54,7 @@ class StructuredResponse[T: BaseModel](BaseModel):
     usage: Usage
     latency_ms: int
     profile_name: str
+    model_run_id: int | None = None
 
 
 class LLMProvider(Protocol):

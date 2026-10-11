@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Filament\Pages\LiveAttentionQueue;
 use App\Models\AttentionItem;
+use App\Models\MessageClassification;
+use App\Models\ModelProfile;
 use App\Models\Moderator;
 use App\Models\TelegramChat;
 use App\Models\TelegramMessage;
@@ -116,6 +118,36 @@ class LiveAttentionQueueTest extends TestCase
         ], $overrides));
     }
 
+    private function makeOpeningPrediction(TelegramChat $chat, TelegramMessage $message): MessageClassification
+    {
+        $profile = ModelProfile::forceCreate([
+            'name' => 'test-queue-opener-'.random_int(1, 1_000_000),
+            'provider' => 'fake',
+            'model' => 'fake-queue-opener',
+            'role' => 'moderation',
+            'params' => json_encode([]),
+            'is_active' => false,
+        ]);
+
+        return MessageClassification::forceCreate([
+            'telegram_chat_id' => $chat->id,
+            'telegram_message_id' => $message->message_id,
+            'model_profile_id' => $profile->id,
+            'prompt_version' => 'classify_v2',
+            'taxonomy_version' => 1,
+            'category' => 'QUESTION_COURSE',
+            'needs_response' => true,
+            'needs_moderation' => false,
+            'severity' => 'none',
+            'confidence' => '0.950',
+            'path' => 'live',
+            'route' => 'none',
+            'confidence_floor' => '0.600',
+            'incident_threshold' => '0.850',
+            'is_current' => true,
+        ]);
+    }
+
     public function test_the_page_loads(): void
     {
         $this->actingAsPanelOperator();
@@ -203,6 +235,42 @@ class LiveAttentionQueueTest extends TestCase
         Livewire::test(LiveAttentionQueue::class)
             ->assertTableColumnStateSet('question', 'Text removed', $item)
             ->assertTableColumnStateSet('opened_at', $item->opened_at, $item);
+    }
+
+    /**
+     * TG-M5.1 (`control-panel-classification.md` Q3): every waiting item says who opened it —
+     * the rule set, the model or an operator — read from the stored `source`, never inferred.
+     */
+    public function test_each_waiting_item_shows_who_opened_it(): void
+    {
+        $this->actingAsPanelOperator();
+        $chat = $this->makeChat();
+        $student = $this->makeStudent();
+
+        $byRule = $this->makeItem($chat, $this->makeMessage($chat, $student, 1, 'متى الاختبار؟', now()->subMinutes(30)));
+        // TG-M5.3 `ck_attention_ai_link`: a model item carries the record that opened it — here a
+        // TG-M5.1-era prediction.
+        $modelMessage = $this->makeMessage($chat, $student, 2, 'في محاضرة بكرة', now()->subMinutes(20));
+        $byModel = $this->makeItem(
+            $chat,
+            $modelMessage,
+            [
+                'source' => 'ai',
+                'rule_version' => null,
+                'message_classification_id' => $this->makeOpeningPrediction($chat, $modelMessage)->id,
+            ],
+        );
+        $byOperator = $this->makeItem(
+            $chat,
+            $this->makeMessage($chat, $student, 3, 'الرابط وين', now()->subMinutes(10)),
+            ['source' => 'operator', 'rule_version' => null],
+        );
+
+        Livewire::test(LiveAttentionQueue::class)
+            ->assertTableColumnFormattedStateSet('source', 'Rule', $byRule)
+            ->assertTableColumnFormattedStateSet('source', 'Model', $byModel)
+            ->assertTableColumnFormattedStateSet('source', 'Operator', $byOperator)
+            ->assertSeeText('Opened by');
     }
 
     /** @return array<int, string> */

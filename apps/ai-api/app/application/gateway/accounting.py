@@ -51,13 +51,13 @@ class AccountingLike(Protocol):
         error_type: str | None = None,
         error_detail: str | None = None,
         response_payload: Mapping[str, Any] | None = None,
-    ) -> None: ...
+    ) -> int | None: ...
 
 
 class NullAccountingWriter:
     """Satisfies `AccountingLike` by recording nothing — `Gateway`'s default."""
 
-    async def record(self, **_kwargs: Any) -> None:
+    async def record(self, **_kwargs: Any) -> int | None:
         return None
 
 
@@ -88,34 +88,42 @@ class AccountingWriter:
         error_type: str | None = None,
         error_detail: str | None = None,
         response_payload: Mapping[str, Any] | None = None,
-    ) -> None:
+    ) -> int | None:
         digest = compute_request_digest(request_payload)
         try:
             async with self._session_factory() as session:
-                await session.execute(
-                    model_runs.insert().values(
-                        model_profile_id=profile.id,
-                        operation=operation,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                        latency_ms=latency_ms,
-                        attempts=attempts,
-                        ok=ok,
-                        error_type=error_type,
-                        error_detail=error_detail,
-                        request_digest=digest,
-                        request_payload=dict(request_payload) if self._capture_payloads else None,
-                        response_payload=(
-                            dict(response_payload)
-                            if self._capture_payloads and response_payload is not None
-                            else None
-                        ),
+                run_id: int = (
+                    await session.execute(
+                        model_runs.insert()
+                        .values(
+                            model_profile_id=profile.id,
+                            operation=operation,
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                            latency_ms=latency_ms,
+                            attempts=attempts,
+                            ok=ok,
+                            error_type=error_type,
+                            error_detail=error_detail,
+                            request_digest=digest,
+                            request_payload=(
+                                dict(request_payload) if self._capture_payloads else None
+                            ),
+                            response_payload=(
+                                dict(response_payload)
+                                if self._capture_payloads and response_payload is not None
+                                else None
+                            ),
+                        )
+                        .returning(model_runs.c.id)
                     )
-                )
+                ).scalar_one()
                 await session.commit()
+                return run_id
         except Exception:  # noqa: BLE001 — a recording failure must never fail the model call (FR-040)
             logger.exception(
                 "failed to record model_runs row (profile=%s, operation=%s)",
                 profile.name,
                 operation,
             )
+            return None

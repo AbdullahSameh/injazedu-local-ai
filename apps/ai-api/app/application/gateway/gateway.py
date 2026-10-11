@@ -13,7 +13,7 @@ import os
 import random
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel
 from redis.asyncio import Redis
@@ -28,7 +28,7 @@ from app.application.gateway.errors import (
 )
 from app.application.gateway.lanes import Lane, LaneLike
 from app.application.gateway.registry import ProfileRegistry
-from app.domain.model_profile import ModelProfile
+from app.domain.model_profile import GenerationRole, ModelProfile
 from app.providers.embeddings.base import (
     BatchEmbeddingResult,
     EmbeddingProvider,
@@ -104,12 +104,18 @@ def _generation_params(
     profile: ModelProfile, req: TextRequest | StructuredRequest[Any]
 ) -> dict[str, Any]:
     """The effective per-call bounds — profile defaults with per-request overrides applied
-    (FR-036, research D-34) — canonicalised for `request_digest` (FR-038)."""
-    return {
+    (FR-036, research D-34) — canonicalised for `request_digest` (FR-038).
+
+    `reasoning_effort` is added only when the profile's params carry it (research Finding 1,
+    D-TG-130), so a profile without it digests exactly what it did before this key existed."""
+    params: dict[str, Any] = {
         "num_ctx": _override(req.context_tokens, profile.params.get("num_ctx")),
         "num_predict": _override(req.max_output_tokens, profile.params.get("num_predict")),
         "temperature": _override(req.temperature, profile.params.get("temperature")),
     }
+    if "reasoning_effort" in profile.params:
+        params["reasoning_effort"] = profile.params["reasoning_effort"]
+    return params
 
 
 def _text_request_payload(profile: ModelProfile, req: TextRequest) -> dict[str, Any]:
@@ -221,8 +227,10 @@ class Gateway:
         self._sleep = sleep
         self._jitter = jitter
 
-    async def generate_text(self, req: TextRequest) -> TextResponse:
-        profile = await self._registry.resolve("llm")
+    async def generate_text(
+        self, req: TextRequest, *, role: GenerationRole = "llm"
+    ) -> TextResponse:
+        profile = await self._registry.resolve(role)
         provider = self._llm_provider_factory(profile)
         return await self._call(
             profile,
@@ -233,9 +241,9 @@ class Gateway:
         )
 
     async def generate_structured[T: BaseModel](
-        self, req: StructuredRequest[T]
+        self, req: StructuredRequest[T], *, role: GenerationRole = "llm"
     ) -> StructuredResponse[T]:
-        profile = await self._registry.resolve("llm")
+        profile = await self._registry.resolve(role)
         provider = self._llm_provider_factory(profile)
         return await self._call(
             profile,
@@ -306,7 +314,7 @@ class Gateway:
             raise
 
         usage = _usage_of(result)
-        await self._accounting.record(
+        run_id = await self._accounting.record(
             profile=profile,
             operation=operation,
             request_payload=request_payload,
@@ -317,6 +325,10 @@ class Gateway:
             completion_tokens=usage.completion_tokens,
             response_payload=_response_payload_of(result),
         )
+        # Only `TextResponse`/`StructuredResponse` carry `model_run_id` (D-TG-133); embedding
+        # results are untouched.
+        if isinstance(result, TextResponse | StructuredResponse):
+            result = cast(R, result.model_copy(update={"model_run_id": run_id}))
         return result
 
     async def _execute[R](

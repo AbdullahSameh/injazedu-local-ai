@@ -41,7 +41,6 @@
                         <th class="py-1 pr-4">False positive</th>
                         <th class="py-1 pr-4">Ack., not handled</th>
                         <th class="py-1 pr-4">Handled share</th>
-                        <th class="py-1 pr-4">Detection latency (median / p90 / max)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -53,12 +52,42 @@
                         <td class="py-1.5 pr-4">{{ $total['false_positive'] }}</td>
                         <td class="py-1.5 pr-4">{{ $total['acknowledged_not_handled'] }}</td>
                         <td class="py-1.5 pr-4">{{ $this->shareDisplay($total['handled_share']) }}</td>
-                        <td class="py-1.5 pr-4">
-                            {{ $this->humanDuration($total['latency']['median']) }} /
-                            {{ $this->p90Display($total['latency']['p90'], $total['latency']['p90_suppressed'], $total['latency']['flagged']) }} /
-                            {{ $this->humanDuration($total['latency']['max']) }}
-                        </td>
                     </tr>
+                </tbody>
+            </table>
+        </div>
+
+        {{--
+            TG-M5, D-TG-159: detection latency is grouped by opener (C8) — one row per opener
+            ('Operator', 'Model'), never merged into a single system-wide figure. A source with
+            no incidents in the period has no row here at all.
+        --}}
+        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-6">Detection latency by opener</h3>
+        <div class="overflow-x-auto mt-2">
+            <table class="w-full text-sm text-left">
+                <thead>
+                    <tr class="text-xs text-gray-500 dark:text-gray-400">
+                        <th class="py-1 pr-4">Opened by</th>
+                        <th class="py-1 pr-4">Flagged</th>
+                        <th class="py-1 pr-4">Median</th>
+                        <th class="py-1 pr-4">P90</th>
+                        <th class="py-1 pr-4">Max</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse ($this->latencyRows($total['latency']) as $row)
+                        <tr class="border-t border-gray-100 dark:border-white/5">
+                            <td class="py-1.5 pr-4">{{ $row['opener'] }}</td>
+                            <td class="py-1.5 pr-4">{{ $row['flagged'] }}</td>
+                            <td class="py-1.5 pr-4">{{ $this->humanDuration($row['median']) }}</td>
+                            <td class="py-1.5 pr-4">{{ $this->p90Display($row['p90'], $row['p90_suppressed'], $row['flagged']) }}</td>
+                            <td class="py-1.5 pr-4">{{ $this->humanDuration($row['max']) }}</td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="5" class="py-2 text-gray-500 dark:text-gray-400">No data for this period.</td>
+                        </tr>
+                    @endforelse
                 </tbody>
             </table>
         </div>
@@ -99,9 +128,16 @@
                                 </td>
                             @endforeach
                             <td class="py-1.5 pr-4">
-                                {{ $this->humanDuration($row['latency']['median']) }} /
-                                {{ $this->p90Display($row['latency']['p90'], $row['latency']['p90_suppressed'], $row['latency']['flagged']) }} /
-                                {{ $this->humanDuration($row['latency']['max']) }}
+                                @forelse ($this->latencyRows($row['latency']) as $latencyRow)
+                                    <div>
+                                        {{ $latencyRow['opener'] }}:
+                                        {{ $this->humanDuration($latencyRow['median']) }} /
+                                        {{ $this->p90Display($latencyRow['p90'], $latencyRow['p90_suppressed'], $latencyRow['flagged']) }} /
+                                        {{ $this->humanDuration($latencyRow['max']) }}
+                                    </div>
+                                @empty
+                                    no data
+                                @endforelse
                             </td>
                         </tr>
                     @empty

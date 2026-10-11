@@ -7,9 +7,25 @@ naming the variable, never a stack trace (FR-005).
 from __future__ import annotations
 
 import sys
+from datetime import datetime
+from typing import Literal
 
-from pydantic import Field, ValidationError, field_validator, model_validator
+from pydantic import Field, ValidationError, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# The classification instructions a deployment may select (D-TG-163): each is a file under
+# `app/prompts/moderation/` pinned by its SHA-256, and its name is the `prompt_version` stored on
+# every prediction. The one definition — the classifier and the smoke test read their allowlist
+# from here.
+ModerationPromptVersion = Literal["classify_v1", "classify_v2"]
+
+# The attention instructions a deployment may select (TG-M5.3, D-TG-189): each is a file under
+# `app/prompts/moderation/` pinned by its SHA-256 (`test_prompt_pinned.py`), and its name is the
+# `prompt_version` stored on every attention judgement. A tuple, not a `Literal`: it was empty until
+# `attention_v1` was frozen, and the frozen file, this entry and its pin landed in one change
+# (T074, 2026-10-07: W2R of the selection round on e4b, research §2). The one definition: the
+# setting's validator, the judge and the qualification read it here.
+ATTENTION_PROMPT_VERSIONS: tuple[str, ...] = ("attention_v1",)
 
 
 class Settings(BaseSettings):
@@ -82,6 +98,38 @@ class Settings(BaseSettings):
         default=86400, alias="MODERATION_INCIDENT_MAX_AGE_S"
     )
 
+    # --- AI Classification (TG-M5, optional, defaulted) ---
+    # Confidence is the model's self-report, never a safety signal (operator item 3): the floor
+    # and threshold below only decide where a prediction is routed, not whether to trust it.
+    moderation_confidence_floor: float = Field(default=0.60, alias="MODERATION_CONFIDENCE_FLOOR")
+    moderation_incident_confidence: float = Field(
+        default=0.85, alias="MODERATION_INCIDENT_CONFIDENCE"
+    )
+    moderation_classify_max_attempts: int = Field(
+        default=5, alias="MODERATION_CLASSIFY_MAX_ATTEMPTS"
+    )
+    moderation_classify_retry_base_s: int = Field(
+        default=30, alias="MODERATION_CLASSIFY_RETRY_BASE_S"
+    )
+    # Opt-in (D-TG-163): `classify_v1` until the operator smokes `classify_v2` and switches. A
+    # switch revisits nothing — every past prediction keeps the version it was made with.
+    moderation_prompt_version: ModerationPromptVersion = Field(
+        default="classify_v1", alias="MODERATION_PROMPT_VERSION"
+    )
+    # TG-M5.1 (D-TG-164, decision 4): the instant from which a live prediction may open a question
+    # item the rule set declined. Blank = off — TG-M5's measurement-only behaviour, unchanged. A
+    # dated switch, not a boolean, so every judgement path reaches the same answer for the same
+    # stored facts and switching on never reaches back into history.
+    moderation_ai_attention_from: datetime | None = Field(
+        default=None, alias="MODERATION_AI_ATTENTION_FROM"
+    )
+    # TG-M5.3 (FR-307, D-TG-189): the attention instruction. Blank = no attention call and nothing
+    # recorded; a value must be in `ATTENTION_PROMPT_VERSIONS`. Opening a model item needs both
+    # this and `MODERATION_AI_ATTENTION_FROM` (D-TG-199).
+    moderation_attention_prompt_version: str | None = Field(
+        default=None, alias="MODERATION_ATTENTION_PROMPT_VERSION"
+    )
+
     @field_validator("telegram_bot_token", mode="before")
     @classmethod
     def _empty_telegram_bot_token_is_absent(cls, value: object) -> object:
@@ -89,6 +137,54 @@ class Settings(BaseSettings):
         if value == "":
             return None
         return value
+
+    @field_validator(
+        "moderation_confidence_floor",
+        "moderation_incident_confidence",
+        "moderation_classify_max_attempts",
+        "moderation_classify_retry_base_s",
+        "moderation_prompt_version",
+        "moderation_ai_attention_from",
+        "moderation_attention_prompt_version",
+        mode="before",
+    )
+    @classmethod
+    def _empty_classification_setting_is_default(
+        cls, value: object, info: ValidationInfo
+    ) -> object:
+        # "" and unset are one state, as `_empty_telegram_bot_token_is_absent` treats it — the
+        # field's own default carries the value forward rather than each validator repeating it.
+        if value == "":
+            assert info.field_name is not None
+            return cls.model_fields[info.field_name].default
+        return value
+
+    @field_validator("moderation_attention_prompt_version", mode="after")
+    @classmethod
+    def _attention_prompt_version_is_allowlisted(cls, value: str | None) -> str | None:
+        # Read at call time, so the allowlist has one definition (and a test can stand one in).
+        if value is not None and value not in ATTENTION_PROMPT_VERSIONS:
+            allowed = (
+                ", ".join(ATTENTION_PROMPT_VERSIONS)
+                or "none yet: no attention instruction is frozen"
+            )
+            raise ValueError(
+                f"MODERATION_ATTENTION_PROMPT_VERSION must be one of the frozen attention "
+                f"instructions ({allowed}); got {value!r}"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _moderation_ai_attention_from_is_timezone_aware(self) -> Settings:
+        # An instant compared with `message_classifications.created_at` (timestamptz): a naive
+        # value would silently mean whatever the container's local zone happens to be.
+        value = self.moderation_ai_attention_from
+        if value is not None and value.utcoffset() is None:
+            raise ValueError(
+                "MODERATION_AI_ATTENTION_FROM must include a timezone offset, e.g. "
+                f"2026-10-04T09:00:00+03:00 (got {value.isoformat()})"
+            )
+        return self
 
     @model_validator(mode="after")
     def _heartbeat_ttl_exceeds_interval(self) -> Settings:
@@ -240,6 +336,53 @@ class Settings(BaseSettings):
             raise ValueError(
                 "MODERATION_INCIDENT_MAX_AGE_S must be positive "
                 f"(got {self.moderation_incident_max_age_s})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_confidence_floor_is_in_range(self) -> Settings:
+        if not 0 <= self.moderation_confidence_floor <= 1:
+            raise ValueError(
+                "MODERATION_CONFIDENCE_FLOOR must be between 0 and 1 "
+                f"(got {self.moderation_confidence_floor})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_incident_confidence_is_in_range(self) -> Settings:
+        if not 0 <= self.moderation_incident_confidence <= 1:
+            raise ValueError(
+                "MODERATION_INCIDENT_CONFIDENCE must be between 0 and 1 "
+                f"(got {self.moderation_incident_confidence})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_confidence_floor_at_most_incident_confidence(self) -> Settings:
+        if self.moderation_confidence_floor > self.moderation_incident_confidence:
+            raise ValueError(
+                "MODERATION_CONFIDENCE_FLOOR must be less than or equal to "
+                "MODERATION_INCIDENT_CONFIDENCE (got MODERATION_CONFIDENCE_FLOOR="
+                f"{self.moderation_confidence_floor}, MODERATION_INCIDENT_CONFIDENCE="
+                f"{self.moderation_incident_confidence})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_classify_max_attempts_is_positive(self) -> Settings:
+        if self.moderation_classify_max_attempts <= 0:
+            raise ValueError(
+                "MODERATION_CLASSIFY_MAX_ATTEMPTS must be positive "
+                f"(got {self.moderation_classify_max_attempts})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_classify_retry_base_is_positive(self) -> Settings:
+        if self.moderation_classify_retry_base_s <= 0:
+            raise ValueError(
+                "MODERATION_CLASSIFY_RETRY_BASE_S must be positive "
+                f"(got {self.moderation_classify_retry_base_s})"
             )
         return self
 

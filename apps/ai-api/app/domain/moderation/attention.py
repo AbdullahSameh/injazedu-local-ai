@@ -127,10 +127,11 @@ def _is_bare_emoji(text: str) -> bool:
     return bool(stripped) and all(_is_emoji_char(ch) for ch in stripped)
 
 
-def _matches_ack_stoplist(text: str) -> bool:
+def is_acknowledgement(text: str) -> bool:
     """Whether one message, on its own, is the acknowledgement stoplist's territory: a bare
     emoji run, normalised length <= 2, or the whole message (edge punctuation aside) equals one
-    of `ACK_STOPLIST`'s nine entries (D-TG-78)."""
+    of `ACK_STOPLIST`'s nine entries (D-TG-78). Public: TG-M5's eligibility (E8) calls this same
+    matcher (`contracts/classification-pipeline.md` §3, D-TG-137)."""
     if len(text) <= 2:
         return True
     if _is_bare_emoji(text):
@@ -166,7 +167,7 @@ def evaluate(
     """
     present_texts = [text for text in texts if text]
 
-    if present_texts and all(_matches_ack_stoplist(text) for text in present_texts):
+    if present_texts and all(is_acknowledgement(text) for text in present_texts):
         return False
 
     if any(_has_question_mark(text) for text in present_texts):

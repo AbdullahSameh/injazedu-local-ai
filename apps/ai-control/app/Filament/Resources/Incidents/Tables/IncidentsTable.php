@@ -70,6 +70,12 @@ class IncidentsTable
                     ->extraAttributes(['dir' => 'auto']),
                 TextColumn::make('category')->badge(),
                 TextColumn::make('severity')->badge(),
+                // L1 (`control-panel-classification.md` §2.2): "Operator" or "Model" — read
+                // straight from `source`, never recomputed (P2).
+                TextColumn::make('source')
+                    ->label('Opened by')
+                    ->formatStateUsing(fn (string $state): string => $state === 'ai' ? 'Model' : 'Operator')
+                    ->badge(),
                 // moderation_incident_state is the only definition of status (lifecycle
                 // contract N6) — this reads it, never computes it.
                 TextColumn::make('status')
@@ -107,6 +113,10 @@ class IncidentsTable
                         )
                     )),
                 SelectFilter::make('category')->options(self::CATEGORIES),
+                // L2: the same two values as the column above.
+                SelectFilter::make('source')
+                    ->label('Opened by')
+                    ->options(['operator' => 'Operator', 'ai' => 'Model']),
                 SelectFilter::make('severity')->options(self::SEVERITIES),
                 SelectFilter::make('telegram_chat_id')
                     ->label('Group')

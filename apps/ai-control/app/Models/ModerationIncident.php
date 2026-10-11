@@ -40,6 +40,7 @@ class ModerationIncident extends Model
         'category',
         'severity',
         'message_classification_id',
+        'prompted_by_classification_id',
         'responsible_moderator_id',
     ];
 
@@ -66,12 +67,20 @@ class ModerationIncident extends Model
      * **flagging** moment, never a second definition of it. `uq_incident_anchor` is the
      * backstop: a duplicate anchor returns `null` rather than raising, exactly like Python's
      * `open_incident` (I2, R2). Writes nothing else and touches no attention item (I6, I7).
+     *
+     * `$promptedByClassificationId` (TG-M5, `control-panel-classification.md` V2): set only when
+     * this flag came from the Possible Violations list — the incident is still fully
+     * operator-opened (`message_classification_id` stays NULL, `ck_incident_operator_labels`),
+     * recorded as *list-prompted* rather than *independent* (`classification-metrics.md` C3,
+     * FR-044). `fk_incident_prompted_by` is the backstop: a prediction about another message is
+     * refused by the database (`data-model.md` §4, probe 9 E2/E3).
      */
     public static function openOn(
         TelegramMessage $message,
         string $category,
         string $severity,
         User $by,
+        ?int $promptedByClassificationId = null,
     ): ?self {
         if ($message->is_service) {
             throw new InvalidArgumentException('cannot open an incident on a service message');
@@ -92,6 +101,7 @@ class ModerationIncident extends Model
             'opened_by_user_id' => $by->id,
             'category' => $category,
             'severity' => $severity,
+            'prompted_by_classification_id' => $promptedByClassificationId,
             'responsible_moderator_id' => $responsibleModeratorId,
         ]);
 

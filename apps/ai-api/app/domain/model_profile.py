@@ -12,7 +12,11 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 Provider = Literal["ollama", "vllm", "fake"]
-Role = Literal["llm", "embedding"]
+Role = Literal["llm", "embedding", "moderation", "attention"]
+# The generation subset of `Role` — every role a `Gateway.generate_text`/`generate_structured`
+# call may resolve, excluding `embedding` (D-TG-131). `attention` (TG-M5.3, D-TG-190) is the
+# attention judgement's own role: its own active profile, independent of `moderation`'s.
+GenerationRole = Literal["llm", "moderation", "attention"]
 
 
 @dataclass(frozen=True, slots=True)

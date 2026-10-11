@@ -467,8 +467,10 @@ async def test_false_positives_excluded_from_timings_but_present_in_latency(
     assert timings["acknowledgement"]["samples"] == 0
     assert timings["confirmation"]["samples"] == 0
     assert timings["enforcement"]["samples"] == 0
-    assert latency["flagged"] == 1
-    assert latency["median"] == 42 * 60
+    # TG-M5, D-TG-159: grouped by opener — this incident is `source='operator'` (the fixture's
+    # default), so it is the `'operator'` block, not a bare figure.
+    assert latency["operator"]["flagged"] == 1
+    assert latency["operator"]["median"] == 42 * 60
 
 
 async def test_detection_latency_takes_no_moderator_parameter() -> None:
@@ -511,9 +513,9 @@ async def test_zero_rows_return_none_never_zero(
     assert outcome["handled_share"] is None
     assert timings["acknowledgement"]["median"] is None
     assert timings["acknowledgement"]["max"] is None
-    assert latency["median"] is None
-    assert latency["max"] is None
-    assert latency["flagged"] == 0
+    # TG-M5, D-TG-159: `GROUP BY source` over zero rows returns zero rows — no key at all, never
+    # a zero-filled block for a source that never flagged anything in the period.
+    assert latency == {}
 
 
 async def test_period_selection_by_detected_at_boundary_inclusive_exclusive(

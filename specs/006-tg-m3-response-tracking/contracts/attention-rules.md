@@ -8,6 +8,8 @@ computed from what this document decides. Everything here is deterministic: give
 messages, the same clock ceiling and the same rule version, the same items result, in any order, any
 number of times.
 
+> **Amended by TG-M5.1 (2026-10-03).** Rule set v1 is no longer the only automatic opener. When it declines a burst, `open_item` may open `source = 'ai'` from a live prediction, on this contract's own anchor, clock (B2, E3), attribution (A1), stamping (B3) and lookback (C10). Nothing else here changes — `specs/009-tg-m5-1-ai-attention/``contracts/attention-opening.md`.
+
 ---
 
 ## §1 — The burst
@@ -111,6 +113,8 @@ emoji rule handles runs itself: `👍👍👍👍` is an acknowledgement.
 **E1.** An edit re-judges the burst from its **current** text. The pre-edit wording is never consulted:
 it survives only inside the captured event, and only until that payload's retention window ends, so
 deciding anything from it would make the same edit produce different items at different times.
+
+> **Amended by TG-M5.1 (2026-10-03).** The rule set still reads only the current text. A stored prediction of the first-posted words is a durable record, not re-read wording, so `open_item` may use it after an edit, anchored and dated by E3 (attention-opening T2, D-TG-168).
 **E2.** An edit opens an item only when **no item exists for any message of the burst** — waiting,
 answered, dismissed or expired. "Previously unqualifying" is read as "no item exists".
 **E3.** An item an edit opens anchors on the **edited message**, with `opened_at = edited_at`. The words
