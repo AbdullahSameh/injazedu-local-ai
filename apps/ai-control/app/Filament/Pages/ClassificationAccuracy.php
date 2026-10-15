@@ -44,11 +44,20 @@ class ClassificationAccuracy extends Page
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedChartBar;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Moderation Intelligence';
+    public static function getNavigationGroup(): string|UnitEnum|null
+    {
+        return __('Moderation Intelligence');
+    }
 
-    protected static ?string $navigationLabel = 'Classification Accuracy';
+    public static function getNavigationLabel(): string
+    {
+        return __('Classification Accuracy');
+    }
 
-    protected static ?string $title = 'Classification Accuracy';
+    public function getTitle(): string
+    {
+        return __('Classification Accuracy');
+    }
 
     protected string $view = 'filament.pages.classification-accuracy';
 
@@ -90,7 +99,7 @@ class ClassificationAccuracy extends Page
         return TelegramChat::query()
             ->orderBy('title')
             ->get()
-            ->mapWithKeys(fn (TelegramChat $chat): array => [$chat->id => $chat->title ?? '(untitled)'])
+            ->mapWithKeys(fn (TelegramChat $chat): array => [$chat->id => $chat->title ?? __('(untitled)')])
             ->all();
     }
 
@@ -154,7 +163,7 @@ class ClassificationAccuracy extends Page
             )->count();
 
             return [
-                'model' => $profile?->name ?? "(profile {$modelProfileId})",
+                'model' => $profile?->name ?? __('(profile :id)', ['id' => $modelProfileId]),
                 'prompt_version' => $promptVersion,
                 'taxonomy_version' => $taxonomyVersion,
                 'questions' => [
@@ -274,13 +283,12 @@ class ClassificationAccuracy extends Page
      */
     public function dismissalBreakdown(array $row): string
     {
-        return sprintf(
-            'not a real question %d · member discussion %d · message removed %d · other %d',
-            $row['dismissed_not_a_question'],
-            $row['dismissed_member_discussion'],
-            $row['dismissed_message_removed'],
-            $row['dismissed_other'],
-        );
+        return __('not a real question :not_a_question · member discussion :member_discussion · message removed :message_removed · other :other', [
+            'not_a_question' => $row['dismissed_not_a_question'],
+            'member_discussion' => $row['dismissed_member_discussion'],
+            'message_removed' => $row['dismissed_message_removed'],
+            'other' => $row['dismissed_other'],
+        ]);
     }
 
     /**
@@ -364,7 +372,7 @@ class ClassificationAccuracy extends Page
             $modelOpenedRow = $modelOpened->first($matches);
 
             return [
-                'model' => $profile?->name ?? "(profile {$modelProfileId})",
+                'model' => $profile?->name ?? __('(profile :id)', ['id' => $modelProfileId]),
                 'prompt_version' => $promptVersion,
                 'judgements' => [
                     'judged' => (int) ($intentRow->judged ?? 0),
@@ -388,20 +396,19 @@ class ClassificationAccuracy extends Page
      */
     public function intentBreakdown(array $judgements): string
     {
-        return sprintf(
-            'asking %d · discussion %d · informing %d · social %d · offering %d · other %d',
-            $judgements['asking'],
-            $judgements['discussion'],
-            $judgements['informing'],
-            $judgements['social'],
-            $judgements['offering'],
-            $judgements['other'],
-        );
+        return __('asking :asking · discussion :discussion · informing :informing · social :social · offering :offering · other :other', [
+            'asking' => $judgements['asking'],
+            'discussion' => $judgements['discussion'],
+            'informing' => $judgements['informing'],
+            'social' => $judgements['social'],
+            'offering' => $judgements['offering'],
+            'other' => $judgements['other'],
+        ]);
     }
 
     /** A1, M21: "no labelled examples" over a zero denominator — never `0/0`. */
     public function ratio(int $numerator, int $denominator): string
     {
-        return $denominator > 0 ? "{$numerator} / {$denominator}" : 'no labelled examples';
+        return $denominator > 0 ? "{$numerator} / {$denominator}" : __('no labelled examples');
     }
 }

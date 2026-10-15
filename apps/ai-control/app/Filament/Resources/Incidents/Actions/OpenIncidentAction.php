@@ -36,13 +36,12 @@ class OpenIncidentAction
     public static function forList(): Action
     {
         return Action::make('open_incident')
-            ->label('Open incident')
+            ->label(__('Open incident'))
             ->schema([
                 Select::make('telegram_message_id')
-                    ->label('Message')
+                    ->label(__('Message'))
                     ->helperText(
-                        'Only messages that are not service messages and do not already anchor '
-                            .'an incident are listed.'
+                        __('Only messages that are not service messages and do not already anchor an incident are listed.')
                     )
                     ->options(fn (): array => self::openableMessageOptions())
                     ->searchable()
@@ -60,7 +59,7 @@ class OpenIncidentAction
     public static function forQueueRow(): Action
     {
         return Action::make('open_incident')
-            ->label('Open incident')
+            ->label(__('Open incident'))
             ->schema([
                 self::categorySelect(),
                 self::severitySelect(),
@@ -80,7 +79,7 @@ class OpenIncidentAction
     public static function forPossibleViolationRow(): Action
     {
         return Action::make('flag_message')
-            ->label('Flag message')
+            ->label(__('Flag message'))
             ->schema([
                 self::categorySelect(),
                 self::severitySelect(),
@@ -96,12 +95,12 @@ class OpenIncidentAction
 
     private static function categorySelect(): Select
     {
-        return Select::make('category')->label('Category')->options(self::CATEGORIES)->required();
+        return Select::make('category')->label(__('Category'))->options(array_map(__(...), self::CATEGORIES))->required();
     }
 
     private static function severitySelect(): Select
     {
-        return Select::make('severity')->label('Severity')->options(self::SEVERITIES)->required();
+        return Select::make('severity')->label(__('Severity'))->options(array_map(__(...), self::SEVERITIES))->required();
     }
 
     private static function open(
@@ -148,7 +147,7 @@ class OpenIncidentAction
                 $message->id => sprintf(
                     '#%d — %s',
                     $message->message_id,
-                    Str::limit($message->original_text ?? '(text removed)', 60),
+                    Str::limit($message->original_text ?? __('(text removed)'), 60),
                 ),
             ])
             ->all();
@@ -163,12 +162,12 @@ class OpenIncidentAction
         return function (string $attribute, $value, Closure $fail): void {
             $message = TelegramMessage::find($value);
             if ($message === null) {
-                $fail('That message no longer exists.');
+                $fail(__('That message no longer exists.'));
 
                 return;
             }
             if ($message->is_service) {
-                $fail('Service messages cannot be flagged.');
+                $fail(__('Service messages cannot be flagged.'));
 
                 return;
             }
@@ -177,7 +176,7 @@ class OpenIncidentAction
                 ->where('telegram_message_id', $message->message_id)
                 ->exists();
             if ($alreadyAnchors) {
-                $fail('This message already anchors an incident.');
+                $fail(__('This message already anchors an incident.'));
             }
         };
     }

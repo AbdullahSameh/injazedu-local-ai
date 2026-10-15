@@ -16,18 +16,18 @@ class ModelProfilesTable
     {
         return $table
             ->columns([
-                TextColumn::make('name')->searchable()->sortable(),
-                TextColumn::make('role')->badge()->sortable(),
-                TextColumn::make('provider')->badge(),
-                TextColumn::make('model')->searchable(),
-                TextColumn::make('base_url')->toggleable(isToggledHiddenByDefault: true),
-                TextColumn::make('dim')->label('Dim')->placeholder('—'),
-                IconColumn::make('is_active')->boolean()->label('Active'),
-                TextColumn::make('updated_at')->dateTime()->sortable()->toggleable(),
+                TextColumn::make('name')->label(__('Name'))->searchable()->sortable(),
+                TextColumn::make('role')->label(__('Role'))->badge()->sortable(),
+                TextColumn::make('provider')->label(__('Provider'))->badge(),
+                TextColumn::make('model')->label(__('Model'))->searchable(),
+                TextColumn::make('base_url')->label(__('Base url'))->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('dim')->label(__('Dim'))->placeholder('—'),
+                IconColumn::make('is_active')->boolean()->label(__('Active')),
+                TextColumn::make('updated_at')->label(__('Updated at'))->dateTime()->sortable()->toggleable(),
             ])
             ->filters([
-                SelectFilter::make('role')->options(['llm' => 'llm', 'embedding' => 'embedding', 'moderation' => 'moderation', 'attention' => 'attention']),
-                SelectFilter::make('is_active')->options([1 => 'Active', 0 => 'Inactive']),
+                SelectFilter::make('role')->label(__('Role'))->options(['llm' => 'llm', 'embedding' => 'embedding', 'moderation' => 'moderation', 'attention' => 'attention']),
+                SelectFilter::make('is_active')->label(__('Is active'))->options([1 => __('Active'), 0 => __('Inactive')]),
             ])
             ->recordActions([
                 EditAction::make(),
@@ -38,7 +38,7 @@ class ModelProfilesTable
                 ]),
             ])
             ->defaultSort('role')
-            ->emptyStateHeading('No model profiles yet')
-            ->emptyStateDescription('Run `make seed-profiles` to load the default roster.');
+            ->emptyStateHeading(__('No model profiles yet'))
+            ->emptyStateDescription(__('Run `make seed-profiles` to load the default roster.'));
     }
 }

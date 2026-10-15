@@ -25,9 +25,25 @@ class IncidentResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedShieldExclamation;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Moderation Intelligence';
+    public static function getNavigationGroup(): string|UnitEnum|null
+    {
+        return __('Moderation Intelligence');
+    }
 
-    protected static ?string $navigationLabel = 'Incidents';
+    public static function getNavigationLabel(): string
+    {
+        return __('Incidents');
+    }
+
+    public static function getModelLabel(): string
+    {
+        return __('moderation incident');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('moderation incidents');
+    }
 
     public static function table(Table $table): Table
     {

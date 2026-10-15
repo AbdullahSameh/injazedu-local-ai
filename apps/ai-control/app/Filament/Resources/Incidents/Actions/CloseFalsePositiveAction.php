@@ -18,11 +18,11 @@ class CloseFalsePositiveAction
     public static function make(): Action
     {
         return Action::make('close_false_positive')
-            ->label('Not a violation')
+            ->label(__('Not a violation'))
             ->color('gray')
             ->schema([
                 Textarea::make('reason')
-                    ->label('Reason')
+                    ->label(__('Reason'))
                     ->required(),
             ])
             ->visible(

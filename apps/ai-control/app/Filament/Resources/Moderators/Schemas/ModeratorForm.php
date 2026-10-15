@@ -26,62 +26,56 @@ class ModeratorForm
         return $schema
             ->components([
                 TextInput::make('display_name')
-                    ->label('Display name')
+                    ->label(__('Display name'))
                     ->required()
                     ->maxLength(200)
                     ->extraInputAttributes(['dir' => 'auto'])
                     ->helperText(
-                        'Operator-set and stable — a renamed platform profile never changes '
-                        .'who a report is about (FR-029).'
+                        __('Operator-set and stable — a renamed platform profile never changes who a report is about (FR-029).')
                     ),
                 Radio::make('identity_source')
-                    ->label('Identity')
+                    ->label(__('Identity'))
                     ->options([
-                        'observed' => 'An already-observed sender',
-                        'placeholder' => 'A numeric platform id not yet observed',
+                        'observed' => __('An already-observed sender'),
+                        'placeholder' => __('A numeric platform id not yet observed'),
                     ])
                     ->default('placeholder')
                     ->inline()
                     ->required()
                     ->visibleOn('create'),
                 Select::make('existing_telegram_user_id')
-                    ->label('Observed sender')
+                    ->label(__('Observed sender'))
                     ->options(fn (): array => self::observedSenderOptions())
                     ->searchable()
                     ->visible(fn (Get $get): bool => $get('identity_source') === 'observed')
                     ->required(fn (Get $get): bool => $get('identity_source') === 'observed')
                     ->visibleOn('create')
                     ->helperText(
-                        '★ marks someone the bot has observed treated as an administrator '
-                        .'(FR-031, D-TG-62) — a proposal, not a grant: confirming it is what '
-                        .'creates the mapping.'
+                        __('★ marks someone the bot has observed treated as an administrator (FR-031, D-TG-62) — a proposal, not a grant: confirming it is what creates the mapping.')
                     ),
                 TextInput::make('tg_user_id')
-                    ->label('Platform numeric id')
+                    ->label(__('Platform numeric id'))
                     ->numeric()
                     ->visible(fn (Get $get): bool => $get('identity_source') !== 'observed')
                     ->required(fn (Get $get): bool => $get('identity_source') !== 'observed')
                     ->visibleOn('create')
                     ->helperText(
-                        'Creates a placeholder identity with no name until this person is '
-                        .'first observed (FR-027, FR-028).'
+                        __('Creates a placeholder identity with no name until this person is first observed (FR-027, FR-028).')
                     ),
                 Toggle::make('is_active')
-                    ->label('Active')
+                    ->label(__('Active'))
                     ->default(true)
                     ->helperText(
-                        'Deactivating changes only availability for new assignments — the '
-                        .'record, the assignment history and every message flag already '
-                        .'written stay exactly as they are (FR-030).'
+                        __('Deactivating changes only availability for new assignments — the record, the assignment history and every message flag already written stay exactly as they are (FR-030).')
                     ),
                 TextInput::make('injaz_user_id')
-                    ->label('Organisation user reference')
+                    ->label(__('Organisation user reference'))
                     ->numeric()
                     ->helperText(
-                        'A plain, optional reference — no relational link to that system '
-                        .'(Principle III).'
+                        __('A plain, optional reference — no relational link to that system (Principle III).')
                     ),
                 Textarea::make('notes')
+                    ->label(__('Notes'))
                     ->extraInputAttributes(['dir' => 'auto'])
                     ->columnSpanFull(),
             ]);
@@ -102,7 +96,7 @@ class ModeratorForm
             ->get()
             ->sortByDesc(fn (TelegramUser $user): bool => in_array($user->tg_user_id, $adminTgUserIds, true))
             ->mapWithKeys(function (TelegramUser $user) use ($adminTgUserIds): array {
-                $label = trim(($user->display_name ?: $user->username ?: '(no name)')." (#{$user->tg_user_id})");
+                $label = trim(($user->display_name ?: $user->username ?: __('(no name)'))." (#{$user->tg_user_id})");
                 if (in_array($user->tg_user_id, $adminTgUserIds, true)) {
                     $label = "★ {$label}";
                 }

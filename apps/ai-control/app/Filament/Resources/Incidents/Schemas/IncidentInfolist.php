@@ -25,69 +25,75 @@ class IncidentInfolist
     public static function configure(Schema $schema): Schema
     {
         return $schema->components([
-            Section::make('What was posted')
+            Section::make(__('What was posted'))
                 ->schema([
                     TextEntry::make('anchor_text')
-                        ->label('Message')
+                        ->label(__('Message'))
                         ->getStateUsing(
                             fn (ModerationIncident $record): string => $record->anchorMessage()
-                                ?->original_text ?? 'Text removed'
+                                ?->original_text ?? __('Text removed')
                         )
                         ->extraAttributes(['dir' => 'auto'])
                         ->columnSpanFull(),
                     TextEntry::make('media_kind')
-                        ->label('Media')
+                        ->label(__('Media'))
                         ->getStateUsing(
                             fn (ModerationIncident $record): string => $record->anchorMessage()
                                 ?->media_kind ?? '—'
                         ),
                     TextEntry::make('entity_flags')
-                        ->label('Entities')
+                        ->label(__('Entities'))
                         ->getStateUsing(fn (ModerationIncident $record): string => self::entityFlagsSummary($record)),
                 ])
                 ->columns(2),
 
-            Section::make('When')
+            Section::make(__('When'))
                 ->schema([
                     TextEntry::make('posted')
+                        ->label(__('Posted'))
                         ->getStateUsing(fn (ModerationIncident $record): string => self::formatMoment($record->opened_at)),
                     TextEntry::make('flagged')
+                        ->label(__('Flagged'))
                         ->getStateUsing(fn (ModerationIncident $record): string => self::formatMoment($record->detected_at)),
                     TextEntry::make('first_acknowledgement')
-                        ->label('First acknowledgement')
+                        ->label(__('First acknowledgement'))
                         ->getStateUsing(
                             fn (ModerationIncident $record): string => self::formatMoment(
                                 self::instant($record->state()?->first_acknowledgement_at)
                             )
                         ),
                     TextEntry::make('resolved_or_closed')
-                        ->label('Resolved or closed')
+                        ->label(__('Resolved or closed'))
                         ->getStateUsing(fn (ModerationIncident $record): string => self::resolvedOrClosedMoment($record)),
                 ])
                 ->columns(4),
 
-            Section::make('Why flagged')
+            Section::make(__('Why flagged'))
                 ->schema([
                     TextEntry::make('opened_by')
-                        ->label('Opened by')
+                        ->label(__('Opened by'))
                         ->getStateUsing(
                             fn (ModerationIncident $record): string => $record->source === 'ai'
-                                ? 'Opened by the model'
+                                ? __('Opened by the model')
                                 : (User::find($record->opened_by_user_id)?->name ?? '—')
                         ),
-                    TextEntry::make('category'),
-                    TextEntry::make('severity'),
+                    TextEntry::make('category')
+                        ->label(__('Category'))
+                        ->formatStateUsing(fn (string $state): string => __($state)),
+                    TextEntry::make('severity')
+                        ->label(__('Severity'))
+                        ->formatStateUsing(fn (string $state): string => __($state)),
                     TextEntry::make('classification')
-                        ->label('Classification')
+                        ->label(__('Classification'))
                         ->getStateUsing(
                             fn (ModerationIncident $record): string => $record->source === 'ai'
-                                ? "the model's"
-                                : 'operator-assigned'
+                                ? __("the model's")
+                                : __('operator-assigned')
                         ),
                     // §2.3, independent and list-prompted operator flags: The model's view of the
                     // anchor message — read (§5), never computed (P2).
                     TextEntry::make('models_view')
-                        ->label("The model's view")
+                        ->label(__("The model's view"))
                         ->getStateUsing(
                             fn (ModerationIncident $record): string => ModelView::status(
                                 $record->telegram_chat_id,
@@ -99,7 +105,7 @@ class IncidentInfolist
                     // §2.3, list-prompted only: the listing prediction's model and self-reported
                     // confidence (V2, FR-044).
                     TextEntry::make('list_prompted')
-                        ->label('Flagged from the possible-violations list')
+                        ->label(__('Flagged from the possible-violations list'))
                         ->getStateUsing(fn (ModerationIncident $record): string => self::listPromptedText($record))
                         ->visible(
                             fn (ModerationIncident $record): bool => $record->prompted_by_classification_id !== null
@@ -108,20 +114,20 @@ class IncidentInfolist
                     // §2.3, model-opened only: the opening prediction, in full — D1 (the
                     // TG-M4 placeholder line) is gone.
                     TextEntry::make('opening_prediction')
-                        ->label('The opening prediction')
+                        ->label(__('The opening prediction'))
                         ->getStateUsing(fn (ModerationIncident $record): string => self::openingPredictionText($record))
                         ->visible(fn (ModerationIncident $record): bool => $record->source === 'ai')
                         ->columnSpanFull(),
                 ])
                 ->columns(4),
 
-            Section::make('Who handled it')
+            Section::make(__('Who handled it'))
                 ->schema([self::evidenceTrail()]),
 
-            Section::make('How long')
+            Section::make(__('How long'))
                 ->schema([
                     TextEntry::make('acknowledgement_time')
-                        ->label('Acknowledgement time')
+                        ->label(__('Acknowledgement time'))
                         ->getStateUsing(
                             fn (ModerationIncident $record): string => IncidentDisplay::timingDisplay(
                                 self::instant($record->state()?->first_acknowledgement_at),
@@ -129,7 +135,7 @@ class IncidentInfolist
                             )
                         ),
                     TextEntry::make('confirmation_time')
-                        ->label('Handling-confirmation time')
+                        ->label(__('Handling-confirmation time'))
                         ->getStateUsing(
                             fn (ModerationIncident $record): string => IncidentDisplay::timingDisplay(
                                 self::instant($record->state()?->first_confirmation_at),
@@ -137,7 +143,7 @@ class IncidentInfolist
                             )
                         ),
                     TextEntry::make('enforcement_time')
-                        ->label('Observed-enforcement time')
+                        ->label(__('Observed-enforcement time'))
                         ->getStateUsing(
                             fn (ModerationIncident $record): string => IncidentDisplay::timingDisplay(
                                 self::instant($record->state()?->first_enforcement_at),
@@ -145,7 +151,7 @@ class IncidentInfolist
                             )
                         ),
                     TextEntry::make('detection_latency')
-                        ->label('Detection latency (system figure)')
+                        ->label(__('Detection latency (system figure)'))
                         ->getStateUsing(
                             fn (ModerationIncident $record): string => IncidentDisplay::humanDuration(
                                 (float) $record->detected_at->diffInSeconds($record->opened_at)
@@ -154,15 +160,15 @@ class IncidentInfolist
                 ])
                 ->columns(4),
 
-            Section::make('Corrected?')
+            Section::make(__('Corrected?'))
                 ->schema([
                     TextEntry::make('false_positive')
-                        ->label('False-positive closure')
+                        ->label(__('False-positive closure'))
                         ->getStateUsing(fn (ModerationIncident $record): string => self::correctedText($record)),
                 ]),
 
             TextEntry::make('outcome')
-                ->label('Outcome')
+                ->label(__('Outcome'))
                 ->getStateUsing(function (ModerationIncident $record): string {
                     $state = $record->state();
 
@@ -187,7 +193,7 @@ class IncidentInfolist
     private static function evidenceTrail(): RepeatableEntry
     {
         return RepeatableEntry::make('evidence')
-            ->label('Evidence trail')
+            ->label(__('Evidence trail'))
             ->hiddenLabel()
             ->getStateUsing(
                 fn (ModerationIncident $record): array => $record->evidence()
@@ -198,29 +204,29 @@ class IncidentInfolist
                         'affected_member' => IncidentDisplay::affectedMember($row) ?? '—',
                         'moment' => self::formatMoment(self::instant($row->occurred_at)),
                         'source' => $row->source_update_id !== null
-                            ? "captured event #{$row->source_update_id}"
-                            : 'panel',
+                            ? __('captured event #:id', ['id' => $row->source_update_id])
+                            : __('panel'),
                         'note' => $row->note ?? '—',
                     ])
                     ->all()
             )
             ->table([
-                TableColumn::make('Kind'),
-                TableColumn::make('Strength'),
-                TableColumn::make('Actor'),
-                TableColumn::make('Affected member'),
-                TableColumn::make('Moment'),
-                TableColumn::make('Source'),
-                TableColumn::make('Note'),
+                TableColumn::make(__('Kind')),
+                TableColumn::make(__('Strength')),
+                TableColumn::make(__('Actor')),
+                TableColumn::make(__('Affected member')),
+                TableColumn::make(__('Moment')),
+                TableColumn::make(__('Source')),
+                TableColumn::make(__('Note')),
             ])
             ->schema([
-                TextEntry::make('kind'),
-                TextEntry::make('strength'),
-                TextEntry::make('actor'),
-                TextEntry::make('affected_member'),
-                TextEntry::make('moment'),
-                TextEntry::make('source'),
-                TextEntry::make('note')->extraAttributes(['dir' => 'auto']),
+                TextEntry::make('kind')->label(__('Kind')),
+                TextEntry::make('strength')->label(__('Strength')),
+                TextEntry::make('actor')->label(__('Actor')),
+                TextEntry::make('affected_member')->label(__('Affected member')),
+                TextEntry::make('moment')->label(__('Moment')),
+                TextEntry::make('source')->label(__('Source')),
+                TextEntry::make('note')->label(__('Note'))->extraAttributes(['dir' => 'auto']),
             ]);
     }
 
@@ -236,11 +242,10 @@ class IncidentInfolist
             return '—';
         }
 
-        return sprintf(
-            '%s, %s',
-            $prediction->modelProfile?->name ?? '—',
-            ModelView::confidence($prediction->confidence),
-        );
+        return __(':model, :confidence', [
+            'model' => $prediction->modelProfile?->name ?? '—',
+            'confidence' => ModelView::confidence($prediction->confidence),
+        ]);
     }
 
     /**
@@ -257,19 +262,17 @@ class IncidentInfolist
             return '—';
         }
 
-        return sprintf(
-            '%s · severity %s · needs response: %s · needs moderation: %s · %s · model %s · '
-                .'instruction %s · vocabulary %d · %s',
-            $prediction->category,
-            $prediction->severity,
-            $prediction->needs_response ? 'yes' : 'no',
-            $prediction->needs_moderation ? 'yes' : 'no',
-            ModelView::confidence($prediction->confidence),
-            $prediction->modelProfile?->name ?? '—',
-            $prediction->prompt_version,
-            $prediction->taxonomy_version,
-            self::formatMoment($prediction->created_at),
-        );
+        return __(':category · severity :severity · needs response: :needs_response · needs moderation: :needs_moderation · :confidence · model :model · instruction :prompt · vocabulary :taxonomy · :moment', [
+            'category' => __($prediction->category),
+            'severity' => __($prediction->severity),
+            'needs_response' => $prediction->needs_response ? __('yes') : __('no'),
+            'needs_moderation' => $prediction->needs_moderation ? __('yes') : __('no'),
+            'confidence' => ModelView::confidence($prediction->confidence),
+            'model' => $prediction->modelProfile?->name ?? '—',
+            'prompt' => $prediction->prompt_version,
+            'taxonomy' => (int) $prediction->taxonomy_version,
+            'moment' => self::formatMoment($prediction->created_at),
+        ]);
     }
 
     private static function entityFlagsSummary(ModerationIncident $record): string
@@ -297,17 +300,16 @@ class IncidentInfolist
         $state = $record->state();
 
         if ($state === null || $state->closed_at === null) {
-            return 'not closed as a false positive';
+            return __('not closed as a false positive');
         }
 
-        $closedBy = User::find($state->closed_by_user_id)?->name ?? 'a panel account';
+        $closedBy = User::find($state->closed_by_user_id)?->name ?? __('a panel account');
 
-        return sprintf(
-            '%s, by %s — %s',
-            self::formatMoment(self::instant($state->closed_at)),
-            $closedBy,
-            $state->close_reason ?? '—',
-        );
+        return __(':moment, by :user — :reason', [
+            'moment' => self::formatMoment(self::instant($state->closed_at)),
+            'user' => $closedBy,
+            'reason' => $state->close_reason ?? '—',
+        ]);
     }
 
     private static function formatMoment(?Carbon $moment): string

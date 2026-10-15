@@ -21,7 +21,20 @@ class ModelProfileResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Platform';
+    public static function getNavigationGroup(): string|UnitEnum|null
+    {
+        return __('Platform');
+    }
+
+    public static function getModelLabel(): string
+    {
+        return __('model profile');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('model profiles');
+    }
 
     public static function form(Schema $schema): Schema
     {

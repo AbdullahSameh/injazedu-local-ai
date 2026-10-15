@@ -198,7 +198,13 @@ no bulk action, **no average and no composite score anywhere** (tested); **no st
 computed in PHP**. Confidence is always "self-reported", never a percentage or a probability. Feature tests use
 `DatabaseTransactions` against `injaz_ai_test` — never `RefreshDatabase`, `DatabaseMigrations` or
 `migrate:fresh`. No `GRANT` in a migration: the migrator's default ACL reaches `ai_control` and `ai_app` for new
-tables and views. Arabic content keeps `dir="auto"` **per field**; the panel locale and chrome stay English and LTR.
+tables and views. Arabic content keeps `dir="auto"` **per field**. **The panel is bilingual** (2026-10-13,
+`docs/plan/telegram/tg-panel-bilingual-plan.md`, superseding D-TG-56's "English and LTR"): English is the default
+and the key; Arabic (RTL) is chosen per browser from the user menu (`panel_locale` cookie, `SetPanelLocale`,
+persistent). Every new UI string goes through `__()` with an entry in `lang/ar.json` and the English left
+byte-identical. `PanelTranslationCoverageTest` fails otherwise. The Arabic keeps the English promises: no deletion
+word on incident screens (`IncidentWordingArabicTest`), and confidence "يقدّرها النموذج بنفسه", never a
+probability.
 
 Previous milestones (still current infrastructure): `specs/001-m0-foundation/`,
 `specs/002-m1-model-gateway/`, `specs/003-tg-m0-moderation-foundation/`,

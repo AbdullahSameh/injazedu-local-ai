@@ -317,6 +317,8 @@ calls most likely to go unnoticed. Surfacing is a screen concern (D-TG-57), not 
 
 **D-TG-56 — Direction is `dir="auto"` per Arabic-content field; the panel locale and `dir` are not
 touched.** Finding 1. Labels are Arabic string literals on the two resources.
+*Superseded 2026-10-13 by `docs/plan/telegram/tg-panel-bilingual-plan.md`: the operator chose a bilingual panel,
+with English as the default and Arabic switching the whole panel to RTL. The per-field `dir="auto"` stays.*
 
 **D-TG-57 — Two navigation groups, declared as plain strings.**
 `protected static string|UnitEnum|null $navigationGroup` — probe 1 read the exact signature at

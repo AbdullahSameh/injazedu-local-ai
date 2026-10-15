@@ -57,38 +57,46 @@ class IncidentsTable
             )
             ->columns([
                 TextColumn::make('chat.title')
-                    ->label('Group')
-                    ->placeholder('(untitled)')
+                    ->label(__('Group'))
+                    ->placeholder(__('(untitled)'))
                     ->extraAttributes(['dir' => 'auto']),
                 TextColumn::make('message')
-                    ->label('Message')
+                    ->label(__('Message'))
                     ->getStateUsing(
                         fn (ModerationIncident $record): string => $record->anchorMessage()
-                            ?->original_text ?? 'Text removed'
+                            ?->original_text ?? __('Text removed')
                     )
                     ->limit(80)
                     ->extraAttributes(['dir' => 'auto']),
-                TextColumn::make('category')->badge(),
-                TextColumn::make('severity')->badge(),
+                TextColumn::make('category')
+                    ->label(__('Category'))
+                    ->formatStateUsing(fn (string $state): string => __($state))
+                    ->badge(),
+                TextColumn::make('severity')
+                    ->label(__('Severity'))
+                    ->formatStateUsing(fn (string $state): string => __($state))
+                    ->badge(),
                 // L1 (`control-panel-classification.md` §2.2): "Operator" or "Model" — read
                 // straight from `source`, never recomputed (P2).
                 TextColumn::make('source')
-                    ->label('Opened by')
-                    ->formatStateUsing(fn (string $state): string => $state === 'ai' ? 'Model' : 'Operator')
+                    ->label(__('Opened by'))
+                    ->formatStateUsing(fn (string $state): string => $state === 'ai' ? __('Model') : __('Operator'))
                     ->badge(),
                 // moderation_incident_state is the only definition of status (lifecycle
                 // contract N6) — this reads it, never computes it.
                 TextColumn::make('status')
+                    ->label(__('Status'))
                     ->getStateUsing(fn (ModerationIncident $record): ?string => $record->state()?->status)
+                    ->formatStateUsing(fn (string $state): string => __($state))
                     ->badge(),
                 TextColumn::make('responsibleModerator.display_name')
-                    ->label('Responsible')
-                    ->placeholder('Unassigned')
+                    ->label(__('Responsible'))
+                    ->placeholder(__('Unassigned'))
                     ->badge(),
-                TextColumn::make('opened_at')->label('Posted')->dateTime()->sortable(),
-                TextColumn::make('detected_at')->label('Flagged')->dateTime()->sortable(),
+                TextColumn::make('opened_at')->label(__('Posted'))->dateTime()->sortable(),
+                TextColumn::make('detected_at')->label(__('Flagged'))->dateTime()->sortable(),
                 TextColumn::make('age')
-                    ->label('Age / took')
+                    ->label(__('Age / took'))
                     ->getStateUsing(function (ModerationIncident $record): string {
                         $state = $record->state();
 
@@ -102,7 +110,8 @@ class IncidentsTable
             ])
             ->filters([
                 SelectFilter::make('status')
-                    ->options(self::STATUSES)
+                    ->label(__('Status'))
+                    ->options(array_map(__(...), self::STATUSES))
                     ->query(fn (Builder $query, array $data): Builder => $query->when(
                         $data['value'] ?? null,
                         fn (Builder $q, string $status): Builder => $q->whereIn(
@@ -112,31 +121,35 @@ class IncidentsTable
                                 ->where('status', $status)
                         )
                     )),
-                SelectFilter::make('category')->options(self::CATEGORIES),
+                SelectFilter::make('category')
+                    ->label(__('Category'))
+                    ->options(array_map(__(...), self::CATEGORIES)),
                 // L2: the same two values as the column above.
                 SelectFilter::make('source')
-                    ->label('Opened by')
-                    ->options(['operator' => 'Operator', 'ai' => 'Model']),
-                SelectFilter::make('severity')->options(self::SEVERITIES),
+                    ->label(__('Opened by'))
+                    ->options(['operator' => __('Operator'), 'ai' => __('Model')]),
+                SelectFilter::make('severity')
+                    ->label(__('Severity'))
+                    ->options(array_map(__(...), self::SEVERITIES)),
                 SelectFilter::make('telegram_chat_id')
-                    ->label('Group')
+                    ->label(__('Group'))
                     ->options(
                         fn (): array => TelegramChat::query()
                             ->orderBy('title')
                             ->get()
                             ->mapWithKeys(fn (TelegramChat $chat): array => [
-                                $chat->id => $chat->title ?? '(untitled)',
+                                $chat->id => $chat->title ?? __('(untitled)'),
                             ])
                             ->all()
                     ),
                 SelectFilter::make('responsible_moderator_id')
-                    ->label('Responsible')
+                    ->label(__('Responsible'))
                     ->options(fn (): array => Moderator::query()->orderBy('display_name')->pluck('display_name', 'id')->all()),
                 Filter::make('detected_at')
-                    ->label('Detection date')
+                    ->label(__('Detection date'))
                     ->schema([
-                        DatePicker::make('from'),
-                        DatePicker::make('until'),
+                        DatePicker::make('from')->label(__('From')),
+                        DatePicker::make('until')->label(__('Until')),
                     ])
                     ->query(fn (Builder $query, array $data): Builder => $query
                         ->when(
@@ -157,7 +170,7 @@ class IncidentsTable
                 CloseFalsePositiveAction::make(),
             ])
             ->defaultSort('detected_at', 'desc')
-            ->emptyStateHeading('No incidents opened yet')
-            ->emptyStateDescription('Flag a message from here or from the Live Attention Queue.');
+            ->emptyStateHeading(__('No incidents opened yet'))
+            ->emptyStateDescription(__('Flag a message from here or from the Live Attention Queue.'));
     }
 }

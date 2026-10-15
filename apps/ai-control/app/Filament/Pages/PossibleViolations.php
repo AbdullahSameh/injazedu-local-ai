@@ -40,11 +40,20 @@ class PossibleViolations extends Page implements HasTable
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedShieldExclamation;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Moderation Intelligence';
+    public static function getNavigationGroup(): string|UnitEnum|null
+    {
+        return __('Moderation Intelligence');
+    }
 
-    protected static ?string $navigationLabel = 'Possible Violations';
+    public static function getNavigationLabel(): string
+    {
+        return __('Possible Violations');
+    }
 
-    protected static ?string $title = 'Possible Violations';
+    public function getTitle(): string
+    {
+        return __('Possible Violations');
+    }
 
     protected string $view = 'filament.pages.possible-violations';
 
@@ -54,9 +63,9 @@ class PossibleViolations extends Page implements HasTable
             return $table
                 ->records(fn (): Collection => collect())
                 ->columns([])
-                ->emptyStateHeading('No classification model is active')
+                ->emptyStateHeading(__('No classification model is active'))
                 ->emptyStateDescription(
-                    'Activate a moderation model in the Model Profiles roster to start listing possible violations.'
+                    __('Activate a moderation model in the Model Profiles roster to start listing possible violations.')
                 );
         }
 
@@ -70,76 +79,75 @@ class PossibleViolations extends Page implements HasTable
             })
             ->columns([
                 TextColumn::make('group')
-                    ->label('Group')
+                    ->label(__('Group'))
                     ->getStateUsing(
                         fn (array $record): string => TelegramChat::find($record['telegram_chat_id'])?->title
-                            ?? '(untitled)'
+                            ?? __('(untitled)')
                     )
                     ->extraAttributes(['dir' => 'auto']),
                 TextColumn::make('message')
-                    ->label('Message')
+                    ->label(__('Message'))
                     ->getStateUsing(
-                        fn (array $record): string => $record['original_text'] ?? 'Text removed'
+                        fn (array $record): string => $record['original_text'] ?? __('Text removed')
                     )
                     ->limit(80)
                     ->extraAttributes(['dir' => 'auto']),
                 TextColumn::make('posted')
-                    ->label('Posted')
+                    ->label(__('Posted'))
                     ->getStateUsing(
                         fn (array $record): string => Carbon::parse($record['sent_at'])
                             ->setTimezone('Asia/Riyadh')
                             ->format('Y-m-d H:i')
                     ),
                 TextColumn::make('model_view')
-                    ->label("Model's view")
+                    ->label(__("Model's view"))
                     ->getStateUsing(
                         fn (array $record): string => sprintf(
                             '%s · %s · %s',
-                            $record['category'],
-                            $record['severity'],
+                            __($record['category']),
+                            __($record['severity']),
                             ModelView::confidence($record['confidence']),
                         )
                     ),
                 TextColumn::make('why_listed')
-                    ->label('Why listed')
+                    ->label(__('Why listed'))
                     ->getStateUsing(
                         fn (array $record): string => $record['route_reason'] === 'inconsistent'
-                            ? 'Inconsistent'
-                            : 'Uncertain'
+                            ? __('Inconsistent')
+                            : __('Uncertain')
                     )
                     ->badge(),
                 TextColumn::make('model')
-                    ->label('Model')
+                    ->label(__('Model'))
                     ->getStateUsing(
                         fn (array $record): string => sprintf('%s · %s', $record['model'], $record['prompt_version'])
                     ),
             ])
             ->filters([
                 SelectFilter::make('group')
-                    ->label('Group')
+                    ->label(__('Group'))
                     ->options(
                         fn (): array => TelegramChat::query()
                             ->orderBy('title')
                             ->get()
                             ->mapWithKeys(fn (TelegramChat $chat): array => [
-                                $chat->id => $chat->title ?? '(untitled)',
+                                $chat->id => $chat->title ?? __('(untitled)'),
                             ])
                             ->all()
                     ),
                 Filter::make('posted')
-                    ->label('Posted')
+                    ->label(__('Posted'))
                     ->schema([
-                        DatePicker::make('from'),
-                        DatePicker::make('until'),
+                        DatePicker::make('from')->label(__('From')),
+                        DatePicker::make('until')->label(__('Until')),
                     ]),
             ])
             ->recordActions([
                 OpenIncidentAction::forPossibleViolationRow(),
             ])
-            ->emptyStateHeading('Nothing listed')
+            ->emptyStateHeading(__('Nothing listed'))
             ->emptyStateDescription(
-                'A message appears here when the model thinks it may need moderation but is not '
-                    .'confident or consistent enough to open an incident.'
+                __('A message appears here when the model thinks it may need moderation but is not confident or consistent enough to open an incident.')
             );
     }
 

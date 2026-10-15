@@ -29,6 +29,8 @@ every other number by the viewer's clock skew.
 **P4.** Arabic content carries `dir="auto"` **per field**; the panel's locale and chrome stay English and
 LTR. Carried unchanged from TG-M2's D-TG-56 — per-navigation-group direction does not exist in this
 framework, and this is the first milestone that actually displays message text.
+*Superseded 2026-10-13 by `docs/plan/telegram/tg-panel-bilingual-plan.md`: the panel is bilingual (English
+default, Arabic RTL from the user menu); the per-field `dir="auto"` stays.*
 
 ---
 

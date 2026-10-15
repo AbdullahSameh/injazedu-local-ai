@@ -11,6 +11,7 @@ use App\Models\Moderator;
 use App\Models\ModeratorGroupAssignment;
 use App\Models\TelegramChat;
 use App\Models\TelegramMessage;
+use App\Support\PanelLocale;
 use BackedEnum;
 use Carbon\CarbonInterval;
 use Closure;
@@ -64,11 +65,20 @@ class LiveAttentionQueue extends Page implements HasTable
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedQueueList;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Moderation Intelligence';
+    public static function getNavigationGroup(): string|UnitEnum|null
+    {
+        return __('Moderation Intelligence');
+    }
 
-    protected static ?string $navigationLabel = 'Live Attention Queue';
+    public static function getNavigationLabel(): string
+    {
+        return __('Live Attention Queue');
+    }
 
-    protected static ?string $title = 'Live Attention Queue';
+    public function getTitle(): string
+    {
+        return __('Live Attention Queue');
+    }
 
     /**
      * The figures table's period filter (T074), typed and read by the operator in
@@ -101,38 +111,40 @@ class LiveAttentionQueue extends Page implements HasTable
             ->query(AttentionItem::query()->where('status', 'open'))
             ->columns([
                 TextColumn::make('chat.title')
-                    ->label('Group')
-                    ->placeholder('(untitled)')
+                    ->label(__('Group'))
+                    ->placeholder(__('(untitled)'))
                     ->extraAttributes(['dir' => 'auto']),
                 // Truncated `original_text` of the burst's earliest message
                 // (`control-panel-attention.md` §1) — a plain query via `anchorMessage()`, not a
                 // relation the table can eager-load, since the join key is composite (P1-scale
                 // queue, not a candidate for premature optimisation).
                 TextColumn::make('question')
-                    ->label('Question')
+                    ->label(__('Question'))
                     ->getStateUsing(
                         fn (AttentionItem $record): string => $record->anchorMessage()?->original_text
-                            ?? 'Text removed'
+                            ?? __('Text removed')
                     )
                     ->limit(80)
                     ->extraAttributes(['dir' => 'auto']),
                 // Never blank, never omitted (A2): NULL is a real answer, surfaced as a badge so
                 // a coverage gap reads as a fact on the screen, not as missing data.
                 TextColumn::make('responsibleModerator.display_name')
-                    ->label('Responsible')
-                    ->placeholder('Unassigned')
+                    ->label(__('Responsible'))
+                    ->placeholder(__('Unassigned'))
                     ->badge(),
                 TextColumn::make('status')
+                    ->label(__('Status'))
+                    ->formatStateUsing(fn (string $state): string => __($state))
                     ->badge(),
                 // TG-M5.1 (`control-panel-classification.md` Q3): who opened the item — the stored
                 // `source`, labelled, never inferred. A model-opened item's prediction is the
                 // "Model's view" column beside it.
                 TextColumn::make('source')
-                    ->label('Opened by')
+                    ->label(__('Opened by'))
                     ->formatStateUsing(fn (string $state): string => match ($state) {
-                        'rule' => 'Rule',
-                        'ai' => 'Model',
-                        'operator' => 'Operator',
+                        'rule' => __('Rule'),
+                        'ai' => __('Model'),
+                        'operator' => __('Operator'),
                         default => $state,
                     })
                     ->badge(),
@@ -141,12 +153,12 @@ class LiveAttentionQueue extends Page implements HasTable
                 // browser-clock ticker that would disagree with every other number by the
                 // viewer's clock skew (P3).
                 TextColumn::make('opened_at')
-                    ->label('Waiting')
+                    ->label(__('Waiting'))
                     ->since(),
                 // Q1-Q2: never filters, sorts or hides a row — a plain display column, read
                 // after the row set is already decided.
                 TextColumn::make('models_view')
-                    ->label("Model's view")
+                    ->label(__("Model's view"))
                     ->getStateUsing(fn (AttentionItem $record): string => $this->modelsViewFor($record))
                     ->extraAttributes(['dir' => 'auto']),
             ])
@@ -154,30 +166,30 @@ class LiveAttentionQueue extends Page implements HasTable
                 // All three go through the same guarded write (contract §4 C8) — a double-submitted
                 // dismissal updates zero rows and leaves the first one intact.
                 Action::make('dismiss_not_a_question')
-                    ->label('Not a real question')
+                    ->label(__('Not a real question'))
                     ->icon(Heroicon::OutlinedXCircle)
                     ->color('gray')
                     ->requiresConfirmation()
-                    ->modalDescription(self::DISMISS_CONFIRMATION)
+                    ->modalDescription(__(self::DISMISS_CONFIRMATION))
                     ->action(fn (AttentionItem $record) => self::dismiss($record, 'not_a_question')),
                 // TG-M5.3 K1, K4: a real question or discussion between members that needed no
                 // moderator — offered whatever opened the item.
                 Action::make('dismiss_member_discussion')
-                    ->label('Member discussion')
+                    ->label(__('Member discussion'))
                     ->icon(Heroicon::OutlinedChatBubbleLeftRight)
                     ->color('gray')
                     ->requiresConfirmation()
-                    ->modalDescription(self::DISMISS_CONFIRMATION)
+                    ->modalDescription(__(self::DISMISS_CONFIRMATION))
                     ->action(fn (AttentionItem $record) => self::dismiss($record, 'member_discussion')),
                 // P7: "message removed" is the operator's own judgement, never presented as a
                 // platform fact — Telegram reports no deletion in groups. The standing footnote
                 // saying so lives on the page view, not on this action.
                 Action::make('dismiss_message_removed')
-                    ->label('Message removed')
+                    ->label(__('Message removed'))
                     ->icon(Heroicon::OutlinedTrash)
                     ->color('gray')
                     ->requiresConfirmation()
-                    ->modalDescription(self::DISMISS_CONFIRMATION)
+                    ->modalDescription(__(self::DISMISS_CONFIRMATION))
                     ->action(fn (AttentionItem $record) => self::dismiss($record, 'message_removed')),
                 // TG-M4 (FR-072, D-TG-125): opens against the item's own anchor message. The
                 // item itself is never touched — no attention-item write is any part of opening
@@ -189,19 +201,19 @@ class LiveAttentionQueue extends Page implements HasTable
                 // anchors an item, and the rule below rejects one anyway if the page went stale.
                 // `uq_attention_anchor` remains the backstop the database would enforce either way.
                 Action::make('open_item_by_hand')
-                    ->label('Open item by hand')
+                    ->label(__('Open item by hand'))
                     ->icon(Heroicon::OutlinedPlusCircle)
                     ->schema([
                         Select::make('telegram_message_id')
-                            ->label('Message')
-                            ->helperText('Only messages that do not already anchor an item are listed.')
+                            ->label(__('Message'))
+                            ->helperText(__('Only messages that do not already anchor an item are listed.'))
                             ->options(fn (): array => self::openableMessageOptions())
                             ->searchable()
                             ->required()
                             ->rule(fn (): Closure => function (string $attribute, $value, Closure $fail): void {
                                 $message = TelegramMessage::find($value);
                                 if ($message === null) {
-                                    $fail('That message no longer exists.');
+                                    $fail(__('That message no longer exists.'));
 
                                     return;
                                 }
@@ -210,7 +222,7 @@ class LiveAttentionQueue extends Page implements HasTable
                                     ->where('telegram_message_id', $message->message_id)
                                     ->exists();
                                 if ($alreadyAnchors) {
-                                    $fail('This message already anchors an attention item.');
+                                    $fail(__('This message already anchors an attention item.'));
                                 }
                             }),
                     ])
@@ -218,9 +230,9 @@ class LiveAttentionQueue extends Page implements HasTable
             ])
             ->defaultSort('opened_at', 'asc')
             ->poll('15s')
-            ->emptyStateHeading('Nothing waiting')
+            ->emptyStateHeading(__('Nothing waiting'))
             ->emptyStateDescription(
-                'Every question that opened an item has been answered, dismissed, or has expired.'
+                __('Every question that opened an item has been answered, dismissed, or has expired.')
             );
     }
 
@@ -253,7 +265,7 @@ class LiveAttentionQueue extends Page implements HasTable
         $label = $this->modelsViewLabels[$record->id] ?? null;
 
         if ($label !== null) {
-            return $label->category.' · '.ModelView::confidence($label->confidence);
+            return __($label->category).' · '.ModelView::confidence($label->confidence);
         }
 
         return ModelView::status($record->telegram_chat_id, $record->telegram_message_id);
@@ -329,7 +341,7 @@ class LiveAttentionQueue extends Page implements HasTable
                 $message->id => sprintf(
                     '#%d — %s',
                     $message->message_id,
-                    Str::limit($message->original_text ?? '(text removed)', 60),
+                    Str::limit($message->original_text ?? __('(text removed)'), 60),
                 ),
             ])
             ->all();
@@ -370,7 +382,7 @@ class LiveAttentionQueue extends Page implements HasTable
             ->orderBy('title')
             ->get()
             ->map(fn (TelegramChat $chat): array => array_merge(
-                ['label' => $chat->title ?? '(untitled)'],
+                ['label' => $chat->title ?? __('(untitled)')],
                 $this->attentionFrtStats($from, $to, null, $chat->id),
                 $this->attentionUnansweredStats($from, $to, null, $chat->id),
                 ['oldest_waiting_s' => $this->attentionOldestWaitingSeconds($chat->id)],
@@ -418,10 +430,10 @@ class LiveAttentionQueue extends Page implements HasTable
     public function humanDuration(?float $seconds): string
     {
         if ($seconds === null) {
-            return 'no data';
+            return __('no data');
         }
 
-        return CarbonInterval::seconds((int) round($seconds))->cascade()->forHumans(['short' => true]);
+        return CarbonInterval::seconds((int) round($seconds))->cascade()->forHumans(['short' => PanelLocale::hasShortDurationUnits()]);
     }
 
     /**
@@ -433,11 +445,10 @@ class LiveAttentionQueue extends Page implements HasTable
     public function p90Display(array $frt): string
     {
         if ($frt['p90_suppressed']) {
-            return sprintf(
-                'Fewer than %d answered (n=%d)',
-                $this->attentionPercentileMinSamples(),
-                $frt['answered'],
-            );
+            return __('Fewer than :min answered (n=:n)', [
+                'min' => $this->attentionPercentileMinSamples(),
+                'n' => $frt['answered'],
+            ]);
         }
 
         return $this->humanDuration($frt['p90_frt']);

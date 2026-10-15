@@ -25,21 +25,26 @@ class TelegramChatsTable
     {
         return $table
             ->columns([
-                TextColumn::make('chat_id')->label('Chat ID')->sortable(),
-                TextColumn::make('chat_type')->label('Kind')->badge(),
+                TextColumn::make('chat_id')->label(__('Chat ID'))->sortable(),
+                TextColumn::make('chat_type')
+                    ->label(__('Kind'))
+                    ->formatStateUsing(fn (string $state): string => __($state))
+                    ->badge(),
                 TextColumn::make('title')
+                    ->label(__('Title'))
                     ->searchable()
                     ->extraAttributes(['dir' => 'auto'])
-                    ->placeholder('(untitled)'),
+                    ->placeholder(__('(untitled)')),
                 TextColumn::make('bot_status')
-                    ->label('Bot standing')
+                    ->label(__('Bot standing'))
+                    ->formatStateUsing(fn (string $state): string => __($state))
                     ->badge()
                     ->description(fn ($record): ?string => $record->bot_status_at?->diffForHumans()),
-                IconColumn::make('bot_can_delete')->label('Can delete')->boolean(),
-                TextColumn::make('last_event_at')->label('Last event')->dateTime()->since()->sortable(),
-                IconColumn::make('is_monitored')->label('Measured')->boolean()->sortable(),
+                IconColumn::make('bot_can_delete')->label(__('Can delete'))->boolean(),
+                TextColumn::make('last_event_at')->label(__('Last event'))->dateTime()->since()->sortable(),
+                IconColumn::make('is_monitored')->label(__('Measured'))->boolean()->sortable(),
                 IconColumn::make('has_current_owner')
-                    ->label('Owner')
+                    ->label(__('Owner'))
                     ->state(fn ($record): bool => ! $record->is_monitored
                         || $record->currentPrimaryAssignment()->exists())
                     ->boolean()
@@ -47,10 +52,10 @@ class TelegramChatsTable
                     ->falseColor('danger')
                     ->tooltip(fn ($record): ?string => ($record->is_monitored
                         && ! $record->currentPrimaryAssignment()->exists())
-                        ? 'Measured with no current primary owner'
+                        ? __('Measured with no current primary owner')
                         : null),
                 IconColumn::make('bot_is_admin')
-                    ->label('Bot admin')
+                    ->label(__('Bot admin'))
                     ->state(fn ($record): bool => ! $record->is_monitored
                         || $record->bot_status === 'administrator')
                     ->boolean()
@@ -58,15 +63,14 @@ class TelegramChatsTable
                     ->falseColor('danger')
                     ->tooltip(fn ($record): ?string => ($record->is_monitored
                         && $record->bot_status !== 'administrator')
-                        ? 'Measured with the bot not an administrator — several event kinds '
-                            .'silently stop arriving'
+                        ? __('Measured with the bot not an administrator — several event kinds silently stop arriving')
                         : null),
             ])
             ->recordActions([
                 EditAction::make(),
             ])
             ->defaultSort('chat_id')
-            ->emptyStateHeading('No groups captured yet')
-            ->emptyStateDescription('Groups appear here once the bot observes an event in them.');
+            ->emptyStateHeading(__('No groups captured yet'))
+            ->emptyStateDescription(__('Groups appear here once the bot observes an event in them.'));
     }
 }

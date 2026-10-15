@@ -6,7 +6,9 @@ What the panel shows of the model, where, in what words, and the one act it adds
 predictions and never makes them: no model call, no classification, no reclassification, no schema change
 (FR-059). Every figure and every list comes from `classification-metrics.md`, quoted once in
 `App\Filament\Pages\Concerns\ClassificationMetrics`. Panel locale and chrome stay English and LTR; Arabic
-content keeps `dir="auto"` per field (FR-060).
+content keeps `dir="auto"` per field (FR-060). *Superseded 2026-10-13 by
+`docs/plan/telegram/tg-panel-bilingual-plan.md`: the panel is bilingual (English default, Arabic RTL from the user
+menu); the per-field `dir="auto"` and every wording rule here hold in both languages.*
 
 ---
 

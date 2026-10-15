@@ -17,27 +17,33 @@ class ModelProfileForm
         return $schema
             ->components([
                 TextInput::make('name')
+                    ->label(__('Name'))
                     ->required()
                     ->maxLength(100)
                     ->unique(ignoreRecord: true)
-                    ->helperText('The seed\'s conflict target — re-seeding never overwrites this row.'),
+                    ->helperText(__('The seed\'s conflict target — re-seeding never overwrites this row.')),
                 Select::make('role')
+                    ->label(__('Role'))
                     ->options(['llm' => 'llm', 'embedding' => 'embedding', 'moderation' => 'moderation', 'attention' => 'attention'])
                     ->required()
                     ->native(false),
                 Select::make('provider')
+                    ->label(__('Provider'))
                     ->options(['ollama' => 'ollama', 'vllm' => 'vllm', 'fake' => 'fake'])
                     ->required()
                     ->native(false),
                 TextInput::make('model')
+                    ->label(__('Model'))
                     ->required()
                     ->maxLength(200)
-                    ->helperText('The runtime\'s model id, e.g. gemma4:e2b-it-qat.'),
+                    ->helperText(__('The runtime\'s model id, e.g. gemma4:e2b-it-qat.')),
                 TextInput::make('base_url')
+                    ->label(__('Base url'))
                     ->url()
                     ->maxLength(500)
-                    ->helperText('Must end in /v1 (research D-24). Leave blank only for provider=fake.'),
+                    ->helperText(__('Must end in /v1 (research D-24). Leave blank only for provider=fake.')),
                 TextInput::make('dim')
+                    ->label(__('Dim'))
                     ->numeric()
                     ->minValue(1)
                     // Greyed out for an existing row (FR-017), but still dehydrated — the model's
@@ -46,29 +52,28 @@ class ModelProfileForm
                     ->disabled(fn (?ModelProfile $record): bool => $record !== null)
                     ->dehydrated()
                     ->helperText(
-                        'Required for role=embedding, must stay empty for role=llm. '
-                        .'Immutable once set (FR-017) — create a new profile to change it.'
+                        __('Required for role=embedding, must stay empty for role=llm. Immutable once set (FR-017) — create a new profile to change it.')
                     ),
                 TextInput::make('api_key_env')
+                    ->label(__('Api key env'))
                     ->maxLength(100)
                     ->helperText(
-                        'An environment variable NAME, resolved at call time — never a secret '
-                        .'value (D-38). Leave blank when the runtime needs no credential.'
+                        __('An environment variable NAME, resolved at call time — never a secret value (D-38). Leave blank when the runtime needs no credential.')
                     ),
                 KeyValue::make('params')
-                    ->keyLabel('parameter')
-                    ->valueLabel('value')
+                    ->label(__('Params'))
+                    ->keyLabel(__('parameter'))
+                    ->valueLabel(__('value'))
                     ->helperText(
-                        'llm: num_ctx, num_predict, temperature. embedding: batch_size, '
-                        .'prefix_document, prefix_query (with {text}). moderation: num_ctx, '
-                        .'num_predict, temperature, reasoning_effort.'
+                        __('llm: num_ctx, num_predict, temperature. embedding: batch_size, prefix_document, prefix_query (with {text}). moderation: num_ctx, num_predict, temperature, reasoning_effort.')
                     ),
                 Toggle::make('is_active')
+                    ->label(__('Is active'))
                     ->helperText(
-                        'Activating deactivates the incumbent for this role in the same '
-                        .'transaction; deactivating the only active profile for a role is refused.'
+                        __('Activating deactivates the incumbent for this role in the same transaction; deactivating the only active profile for a role is refused.')
                     ),
                 Textarea::make('notes')
+                    ->label(__('Notes'))
                     ->maxLength(65535)
                     ->columnSpanFull(),
             ]);

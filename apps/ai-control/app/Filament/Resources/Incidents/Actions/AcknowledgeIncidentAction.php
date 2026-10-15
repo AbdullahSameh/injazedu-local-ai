@@ -17,7 +17,7 @@ class AcknowledgeIncidentAction
     public static function make(): Action
     {
         return Action::make('acknowledge_incident')
-            ->label('Acknowledge')
+            ->label(__('Acknowledge'))
             ->requiresConfirmation()
             ->visible(
                 fn (ModerationIncident $record): bool => $record->state()?->status === 'open'

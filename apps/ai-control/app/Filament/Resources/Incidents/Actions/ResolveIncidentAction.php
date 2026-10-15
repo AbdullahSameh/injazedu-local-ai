@@ -18,14 +18,13 @@ class ResolveIncidentAction
     public static function make(): Action
     {
         return Action::make('resolve_incident')
-            ->label('Resolve')
+            ->label(__('Resolve'))
             ->schema([
                 Textarea::make('note')
-                    ->label('Note')
+                    ->label(__('Note'))
                     ->required()
                     ->helperText(
-                        'Record what you were told or saw. This is recorded as your '
-                            .'confirmation, not as something Telegram reported.'
+                        __('Record what you were told or saw. This is recorded as your confirmation, not as something Telegram reported.')
                     ),
             ])
             ->visible(

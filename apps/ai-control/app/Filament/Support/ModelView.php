@@ -50,17 +50,17 @@ class ModelView
      */
     public static function confidence(string|float $confidence): string
     {
-        return number_format((float) $confidence, 3).' self-reported confidence';
+        return __(':value self-reported confidence', ['value' => number_format((float) $confidence, 3)]);
     }
 
     public static function exclusionLabel(string $reason): string
     {
-        return self::EXCLUSION_LABELS[$reason] ?? $reason;
+        return __(self::EXCLUSION_LABELS[$reason] ?? $reason);
     }
 
     public static function failureLabel(string $reason): string
     {
-        return self::FAILURE_LABELS[$reason] ?? $reason;
+        return __(self::FAILURE_LABELS[$reason] ?? $reason);
     }
 
     /**
@@ -70,7 +70,7 @@ class ModelView
     public static function status(int $telegramChatId, int $telegramMessageId): string
     {
         if (! self::hasActiveModel()) {
-            return 'No classification model is active.';
+            return __('No classification model is active.');
         }
 
         $classification = MessageClassification::query()
@@ -80,7 +80,7 @@ class ModelView
             ->first();
 
         if ($classification !== null) {
-            return $classification->category.' · '.self::confidence($classification->confidence);
+            return __($classification->category).' · '.self::confidence($classification->confidence);
         }
 
         $exclusion = MessageClassificationAttempt::query()
@@ -90,7 +90,7 @@ class ModelView
             ->first();
 
         if ($exclusion !== null) {
-            return 'Not sent to the model — '.self::exclusionLabel($exclusion->reason);
+            return __('Not sent to the model — :reason', ['reason' => self::exclusionLabel($exclusion->reason)]);
         }
 
         $failure = MessageClassificationAttempt::query()
@@ -102,10 +102,10 @@ class ModelView
             ->first();
 
         if ($failure !== null) {
-            return 'The model could not classify this message — '.self::failureLabel($failure->reason);
+            return __('The model could not classify this message — :reason', ['reason' => self::failureLabel($failure->reason)]);
         }
 
-        return 'Not classified yet — awaiting the model, or recorded before classification began.';
+        return __('Not classified yet — awaiting the model, or recorded before classification began.');
     }
 
     private static function hasActiveModel(): bool

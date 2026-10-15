@@ -19,17 +19,18 @@ class ModeratorsTable
         return $table
             ->columns([
                 TextColumn::make('display_name')
-                    ->label('Name')
+                    ->label(__('Name'))
                     ->searchable()
                     ->extraAttributes(['dir' => 'auto']),
-                TextColumn::make('telegramUser.tg_user_id')->label('Platform id'),
+                TextColumn::make('telegramUser.tg_user_id')->label(__('Platform id')),
                 TextColumn::make('telegramUser.username')
-                    ->label('Handle')
+                    ->label(__('Handle'))
                     ->placeholder('—')
                     ->formatStateUsing(fn (?string $state): ?string => $state ? "@{$state}" : null),
-                IconColumn::make('is_active')->label('Active')->boolean()->sortable(),
-                TextColumn::make('injaz_user_id')->label('Org reference')->placeholder('—'),
+                IconColumn::make('is_active')->label(__('Active'))->boolean()->sortable(),
+                TextColumn::make('injaz_user_id')->label(__('Org reference'))->placeholder('—'),
                 TextColumn::make('updated_at')
+                    ->label(__('Updated at'))
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
@@ -38,10 +39,9 @@ class ModeratorsTable
                 EditAction::make(),
             ])
             ->defaultSort('display_name')
-            ->emptyStateHeading('No moderators yet')
+            ->emptyStateHeading(__('No moderators yet'))
             ->emptyStateDescription(
-                'Add one by a numeric platform id before they have posted, or from an '
-                .'already-observed sender.'
+                __('Add one by a numeric platform id before they have posted, or from an already-observed sender.')
             );
     }
 }

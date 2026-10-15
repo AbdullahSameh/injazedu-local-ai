@@ -21,20 +21,18 @@ class TelegramChatForm
         return $schema
             ->components([
                 Toggle::make('is_monitored')
-                    ->label('Measured')
+                    ->label(__('Measured'))
                     ->helperText(
-                        'Turning this on starts nothing by itself — no job, no bulk derivation. '
-                        .'To bring in events captured before this was switched on, the operator '
-                        .'runs `python -m app.scripts.rederive_chat --chat <chat_id>`.'
+                        __('Turning this on starts nothing by itself — no job, no bulk derivation. To bring in events captured before this was switched on, the operator runs `python -m app.scripts.rederive_chat --chat <chat_id>`.')
                     ),
                 TextInput::make('injaz_course_id')
-                    ->label('Course reference')
+                    ->label(__('Course reference'))
                     ->numeric()
                     ->helperText(
-                        'A plain numeric id, entered by hand — nothing here is validated '
-                        .'against the reference application.'
+                        __('A plain numeric id, entered by hand — nothing here is validated against the reference application.')
                     ),
                 Textarea::make('notes')
+                    ->label(__('Notes'))
                     ->extraInputAttributes(['dir' => 'auto'])
                     ->columnSpanFull(),
             ]);

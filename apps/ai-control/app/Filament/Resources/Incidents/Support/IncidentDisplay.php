@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Incidents\Support;
 use App\Models\Moderator;
 use App\Models\TelegramUser;
 use App\Models\User;
+use App\Support\PanelLocale;
 use Carbon\CarbonInterval;
 use Illuminate\Support\Carbon;
 
@@ -43,10 +44,10 @@ class IncidentDisplay
     public static function humanDuration(?float $seconds): string
     {
         if ($seconds === null) {
-            return 'no data';
+            return __('no data');
         }
 
-        return CarbonInterval::seconds((int) round($seconds))->cascade()->forHumans(['short' => true]);
+        return CarbonInterval::seconds((int) round($seconds))->cascade()->forHumans(['short' => PanelLocale::hasShortDurationUnits()]);
     }
 
     /**
@@ -57,13 +58,13 @@ class IncidentDisplay
     public static function timingDisplay(?Carbon $first, Carbon $detectedAt): string
     {
         if ($first === null) {
-            return 'no evidence';
+            return __('no evidence');
         }
 
         $seconds = $first->getTimestamp() - $detectedAt->getTimestamp();
 
         if ($seconds < 0) {
-            return 'acted before flagging';
+            return __('acted before flagging');
         }
 
         return self::humanDuration($seconds);
@@ -84,13 +85,13 @@ class IncidentDisplay
         };
 
         if ($reference === null) {
-            return 'no evidence';
+            return __('no evidence');
         }
 
         $seconds = $reference->getTimestamp() - $detectedAt->getTimestamp();
 
         if ($seconds < 0) {
-            return 'acted before flagging';
+            return __('acted before flagging');
         }
 
         return self::humanDuration($seconds);
@@ -125,17 +126,17 @@ class IncidentDisplay
     public static function outcomeLabel(string $outcome): string
     {
         return match ($outcome) {
-            'handled' => 'Handled',
-            'missed' => 'Missed',
-            'within_window' => 'Within window',
-            'false_positive' => 'False positive',
+            'handled' => __('Handled'),
+            'missed' => __('Missed'),
+            'within_window' => __('Within window'),
+            'false_positive' => __('False positive'),
             default => $outcome,
         };
     }
 
     public static function kindLabel(string $kind): string
     {
-        return self::KIND_LABELS[$kind] ?? $kind;
+        return __(self::KIND_LABELS[$kind] ?? $kind);
     }
 
     /**
@@ -145,10 +146,10 @@ class IncidentDisplay
     public static function strengthLabel(?string $strength, string $kind): string
     {
         if ($strength !== null) {
-            return self::STRENGTH_LABELS[$strength] ?? $strength;
+            return __(self::STRENGTH_LABELS[$strength] ?? $strength);
         }
 
-        return $kind === 'reversal' ? 'no effect' : '—';
+        return $kind === 'reversal' ? __('no effect') : '—';
     }
 
     /**
@@ -161,11 +162,11 @@ class IncidentDisplay
     public static function actorLabel(object $evidenceRow): string
     {
         if ($evidenceRow->actor_is_anonymous) {
-            return 'anonymous administrator';
+            return __('anonymous administrator');
         }
 
         if ($evidenceRow->actor_moderator_id !== null) {
-            return Moderator::find($evidenceRow->actor_moderator_id)?->display_name ?? 'Moderator';
+            return Moderator::find($evidenceRow->actor_moderator_id)?->display_name ?? __('Moderator');
         }
 
         if ($evidenceRow->actor_telegram_user_id !== null) {
@@ -173,7 +174,7 @@ class IncidentDisplay
         }
 
         if ($evidenceRow->panel_user_id !== null) {
-            return User::find($evidenceRow->panel_user_id)?->name ?? 'Panel account';
+            return User::find($evidenceRow->panel_user_id)?->name ?? __('Panel account');
         }
 
         return '—';
@@ -193,9 +194,9 @@ class IncidentDisplay
         $user = TelegramUser::find($telegramUserId);
 
         if ($user === null) {
-            return "user #{$telegramUserId}";
+            return __('user #:id', ['id' => $telegramUserId]);
         }
 
-        return $user->display_name ?? $user->username ?? "user #{$user->tg_user_id}";
+        return $user->display_name ?? $user->username ?? __('user #:id', ['id' => $user->tg_user_id]);
     }
 }

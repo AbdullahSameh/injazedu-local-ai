@@ -6,6 +6,7 @@ use App\Filament\Resources\Incidents\Concerns\IncidentMetrics;
 use App\Filament\Resources\Incidents\IncidentResource;
 use App\Models\Moderator;
 use App\Models\TelegramChat;
+use App\Support\PanelLocale;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -78,7 +79,7 @@ class ListIncidents extends ListRecords
             ->orderBy('title')
             ->get()
             ->map(fn (TelegramChat $chat): array => array_merge(
-                ['label' => $chat->title ?? '(untitled)'],
+                ['label' => $chat->title ?? __('(untitled)')],
                 $this->incidentOutcomeStats($from, $to, null, $chat->id),
                 ['timings' => $this->incidentTimingStats($from, $to, null, $chat->id)],
                 ['latency' => $this->detectionLatencyStats($from, $to, $chat->id)],
@@ -137,10 +138,10 @@ class ListIncidents extends ListRecords
     public function humanDuration(?float $seconds): string
     {
         if ($seconds === null) {
-            return 'no data';
+            return __('no data');
         }
 
-        return \Carbon\CarbonInterval::seconds((int) round($seconds))->cascade()->forHumans(['short' => true]);
+        return \Carbon\CarbonInterval::seconds((int) round($seconds))->cascade()->forHumans(['short' => PanelLocale::hasShortDurationUnits()]);
     }
 
     /**
@@ -152,11 +153,10 @@ class ListIncidents extends ListRecords
     public function p90Display(?float $p90, bool $suppressed, int $sampleCount): string
     {
         if ($suppressed) {
-            return sprintf(
-                'Fewer than %d samples (n=%d)',
-                $this->incidentPercentileMinSamples(),
-                $sampleCount,
-            );
+            return __('Fewer than :min samples (n=:n)', [
+                'min' => $this->incidentPercentileMinSamples(),
+                'n' => $sampleCount,
+            ]);
         }
 
         return $this->humanDuration($p90);
@@ -176,7 +176,7 @@ class ListIncidents extends ListRecords
      */
     public function openerLabel(string $source): string
     {
-        return $source === 'ai' ? 'Model' : 'Operator';
+        return $source === 'ai' ? __('Model') : __('Operator');
     }
 
     /**

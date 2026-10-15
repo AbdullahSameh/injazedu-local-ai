@@ -54,8 +54,7 @@ class ModelProfile extends Model
         static::saving(function (ModelProfile $profile): void {
             if ($profile->exists && $profile->isDirty('dim')) {
                 throw ValidationException::withMessages([
-                    'dim' => "A profile's vector width is immutable once set — "
-                        .'create a new profile instead of editing this one (FR-017).',
+                    'dim' => __("A profile's vector width is immutable once set — create a new profile instead of editing this one (FR-017)."),
                 ]);
             }
 
@@ -82,8 +81,7 @@ class ModelProfile extends Model
             $wasActive = $profile->exists && (bool) $profile->getOriginal('is_active');
             if ($wasActive && ! (clone $othersForRole)->where('is_active', true)->exists()) {
                 throw ValidationException::withMessages([
-                    'is_active' => "Refusing to leave role '{$profile->role}' with no active "
-                        .'profile — activate a replacement first (FR-011).',
+                    'is_active' => __("Refusing to leave role ':role' with no active profile — activate a replacement first (FR-011).", ['role' => $profile->role]),
                 ]);
             }
         });

@@ -35,13 +35,16 @@ class AssignmentsRelationManager extends RelationManager
             ->recordTitleAttribute('id')
             ->columns([
                 TextColumn::make('chat.title')
-                    ->label('Group')
+                    ->label(__('Group'))
                     ->extraAttributes(['dir' => 'auto'])
-                    ->placeholder('(untitled)'),
-                TextColumn::make('assignment_role')->label('Role')->badge(),
-                TextColumn::make('valid_from')->label('From')->dateTime(),
-                TextColumn::make('valid_to')->label('Until')->dateTime()->placeholder('current'),
-                TextColumn::make('note')->extraAttributes(['dir' => 'auto'])->wrap(),
+                    ->placeholder(__('(untitled)')),
+                TextColumn::make('assignment_role')
+                    ->label(__('Role'))
+                    ->formatStateUsing(fn (string $state): string => __($state))
+                    ->badge(),
+                TextColumn::make('valid_from')->label(__('From'))->dateTime(),
+                TextColumn::make('valid_to')->label(__('Until'))->dateTime()->placeholder(__('current')),
+                TextColumn::make('note')->label(__('Note'))->extraAttributes(['dir' => 'auto'])->wrap(),
             ])
             ->headerActions([
                 // The whole reassign protocol of moderator-ownership.md §2, delegated to the
@@ -49,20 +52,20 @@ class AssignmentsRelationManager extends RelationManager
                 // transaction, close before open, one timestamp value bound to both sides
                 // (FR-037, D-TG-58).
                 Action::make('reassign')
-                    ->label('Reassign')
+                    ->label(__('Reassign'))
                     ->schema([
                         Select::make('telegram_chat_id')
-                            ->label('Group')
+                            ->label(__('Group'))
                             ->options(fn (): array => TelegramChat::query()
                                 ->orderBy('title')
                                 ->get()
                                 ->mapWithKeys(fn (TelegramChat $chat): array => [
-                                    $chat->id => $chat->title ?? "Chat {$chat->chat_id}",
+                                    $chat->id => $chat->title ?? __('Chat :id', ['id' => $chat->chat_id]),
                                 ])
                                 ->all())
                             ->searchable()
                             ->required(),
-                        Textarea::make('note')->extraInputAttributes(['dir' => 'auto']),
+                        Textarea::make('note')->label(__('Note'))->extraInputAttributes(['dir' => 'auto']),
                     ])
                     ->action(function (array $data): void {
                         ModeratorGroupAssignment::handover(
@@ -75,7 +78,7 @@ class AssignmentsRelationManager extends RelationManager
             ->recordActions([])
             ->toolbarActions([])
             ->defaultSort('valid_from')
-            ->emptyStateHeading('No assignments yet')
-            ->emptyStateDescription('Use Reassign to make this moderator the primary owner of a group.');
+            ->emptyStateHeading(__('No assignments yet'))
+            ->emptyStateDescription(__('Use Reassign to make this moderator the primary owner of a group.'));
     }
 }
