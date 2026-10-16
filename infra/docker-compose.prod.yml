@@ -53,6 +53,10 @@ services:
   ollama:
     image: ollama/ollama:0.40.4
     environment:
+      # llama.cpp sizes its thread pool from the host's cores and ignores the container's cpuset.
+      # Measured here 2026-10-16: 6 threads on the 5 CPUs of OLLAMA_CPUSET generated 0.2 tokens/s;
+      # 5 threads, 18.3 tokens/s. Keep OLLAMA_THREADS equal to the number of CPUs in OLLAMA_CPUSET.
+      LLAMA_ARG_THREADS: ${OLLAMA_THREADS:-5}
       OLLAMA_HOST: 0.0.0.0:11434
       OLLAMA_CONTEXT_LENGTH: "8192"
       OLLAMA_NUM_PARALLEL: "1"
