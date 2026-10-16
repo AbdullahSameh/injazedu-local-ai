@@ -315,7 +315,7 @@ container, so measure it alone:
 |---|---|---|
 | Pull | 156 s, 4.3 GB | 224 s, 6.1 GB |
 | Cold load | 17–22 s | 17 s |
-| Generation | 18.3 tokens/s | 9.7 tokens/s |
+| Generation (64-token test; the shared vCPUs vary from run to run) | 13.6–18.3 tokens/s | 9.7 tokens/s (one run) |
 | Memory loaded | `ollama ps` 4.0 GB; container 4.6–4.8 of 6.35 GiB | `ollama ps` 6.1 GB; container 7.3 of 8.3 GiB; peak at the 8.3 GiB cap (page cache), no OOM; host 3.0 GB available |
 | Moderation, `classify_v2`, qualification (176 calls) | **QUALIFIED**; median 4,995 ms, p95 8,496 ms | not run |
 | Attention, `attention_v1`, smoke on `real-attention.jsonl` (18 model calls) | not run | clear lines 0 missed, 0 opened wrongly; 5 of 9 ambiguous lines answered `informing` (as on the Mac); median 2,579 ms, warm max 8,859 ms, first call 30 s |
@@ -452,11 +452,15 @@ and captured data stays.
 | A new kernel or libc | Needs a reboot | Every site is down for 1–3 minutes. The Contabo VNC console is the fallback |
 
 **Order:**
-1. Run `00-readonly-report.sh`.
-2. `sudo apt update && sudo apt upgrade`.
-3. Optionally `03-maintenance-journald.sh --archive <dir> --apply`.
-4. `sudo reboot`.
-5. Afterwards, verify:
+1. Take a database dump (§9) and run `00-readonly-report.sh`.
+2. In tmux, run `sudo bash ~/injazedu-ai-sudo/04-maintenance-upgrade.sh`. It shows the package list and
+   asks before changing anything, keeps every modified config file, removes nothing, never reboots,
+   and logs to `/var/log/injazedu-maintenance-<time>.log`. One failed download makes apt install
+   nothing; if a repository is down (the `ondrej/php` PPA returned 503 on 2026-10-16), add
+   `--skip-origin LP-PPA-ondrej-php` and upgrade that group in a later run. PHP needs no reboot.
+3. Check the stack and the other sites (step 5), so an upgrade problem is not mistaken for a boot problem.
+4. Optionally `03-maintenance-journald.sh --archive <dir> --apply`.
+5. `sudo reboot`, then verify:
    - `scripts/prod/dc ps` shows everything up (`ai-telegram` stays exited while its token is blank);
    - `curl -s http://127.0.0.1:18000/health`;
    - `https://ai-control.injazedu.co/admin` loads;
