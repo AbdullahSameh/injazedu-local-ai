@@ -329,12 +329,12 @@ async def test_a_claim_held_by_one_task_never_blocks_the_other(
     )
     await seeded_attention_profile(active=True)
     settings = _settings(classification_settings)
-    classify_key = f"ai:mod:classify:msg:{chat_pk}:1"
-    attention_key = f"ai:mod:attention:msg:{chat_pk}:1"
+    classify_lock_name = f"ai:mod:classify:msg:{chat_pk}:1"
+    attention_lock_name = f"ai:mod:attention:msg:{chat_pk}:1"
     attention_gateway, _ = scripted_gateway(responses=[{"intent": "asking"}])
     classifier, _ = scripted_gateway(responses=[dict(_CLASSIFICATION_ANSWER)])
 
-    await classification_redis.set(classify_key, "classifier-elsewhere", px=60_000)
+    await classification_redis.set(classify_lock_name, "classifier-elsewhere", px=60_000)
     try:
         judged = await _judge(
             classification_session_factory,
@@ -345,9 +345,9 @@ async def test_a_claim_held_by_one_task_never_blocks_the_other(
             message_id=1,
         )
     finally:
-        await classification_redis.delete(classify_key)
+        await classification_redis.delete(classify_lock_name)
 
-    await classification_redis.set(attention_key, "attention-elsewhere", px=60_000)
+    await classification_redis.set(attention_lock_name, "attention-elsewhere", px=60_000)
     try:
         classified = await _classify(
             classification_session_factory,
@@ -358,6 +358,6 @@ async def test_a_claim_held_by_one_task_never_blocks_the_other(
             message_id=1,
         )
     finally:
-        await classification_redis.delete(attention_key)
+        await classification_redis.delete(attention_lock_name)
 
     assert (judged, classified) == ("judged", "classified")

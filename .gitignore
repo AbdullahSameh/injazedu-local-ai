@@ -5,6 +5,7 @@ injazedu/
 .env.*
 !.env.example
 !.env.testing.example
+!.env.production.example
 
 # Python
 __pycache__/

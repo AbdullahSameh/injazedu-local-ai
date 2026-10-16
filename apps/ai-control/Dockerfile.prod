@@ -1,0 +1,46 @@
+# The panel's production image (docs/runbooks/production-deployment.md). The development image
+# (Dockerfile) stays `php artisan serve`, local-only by design (research D-15). This one serves the
+# same code with FrankenPHP in classic mode — plain HTTP on 8080, behind the host's nginx, which
+# terminates TLS — runs as a non-root user, and caches configuration at start from the container's
+# environment (docker/prod/entrypoint.sh), so the image itself holds no configuration.
+
+FROM node:22-alpine AS assets
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY vite.config.js ./
+COPY resources ./resources
+RUN npm run build
+
+FROM dunglas/frankenphp:1.12.7-php8.2-bookworm
+
+# The development image's extensions (pdo_pgsql pgsql zip intl), plus opcache.
+RUN install-php-extensions pdo_pgsql pgsql zip intl opcache \
+    && cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+COPY docker/prod/php.ini "$PHP_INI_DIR/conf.d/zz-injazedu.ini"
+COPY docker/prod/Caddyfile /etc/frankenphp/Caddyfile
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /app
+
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-interaction --no-scripts --no-progress
+
+COPY . .
+COPY --from=assets /app/public/build ./public/build
+RUN composer dump-autoload --optimize --no-dev
+
+# Port 8080 needs no capability, so the binary keeps none; the panel user owns only what it
+# writes: Laravel's storage and bootstrap cache, and Caddy's own config/data directories.
+RUN mkdir -p storage/app/private storage/framework/cache/data storage/framework/sessions \
+        storage/framework/views storage/logs bootstrap/cache \
+    && useradd --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin panel \
+    && chown -R panel:panel storage bootstrap/cache /config/caddy /data/caddy \
+    && setcap -r /usr/local/bin/frankenphp
+COPY --chmod=0755 docker/prod/entrypoint.sh /usr/local/bin/panel-entrypoint
+
+USER panel
+EXPOSE 8080
+
+ENTRYPOINT ["panel-entrypoint"]
+CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile"]

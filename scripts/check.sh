@@ -10,6 +10,13 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
+# Never on production: the suite starts its own Dramatiq worker on localhost Redis and resets a test
+# schema (docs/runbooks/production-deployment.md §12).
+if grep -qs '^DEPLOYMENT_ENV=production' .env; then
+  echo "check.sh: refused on production (.env has DEPLOYMENT_ENV=production)" >&2
+  exit 1
+fi
+
 _from_file() {
   local var="$1" file="$2"
   grep "^${var}=" "$file" 2>/dev/null | head -1 | cut -d= -f2-

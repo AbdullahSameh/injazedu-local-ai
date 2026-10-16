@@ -1,6 +1,20 @@
 .PHONY: doctor up down down-hard logs health migrate migrate-down seed-profiles profiles seed-admin psql check test-db-reset mem-report automation-up logs-ui smoke-llm smoke-moderation smoke-attention qualify qualify-moderation test-llm check-lane tg-doctor
 
-COMPOSE := docker compose -f infra/docker-compose.yml --env-file .env
+# Production's .env says DEPLOYMENT_ENV=production (docs/runbooks/production-deployment.md): there
+# every target uses the production override too — so `make up` can never publish Postgres or Redis
+# on 0.0.0.0 — and the destructive targets and the test suite refuse to run (runbook §12).
+# Development's .env has no such line, and nothing below changes for it.
+_PRODUCTION := $(shell grep -qs '^DEPLOYMENT_ENV=production' .env && echo yes)
+ifeq ($(_PRODUCTION),yes)
+COMPOSE_FILES ?= -f infra/docker-compose.yml -f infra/docker-compose.prod.yml
+else
+COMPOSE_FILES ?= -f infra/docker-compose.yml
+endif
+COMPOSE := docker compose $(COMPOSE_FILES) --env-file .env
+
+define refuse_in_production
+@if [ "$(_PRODUCTION)" = "yes" ]; then echo "make $@: refused on production (.env has DEPLOYMENT_ENV=production)" >&2; exit 1; fi
+endef
 
 doctor: ## Check prerequisites: Docker memory, Ollama, .env completeness (FR-034)
 	@echo "== .env =="
@@ -45,6 +59,7 @@ down: ## Stop everything, keep volumes (FR-002); '*' includes opt-in profiles (d
 	$(COMPOSE) --profile '*' down
 
 down-hard: ## Stop and delete the volume — prompts, names the database (FR-002)
+	$(refuse_in_production)
 	@db=$$(grep '^POSTGRES_DB=' .env | cut -d= -f2); \
 	echo "This will permanently DELETE the '$$db' database volume — all data is lost."; \
 	read -p "Type 'yes' to continue: " confirm && [ "$$confirm" = "yes" ] || (echo "Aborted."; exit 1)
@@ -54,7 +69,8 @@ logs: ## Tail all services' logs
 	$(COMPOSE) logs -f
 
 health: ## Call GET /health and pretty-print the report (FR-006)
-	@port=$$(grep '^API_PORT=' .env | cut -d= -f2); \
+	@port=$$(grep '^API_HOST_PORT=' .env | cut -d= -f2); \
+	port=$${port:-$$(grep '^API_PORT=' .env | cut -d= -f2)}; \
 	port=$${port:-8000}; \
 	curl -s "http://localhost:$$port/health" | python3 -m json.tool
 
@@ -62,6 +78,7 @@ migrate: ## Run Alembic to head via the one-shot migrate container (FR-011)
 	$(COMPOSE) --profile tools run --rm migrate alembic upgrade head
 
 migrate-down: ## Roll back one revision (FR-011, SC-006)
+	$(refuse_in_production)
 	$(COMPOSE) --profile tools run --rm migrate alembic downgrade -1
 
 seed-profiles: ## Seed the model roster into model_profiles, idempotent (FR-010, research D-36)
@@ -79,9 +96,11 @@ psql: ## Open psql inside the postgres container (research D-20)
 	$(COMPOSE) exec postgres psql -U "$$user" -d "$$db"
 
 check: ## Quality gate: ruff, mypy, pytest, PHP feature test, secret scan (FR-025)
+	$(refuse_in_production)
 	@scripts/check.sh
 
 test-db-reset: ## Recreate injaz_ai_test from migrations; refuses non-_test names (FR-029)
+	$(refuse_in_production)
 	@scripts/test_db_reset.sh
 
 mem-report: ## docker stats against the 5 GB budget (SC-004)

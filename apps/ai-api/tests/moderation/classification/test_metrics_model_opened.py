@@ -147,18 +147,18 @@ async def test_c9_counts_each_models_opened_questions_by_outcome(
         )
 
     assert {r["era"] for r in rows} == {"classification"}
-    by_key = {(r["model_profile_id"], r["prompt_version"]): r for r in rows}
-    assert set(by_key) == {
+    by_profile_prompt = {(r["model_profile_id"], r["prompt_version"]): r for r in rows}
+    assert set(by_profile_prompt) == {
         (model_a, "classify_v2"),
         (model_a, "classify_v1"),
         (model_b, "classify_v2"),
     }
-    a2 = by_key[(model_a, "classify_v2")]
+    a2 = by_profile_prompt[(model_a, "classify_v2")]
     assert (a2["model_opened"], a2["model_dismissed"], a2["model_kept"]) == (4, 1, 3)
     assert (a2["model_answered"], a2["model_unanswered"]) == (1, 2)
-    a1 = by_key[(model_a, "classify_v1")]
+    a1 = by_profile_prompt[(model_a, "classify_v1")]
     assert (a1["model_opened"], a1["model_dismissed"], a1["model_kept"]) == (1, 1, 0)
-    b2 = by_key[(model_b, "classify_v2")]
+    b2 = by_profile_prompt[(model_b, "classify_v2")]
     assert (b2["model_opened"], b2["model_dismissed"], b2["model_answered"]) == (1, 0, 1)
     assert all(r["taxonomy_version"] == 1 for r in rows)
 
