@@ -5,19 +5,23 @@
 - **v2 (2026-10-16)** replaces v1 (2026-10-15). It folds in the operator's final decisions and a re-check of the server.
 - **Progress (2026-10-16):**
   - **Phase C** merged to `main` as `e5a4bd6`.
-  - **Phase E** E0–E8b, E10 and E11 are done on the server; E9 (the admin account) is the operator's.
-    - Deployed `e5a4bd6`; HTTPS on both domains; `ai.` serves only `/health/live`.
+  - **Phase E** E0–E11 are done on the server, and `50cb31f` (the thread fix) is deployed. The admin account exists, and `ollama-gemma4-e2b-moderation` was activated on the operator's approval; it stays inert while Telegram is off.
+    - HTTPS on both domains; `ai.` serves only `/health/live`.
     - From outside, only ports 22, 80 and 443 are open; the neighbours still answer 302 / 200 / 401.
-    - E2B + `classify_v2` is **QUALIFIED** on this host, line for line as on the Mac. The moderation profile stays inactive until the operator approves it.
+    - E2B + `classify_v2` is **QUALIFIED** on this host, line for line as on the Mac.
     - The E4B measurement was taken and E4B was never activated.
     - Restart and `down`/`up` survival hold, with the volumes intact.
     - Measured figures: runbook §8.
   - **Found on the host:**
-    - llama.cpp ran 6 threads on Ollama's 5 CPUs, giving 0.2 instead of 18.3 tokens/s. The fix (`OLLAMA_THREADS`) is local, waiting for the operator's commit; the server runs it from a temporary override file until then.
+    - llama.cpp ran 6 threads on Ollama's 5 CPUs, giving 0.2 instead of 13.6–18.3 tokens/s. Fixed by `OLLAMA_THREADS` (`50cb31f`), with no override file left.
     - `make` isn't installed on the server, so the runbook uses `scripts/prod/dc`.
-  - **Still to come:**
-    - Phase M, the maintenance window;
-    - Phase G, Telegram (separate approval).
+  - **Contabo Auto Backup** is enabled (operator, 2026-10-16).
+  - **Phase M** (2026-10-16):
+    - 72 packages upgraded (Docker 29.9.1, containerd 2.4.2, Compose 5.6.0, Node.js and Ubuntu's own packages) with `scripts/prod/sudo/04-maintenance-upgrade.sh`.
+    - Rebooted into kernel 6.8.0-147. Every service, container and site came back, with no failed unit.
+    - Journal cap skipped: journald already caps the journal at 4 GB.
+    - The 38 PHP packages wait for Launchpad: the `ondrej/php` PPA returned 503 during the window. Re-run 04 without `--skip-origin` later; php-fpm restarts, no reboot.
+  - **Still to come:** Phase G, Telegram (separate approval).
   - Operating guide: `docs/runbooks/production-deployment.md`.
 - **Goal:** a secure, practical, resource-efficient production deployment of the whole stack on the Contabo VPS (`84.46.248.13`):
   - Laravel/Filament, FastAPI, the workers, Postgres + pgvector, Redis and Ollama, all in Docker;
