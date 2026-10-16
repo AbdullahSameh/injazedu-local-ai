@@ -70,7 +70,9 @@ changes against the base file.
 
 **Commands:**
 - `scripts/prod/dc <compose args>` is `docker compose` with both files and `.env`.
-- `make <target>` works too: on production it adds the override automatically.
+- **`make` is not installed on the server** (an Ubuntu default), so this runbook uses the
+  `scripts/prod/dc` forms. If you install it (`sudo apt install make`), `make <target>` works too:
+  on production it adds the override automatically and refuses the destructive targets.
 
 ## 3. Privileged steps (the operator runs them)
 
@@ -144,7 +146,7 @@ CONFIRM_MIGRATIONS=yes scripts/prod/deploy.sh <pushed-commit-sha>
 **Then:**
 
 ```bash
-make seed-profiles                                                   # idempotent
+scripts/prod/dc --profile tools run --rm migrate python -m app.scripts.seed_profiles   # idempotent
 scripts/prod/set-model-endpoint.sh http://ollama:11434/v1 --provider ollama
 scripts/prod/dc exec ollama ollama pull gemma4:e2b-it-qat
 scripts/prod/dc exec ollama ollama pull embeddinggemma:300m-qat-q4_0
@@ -248,7 +250,10 @@ are fixed in the override:
 - `NUM_PARALLEL=1`;
 - `MAX_LOADED_MODELS=1`;
 - `FLASH_ATTENTION=1`;
-- `KEEP_ALIVE=24h`.
+- `KEEP_ALIVE=24h`;
+- **`LLAMA_ARG_THREADS` = `OLLAMA_THREADS` (5), always the number of CPUs in `OLLAMA_CPUSET`.**
+  llama.cpp counts the host's cores and ignores the container's CPU set. With one thread more than
+  CPUs, generation fell from 18.3 to 0.2 tokens/s (measured 2026-10-16). Change both together.
 
 **Pull or update a model.** Tags are pinned; verify a new tag on ollama.com before pulling it:
 ```bash
@@ -272,27 +277,56 @@ ssh sambo@84.46.248.13 'chmod 600 /var/www/injazedu-ai/fixtures/*.jsonl && cd /v
 
 **Smoke and qualify E2B** before activating the moderation profile:
 ```bash
-make smoke-llm                                         # one structured generation + one embedding
-FIXTURES=/var/www/injazedu-ai/fixtures/real-moderation.jsonl \
-  make smoke-moderation ARGS="--profile ollama-gemma4-e2b-moderation --prompt classify_v2"
-make qualify TASK=moderation PROFILE=ollama-gemma4-e2b-moderation PROMPT=classify_v2 \
-  FIXTURES_DIR=/var/www/injazedu-ai/fixtures REPEAT=2
+# one structured generation + one embedding
+scripts/prod/dc --profile tools run --rm migrate python -m app.scripts.smoke_llm
+# the real labelled messages, through the inactive profile
+scripts/prod/dc --profile tools run --rm -T migrate python -m app.scripts.smoke_moderation \
+  --profile ollama-gemma4-e2b-moderation --prompt classify_v2 \
+  < /var/www/injazedu-ai/fixtures/real-moderation.jsonl
+# the qualification (read-only)
+scripts/prod/dc --profile tools run --rm -T -v /var/www/injazedu-ai/fixtures:/fixtures:ro migrate \
+  python -m app.scripts.qualification --task moderation --profile ollama-gemma4-e2b-moderation \
+  --prompt classify_v2 --fixtures-dir /fixtures --repeat 2
 ```
+The smoke and qualify commands write no `model_runs` rows; only the live classifier does.
 - Activate only on **QUALIFIED**.
 - Moderation gates Q5–Q8, Q11 and Q12; latency is reported, not gated.
 - Never edit a prompt or threshold to make it pass.
 
-**E4B is measurement only, never activated.** It is about 6.1 GB on disk and ~7 GB loaded, so
-measure it alone:
-1. Confirm `free -h` shows swap on and at least 8.5 GB available.
-2. Set `OLLAMA_MEM_LIMIT=8500m` in `.env`, then run `scripts/prod/dc stop ai-worker ai-control` and
-   `scripts/prod/dc up -d ollama`.
-3. Pull `gemma4:e4b-it-qat`. Run `make smoke-attention ARGS="--profile ollama-gemma4-e4b-attention
-   --prompt attention_v1" FIXTURES=…` and/or
-   `make qualify TASK=attention PROFILE=ollama-gemma4-e4b-attention PROMPT=attention_v1 FIXTURES_DIR=… REPEAT=2`.
-   Watch `docker stats`.
+**E4B is measurement only, never activated.** It is 6.1 GB on disk and 7.3 GB loaded in the
+container, so measure it alone:
+1. Unload E2B (`scripts/prod/dc exec ollama ollama stop gemma4:e2b-it-qat`). Confirm `free -h` shows
+   swap on and at least 8.5 GB available; if not, also run `scripts/prod/dc stop ai-worker ai-control`.
+2. Set `OLLAMA_MEM_LIMIT=8500m` in `.env`, then run `scripts/prod/dc up -d ollama`.
+3. Pull `gemma4:e4b-it-qat`. Then run the attention smoke and/or the attention qualification, and
+   watch `docker stats`:
+   - `scripts/prod/dc --profile tools run --rm -T migrate python -m app.scripts.smoke_attention
+     --profile ollama-gemma4-e4b-attention --prompt attention_v1
+     < /var/www/injazedu-ai/fixtures/real-attention.jsonl`;
+   - the qualification command above with `--task attention --profile ollama-gemma4-e4b-attention
+     --prompt attention_v1`.
 4. Unload E4B with `scripts/prod/dc exec ollama ollama stop gemma4:e4b-it-qat`. Restore
-   `OLLAMA_MEM_LIMIT=6500m` and run `scripts/prod/dc up -d`.
+   `OLLAMA_MEM_LIMIT=6500m`, run `scripts/prod/dc up -d` and any started services, then load E2B again
+   (its first call after a recreate takes 17–22 s).
+
+**Measured on this host (2026-10-16, 5 threads on CPUs 1-5, Ollama 0.40.4):**
+
+| | E2B `gemma4:e2b-it-qat` (active) | E4B `gemma4:e4b-it-qat` (measurement only) |
+|---|---|---|
+| Pull | 156 s, 4.3 GB | 224 s, 6.1 GB |
+| Cold load | 17–22 s | 17 s |
+| Generation | 18.3 tokens/s | 9.7 tokens/s |
+| Memory loaded | `ollama ps` 4.0 GB; container 4.6–4.8 of 6.35 GiB | `ollama ps` 6.1 GB; container 7.3 of 8.3 GiB; peak at the 8.3 GiB cap (page cache), no OOM; host 3.0 GB available |
+| Moderation, `classify_v2`, qualification (176 calls) | **QUALIFIED**; median 4,995 ms, p95 8,496 ms | not run |
+| Attention, `attention_v1`, smoke on `real-attention.jsonl` (18 model calls) | not run | clear lines 0 missed, 0 opened wrongly; 5 of 9 ambiguous lines answered `informing` (as on the Mac); median 2,579 ms, warm max 8,859 ms, first call 30 s |
+
+- **Classifier throughput** is bound by the model: one call at a time, about 12 messages a minute at
+  the median and 7 at p95. The `default` queue drained 100 diagnostics pings in 1.4 s.
+- **Restart:** `scripts/prod/dc restart` is healthy again in about 30 s; `down` + `up -d` in about 45 s,
+  with every volume intact.
+- **Steady state with E2B:** host about 6.7 of 11.7 GB used, about 5.2 GB available, swap unused.
+- E4B halves generation speed and leaves the host only about 3 GB, so it is not an option on this
+  server next to the other sites. If it is ever wanted, move inference to a GPU host (§10).
 
 ## 9. Database: migrations, export, import, rollback
 
@@ -354,7 +388,7 @@ code change is needed.
 
    Alternatively, move an existing profile with
    `scripts/prod/set-model-endpoint.sh https://<gpu-host>/v1 <profile>`.
-4. **Qualify it on that host** (`make qualify …` as in §8). A model is qualified on the host that
+4. **Qualify it on that host** (the qualification command in §8, with the new profile). A model is qualified on the host that
    serves it.
 5. Activate it in the panel; one profile is active per role.
 6. Optional: point `OLLAMA_BASE_URL` at the remote for the `/health` probe. That probe speaks Ollama's
@@ -377,7 +411,8 @@ code change is needed.
 
 1. Put the token in `.env`: `ssh -t sambo@84.46.248.13 'nano /var/www/injazedu-ai/repo/.env'`, setting
    `TELEGRAM_BOT_TOKEN=`. Never paste it into chat or a ticket.
-2. Run `make tg-doctor` (on the server, in the repo). It must show the token present, the expected
+2. Run `scripts/prod/dc --profile tools run --rm migrate python -m app.scripts.tg_doctor` (on the
+   server, in the repo). It must show the token present, the expected
    @username from `getMe`, no webhook, and the subscriptions.
 3. Start polling: `scripts/prod/dc up -d ai-telegram ai-api`. `ai-api` reads the token for `/health`'s
    Telegram block.
@@ -438,6 +473,7 @@ oldest entries, so archive first.
 | `/health` returns 503 | Its JSON names the failing part (database, broker, or worker heartbeat). Check `scripts/prod/dc ps` and that service's logs |
 | Classifications stop | `ai-classifier` logs; `ollama ps`; the queue lengths (§7). The gateway's breaker opens after 5 failures for 30 s, and tasks retry 30/60/120/240 s |
 | Ollama is killed (OOM) | `docker inspect -f '{{.State.OOMKilled}}' $(scripts/prod/dc ps -q ollama)`. Check that only one model is loaded, then check `OLLAMA_MEM_LIMIT` |
+| Very slow answers (under 1 token/s) | `scripts/prod/dc logs ollama \| grep n_threads`: it must equal the number of CPUs in `OLLAMA_CPUSET` (§8) |
 | Slow answers | `docker stats` for CPU steal and saturation; §7's latency query. CPU inference is the limit, and §10 is the way out |
 | Certificate renewal fails | `sudo certbot renew --dry-run`. If the Cloudflare proxy was switched on, see §4 |
 | 409 conflicts in the `ai-telegram` logs | Another poller uses the token (§11) |
