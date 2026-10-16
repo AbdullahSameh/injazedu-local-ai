@@ -37,6 +37,9 @@ Panel: <http://localhost:8080/admin> · API: <http://localhost:8000>
 
 Full first-time walkthrough: [`specs/001-m0-foundation/quickstart.md`](specs/001-m0-foundation/quickstart.md).
 
+Production (Contabo VPS, behind nginx and HTTPS) is a separate setup on top of this one:
+[`docs/runbooks/production-deployment.md`](docs/runbooks/production-deployment.md).
+
 ## Important commands
 
 | Command | Effect |

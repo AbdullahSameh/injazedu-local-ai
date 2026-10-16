@@ -1,0 +1,16 @@
+{
+	# Behind the host's nginx (docs/runbooks/production-deployment.md): plain HTTP on 8080, no
+	# certificates, no admin endpoint. Four PHP threads are ample for a few operators and keep
+	# memory well inside the container's limit.
+	auto_https off
+	admin off
+	frankenphp {
+		num_threads 4
+	}
+}
+
+:8080 {
+	root * /app/public
+	encode zstd gzip
+	php_server
+}
