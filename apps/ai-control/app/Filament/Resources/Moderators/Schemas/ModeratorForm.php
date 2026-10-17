@@ -43,23 +43,28 @@ class ModeratorForm
                     ->default('placeholder')
                     ->inline()
                     ->required()
+                    // Re-renders on change, so the field the other choice needs is hidden — and
+                    // with it the browser's own `required` check, which would block the save.
+                    ->live()
                     ->visibleOn('create'),
                 Select::make('existing_telegram_user_id')
                     ->label(__('Observed sender'))
                     ->options(fn (): array => self::observedSenderOptions())
                     ->searchable()
-                    ->visible(fn (Get $get): bool => $get('identity_source') === 'observed')
+                    // One condition, not `visible()` + `visibleOn()`: the latter replaces the
+                    // former, which left both identity fields on screen whatever was chosen.
+                    ->visible(fn (Get $get, string $operation): bool => $operation === 'create'
+                        && $get('identity_source') === 'observed')
                     ->required(fn (Get $get): bool => $get('identity_source') === 'observed')
-                    ->visibleOn('create')
                     ->helperText(
                         __('★ marks someone the bot has observed treated as an administrator (FR-031, D-TG-62) — a proposal, not a grant: confirming it is what creates the mapping.')
                     ),
                 TextInput::make('tg_user_id')
                     ->label(__('Platform numeric id'))
                     ->numeric()
-                    ->visible(fn (Get $get): bool => $get('identity_source') !== 'observed')
+                    ->visible(fn (Get $get, string $operation): bool => $operation === 'create'
+                        && $get('identity_source') !== 'observed')
                     ->required(fn (Get $get): bool => $get('identity_source') !== 'observed')
-                    ->visibleOn('create')
                     ->helperText(
                         __('Creates a placeholder identity with no name until this person is first observed (FR-027, FR-028).')
                     ),
