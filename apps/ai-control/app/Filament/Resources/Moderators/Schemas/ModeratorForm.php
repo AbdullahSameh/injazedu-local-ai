@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Moderators\Schemas;
 
 use App\Models\TelegramUser;
+use App\Models\User;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -74,11 +75,40 @@ class ModeratorForm
                     ->helperText(
                         __('A plain, optional reference — no relational link to that system (Principle III).')
                     ),
+                // Revision 0009: optional, on create and edit; `uq_moderators_user_id` is the
+                // backstop for the one-account-per-moderator rule checked here.
+                Select::make('user_id')
+                    ->label(__('Panel account'))
+                    ->options(fn (): array => self::panelAccountOptions())
+                    ->searchable()
+                    ->nullable()
+                    ->unique(ignoreRecord: true)
+                    ->validationMessages([
+                        'unique' => __('This panel account is already linked to another moderator.'),
+                    ])
+                    ->helperText(
+                        __('Optional: the panel account this person signs in with. Linking grants and removes no access.')
+                    ),
                 Textarea::make('notes')
                     ->label(__('Notes'))
                     ->extraInputAttributes(['dir' => 'auto'])
                     ->columnSpanFull(),
             ]);
+    }
+
+    /**
+     * Every panel account, as "name (email)", keyed by `users.id`. One already linked elsewhere
+     * stays listed and is refused on save, so the reason is shown rather than the option hidden.
+     *
+     * @return array<int, string>
+     */
+    private static function panelAccountOptions(): array
+    {
+        return User::query()
+            ->orderBy('name')
+            ->get()
+            ->mapWithKeys(fn (User $user): array => [$user->id => "{$user->name} ({$user->email})"])
+            ->all();
     }
 
     /**

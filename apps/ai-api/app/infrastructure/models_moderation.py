@@ -278,7 +278,11 @@ moderators = sa.Table(
     sa.Column(
         "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     ),
+    # Revision 0009: the panel account this moderator signs in with, set only from the panel.
+    # No FK to `users`, as `closed_by_user_id` (D-TG-102); never read on this side.
+    sa.Column("user_id", sa.BigInteger(), nullable=True),
     sa.UniqueConstraint("telegram_user_id", name="uq_moderators_telegram_user_id"),
+    sa.UniqueConstraint("user_id", name="uq_moderators_user_id"),
 )
 
 moderator_group_assignments = sa.Table(

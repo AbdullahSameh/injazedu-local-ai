@@ -155,7 +155,8 @@ class LiveAttentionQueueTest extends TestCase
         Livewire::test(LiveAttentionQueue::class)->assertSuccessful();
     }
 
-    public function test_open_items_are_ordered_longest_waiting_first(): void
+    /** P1 as amended 2026-10-17: newest first by default. */
+    public function test_open_items_are_ordered_newest_first(): void
     {
         $this->actingAsPanelOperator();
         $chat = $this->makeChat();
@@ -171,6 +172,26 @@ class LiveAttentionQueueTest extends TestCase
         );
 
         Livewire::test(LiveAttentionQueue::class)
+            ->assertCanSeeTableRecords([$shortestWaiting, $longestWaiting], inOrder: true);
+    }
+
+    public function test_sorting_waiting_ascending_shows_the_longest_waiting_first(): void
+    {
+        $this->actingAsPanelOperator();
+        $chat = $this->makeChat();
+        $student = $this->makeStudent();
+
+        $longestWaiting = $this->makeItem(
+            $chat,
+            $this->makeMessage($chat, $student, 1, 'متى الاختبار؟', now()->subHours(3)),
+        );
+        $shortestWaiting = $this->makeItem(
+            $chat,
+            $this->makeMessage($chat, $student, 2, 'وين رابط الزوم', now()->subMinutes(5)),
+        );
+
+        Livewire::test(LiveAttentionQueue::class)
+            ->sortTable('opened_at', 'asc')
             ->assertCanSeeTableRecords([$longestWaiting, $shortestWaiting], inOrder: true);
     }
 

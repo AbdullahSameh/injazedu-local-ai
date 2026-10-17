@@ -336,5 +336,16 @@
     "primary": "أساسي",
     "backup": "احتياطي",
     "A profile's vector width is immutable once set — create a new profile instead of editing this one (FR-017).": "عرض المتجه في الملف لا يتغير بعد تعيينه — أنشئ ملفاً جديداً بدلاً من تعديل هذا (FR-017).",
-    "Refusing to leave role ':role' with no active profile — activate a replacement first (FR-011).": "رُفض ترك الدور ':role' دون ملف نشط — فعّل بديلاً أولاً (FR-011)."
+    "Refusing to leave role ':role' with no active profile — activate a replacement first (FR-011).": "رُفض ترك الدور ':role' دون ملف نشط — فعّل بديلاً أولاً (FR-011).",
+    "user": "مستخدم",
+    "users": "المستخدمون",
+    "Email": "البريد الإلكتروني",
+    "Password": "كلمة المرور",
+    "Confirm password": "تأكيد كلمة المرور",
+    "Leave blank to keep the current password.": "اتركها فارغة للإبقاء على كلمة المرور الحالية.",
+    "Panel access": "الدخول إلى اللوحة",
+    "Off: this account can no longer sign in. Your own access cannot be switched off.": "عند الإيقاف لا يستطيع هذا الحساب تسجيل الدخول. لا يمكنك إيقاف دخولك أنت.",
+    "Created at": "تاريخ الإنشاء",
+    "This panel account is already linked to another moderator.": "حساب اللوحة هذا مرتبط بمشرف آخر.",
+    "Optional: the panel account this person signs in with. Linking grants and removes no access.": "اختياري: حساب اللوحة الذي يسجّل به هذا الشخص دخوله. الربط لا يمنح أي صلاحية ولا يسحبها."
 }

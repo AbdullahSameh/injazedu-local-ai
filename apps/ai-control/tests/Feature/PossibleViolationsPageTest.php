@@ -166,6 +166,21 @@ class PossibleViolationsPageTest extends TestCase
             ]);
     }
 
+    /** V1: newest posting first by default; the "Posted" header flips it. */
+    public function test_rows_are_ordered_newest_posted_first_and_the_header_flips_them(): void
+    {
+        $this->actingAsPanelOperator();
+        $chat = $this->makeChat();
+
+        $older = $this->makeClassification($chat, $this->makeMessage($chat, 1, ['sent_at' => now()->subHours(3)]));
+        $newer = $this->makeClassification($chat, $this->makeMessage($chat, 2, ['sent_at' => now()->subMinutes(5)]));
+
+        Livewire::test(PossibleViolations::class)
+            ->assertCanSeeTableRecords([$newer, $older], inOrder: true)
+            ->sortTable('posted', 'asc')
+            ->assertCanSeeTableRecords([$older, $newer], inOrder: true);
+    }
+
     public function test_why_listed_reads_uncertain_or_inconsistent_from_route_reason(): void
     {
         $this->actingAsPanelOperator();

@@ -137,6 +137,15 @@ not a moderator in this domain, and the two lists are allowed to differ.
 **Deactivating** a moderator changes only their availability for new assignments. Their record, their
 assignment history and every `is_from_moderator` already written stay exactly as they are.
 
+**Panel account (amended 2026-10-17, `docs/plan/side/panel-users-and-sorting-plan.md` §3–§4).** A moderator may
+optionally name the panel account its person signs in with (`moderators.user_id`, revision `0009`; no FK,
+as D-TG-102; at most one moderator per account, `uq_moderators_user_id`). It is set and cleared on create
+and edit, and it grants or removes no access — panel access is `users.is_panel_operator` alone. Panel
+accounts themselves are managed on a **Users** screen (navigation group *Platform*): name, email, password
+(stored only as a hash; blank on edit keeps it), and a "Panel access" toggle an operator cannot switch off
+on their own account. No delete and no bulk action: a user id is stamped on history, so access is withdrawn
+with the toggle.
+
 **Assignments are a relation manager**, not a resource of their own: they are never navigated to
 independently, and they must be created through the handover action rather than a free-form create
 form, which a top-level resource would invite bypassing.

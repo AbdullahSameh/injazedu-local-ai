@@ -31,7 +31,8 @@ use Illuminate\Support\Str;
 use UnitEnum;
 
 /**
- * One screen showing every question still waiting, oldest first, with a live waiting time
+ * One screen showing every question still waiting, newest first (sortable: one click on "Waiting"
+ * shows the longest-waiting first — P1 as amended 2026-10-17), with a live waiting time
  * (`control-panel-attention.md` §1, T050-T052). A custom page with a table, not a resource: the
  * only writes an attention item ever takes are dismiss and hand-open (Phase 6), both actions —
  * never operator-created CRUD (D-TG-93).
@@ -154,7 +155,8 @@ class LiveAttentionQueue extends Page implements HasTable
                 // viewer's clock skew (P3).
                 TextColumn::make('opened_at')
                     ->label(__('Waiting'))
-                    ->since(),
+                    ->since()
+                    ->sortable(),
                 // Q1-Q2: never filters, sorts or hides a row — a plain display column, read
                 // after the row set is already decided.
                 TextColumn::make('models_view')
@@ -228,7 +230,7 @@ class LiveAttentionQueue extends Page implements HasTable
                     ])
                     ->action(fn (array $data) => self::openByHand((int) $data['telegram_message_id'])),
             ])
-            ->defaultSort('opened_at', 'asc')
+            ->defaultSort('opened_at', 'desc')
             ->poll('15s')
             ->emptyStateHeading(__('Nothing waiting'))
             ->emptyStateDescription(

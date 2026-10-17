@@ -26,6 +26,7 @@ class Moderator extends Model
         'injaz_user_id',
         'is_active',
         'notes',
+        'user_id',
     ];
 
     protected function casts(): array
@@ -33,12 +34,22 @@ class Moderator extends Model
         return [
             'is_active' => 'boolean',
             'injaz_user_id' => 'integer',
+            'user_id' => 'integer',
         ];
     }
 
     public function telegramUser(): BelongsTo
     {
         return $this->belongsTo(TelegramUser::class, 'telegram_user_id');
+    }
+
+    /**
+     * The panel account this moderator signs in with, if any (revision 0009). Optional, at most
+     * one moderator per account (`uq_moderators_user_id`), and it grants no access.
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 
     protected function telegramUserId(): Attribute
