@@ -92,6 +92,26 @@ class ModeratorResourceTest extends TestCase
         $this->assertSame('Observed Moderator', $moderator->display_name);
     }
 
+    /**
+     * The identity choice re-renders the form, so choosing an observed sender hides the numeric id
+     * field (and its browser `required` check) instead of leaving it on screen, blocking the save.
+     */
+    public function test_the_identity_choice_switches_which_field_is_shown(): void
+    {
+        $this->actingAsPanelOperator();
+
+        $test = Livewire::test(CreateModerator::class);
+        $this->assertTrue(
+            $test->instance()->form->getComponent('identity_source')->isLive()
+        );
+
+        $test->assertFormFieldIsVisible('tg_user_id')
+            ->assertFormFieldIsHidden('existing_telegram_user_id')
+            ->fillForm(['identity_source' => 'observed'])
+            ->assertFormFieldIsHidden('tg_user_id')
+            ->assertFormFieldIsVisible('existing_telegram_user_id');
+    }
+
     /** Revision 0009: the panel account link is optional on create. */
     public function test_a_moderator_can_be_added_with_or_without_a_panel_account(): void
     {
