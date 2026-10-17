@@ -3,8 +3,9 @@
 #   docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml --env-file .env …
 #
 # What it changes against the base file:
-#   - Nothing is published except ai-api and ai-control, and those on 127.0.0.1 only: Docker's
-#     published ports bypass ufw, so a 0.0.0.0 publish would reach the internet.
+#   - Nothing is published except ai-api, ai-control and Postgres, and those on 127.0.0.1 only:
+#     Docker's published ports bypass ufw, so a 0.0.0.0 publish would reach the internet. Postgres
+#     is there for a database client over an SSH tunnel.
 #   - Restart policies, bounded json-file logs, memory limits, pinned images.
 #   - Redis keeps its queue on disk (AOF); the panel keeps its storage across deploys.
 #   - Ollama runs here as a container. Model calls go to model_profiles.base_url — data, set by
@@ -23,7 +24,10 @@ x-logging: &logging
 services:
   postgres:
     image: pgvector/pgvector:0.8.6-pg16-bookworm
-    ports: !reset []
+    # Loopback only, for a database client over SSH (runbook §7, "Connecting a database
+    # client"): a fixed address that survives the container being recreated, never the internet.
+    ports: !override
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5434}:5432"
     volumes: !override
       - postgres-data:/var/lib/postgresql/data
       # 00 and 01 only: production has no injaz_ai_test (02-test-database.sql is development's).

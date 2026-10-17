@@ -242,6 +242,27 @@ scripts/prod/dc exec -T postgres psql -U postgres -d injaz_ai -c "
 **Logs on disk:** container logs rotate at 10 MB × 5 per service. Host nginx keeps its own logs under
 `/var/log/nginx/`.
 
+**Connecting a database client** (TablePlus, DBeaver, …). Postgres is published on the server's
+`127.0.0.1:${POSTGRES_HOST_PORT}` (5434) only, never the internet, so a client reaches it through an
+SSH tunnel. The address is fixed: it survives deploys that recreate the container.
+
+| Field | Value |
+|---|---|
+| Connection type | PostgreSQL, **Over SSH**; tag it *Production* |
+| Host / Port | `127.0.0.1` / `5434` |
+| User | `ai_control` (reads and writes data, cannot change the schema). Never `postgres`, the superuser |
+| Password | `AI_CONTROL_PASSWORD` from the **server's** `.env` (not the example file, not the Mac's `.env`) |
+| Database | `injaz_ai` |
+| SSL mode | Disable (the SSH tunnel already encrypts) |
+| SSH server / port / user / key | `84.46.248.13` / `22` / `sambo` / the key you use for `ssh` |
+
+Read the password in your own terminal, never pasted into a chat or a ticket:
+```bash
+ssh sambo@84.46.248.13 "grep '^AI_CONTROL_PASSWORD=' /var/www/injazedu-ai/repo/.env | cut -d= -f2-"
+```
+This is live data, students' messages included. Browse; do not edit rows by hand — the panel's actions
+are the audited write path.
+
 ## 8. Models
 
 **Endpoints** are data: see `scripts/prod/set-model-endpoint.sh --show` and §10. The runtime settings
