@@ -92,6 +92,82 @@ class ModeratorResourceTest extends TestCase
         $this->assertSame('Observed Moderator', $moderator->display_name);
     }
 
+    /** Revision 0009: the panel account link is optional on create. */
+    public function test_a_moderator_can_be_added_with_or_without_a_panel_account(): void
+    {
+        $this->actingAsPanelOperator();
+        $account = User::factory()->create();
+        $linked = $this->makeObservedIdentity();
+        $unlinked = $this->makeObservedIdentity();
+
+        Livewire::test(CreateModerator::class)
+            ->fillForm([
+                'display_name' => 'Linked Moderator',
+                'identity_source' => 'observed',
+                'existing_telegram_user_id' => $linked->id,
+                'user_id' => $account->id,
+            ])
+            ->call('create')
+            ->assertHasNoFormErrors();
+
+        Livewire::test(CreateModerator::class)
+            ->fillForm([
+                'display_name' => 'Unlinked Moderator',
+                'identity_source' => 'observed',
+                'existing_telegram_user_id' => $unlinked->id,
+            ])
+            ->call('create')
+            ->assertHasNoFormErrors();
+
+        $this->assertSame($account->id, Moderator::where('telegram_user_id', $linked->id)->value('user_id'));
+        $this->assertNull(Moderator::where('telegram_user_id', $unlinked->id)->value('user_id'));
+        $this->assertSame('Linked Moderator', $account->fresh()->moderator->display_name);
+    }
+
+    public function test_a_panel_account_can_be_linked_and_unlinked_on_edit(): void
+    {
+        $this->actingAsPanelOperator();
+        $account = User::factory()->create();
+        $moderator = Moderator::create([
+            'telegram_user_id' => $this->makeObservedIdentity()->id,
+            'display_name' => 'Editable Moderator',
+        ]);
+
+        Livewire::test(EditModerator::class, ['record' => $moderator->getRouteKey()])
+            ->fillForm(['user_id' => $account->id])
+            ->call('save')
+            ->assertHasNoFormErrors();
+        $this->assertSame($account->id, $moderator->fresh()->user_id);
+
+        Livewire::test(EditModerator::class, ['record' => $moderator->getRouteKey()])
+            ->fillForm(['user_id' => null])
+            ->call('save')
+            ->assertHasNoFormErrors();
+        $this->assertNull($moderator->fresh()->user_id);
+    }
+
+    public function test_one_panel_account_links_to_at_most_one_moderator(): void
+    {
+        $this->actingAsPanelOperator();
+        $account = User::factory()->create();
+        Moderator::create([
+            'telegram_user_id' => $this->makeObservedIdentity()->id,
+            'display_name' => 'First Moderator',
+            'user_id' => $account->id,
+        ]);
+        $second = Moderator::create([
+            'telegram_user_id' => $this->makeObservedIdentity()->id,
+            'display_name' => 'Second Moderator',
+        ]);
+
+        Livewire::test(EditModerator::class, ['record' => $second->getRouteKey()])
+            ->fillForm(['user_id' => $account->id])
+            ->call('save')
+            ->assertHasFormErrors(['user_id' => 'unique']);
+
+        $this->assertNull($second->fresh()->user_id);
+    }
+
     public function test_deactivation_changes_only_availability(): void
     {
         $this->actingAsPanelOperator();

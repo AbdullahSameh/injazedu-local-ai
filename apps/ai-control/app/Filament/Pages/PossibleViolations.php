@@ -70,12 +70,16 @@ class PossibleViolations extends Page implements HasTable
         }
 
         return $table
-            ->records(function (array $filters): Collection {
+            ->records(function (array $filters, ?string $sortDirection): Collection {
                 $chatId = $filters['group']['value'] ?? null;
                 [$from, $to] = $this->periodBounds($filters['posted'] ?? []);
 
-                return collect($this->possibleViolations($chatId !== null ? (int) $chatId : null, $from, $to))
+                $rows = collect($this->possibleViolations($chatId !== null ? (int) $chatId : null, $from, $to))
                     ->map(fn (object $row): array => (array) $row + ['__key' => (string) $row->id]);
+
+                // C4 already orders newest posting first (V1); "Posted" is the only sortable
+                // column, so oldest first is that same order reversed — never a second query.
+                return $sortDirection === 'asc' ? $rows->reverse()->values() : $rows;
             })
             ->columns([
                 TextColumn::make('group')
@@ -98,7 +102,8 @@ class PossibleViolations extends Page implements HasTable
                         fn (array $record): string => Carbon::parse($record['sent_at'])
                             ->setTimezone('Asia/Riyadh')
                             ->format('Y-m-d H:i')
-                    ),
+                    )
+                    ->sortable(),
                 TextColumn::make('model_view')
                     ->label(__("Model's view"))
                     ->getStateUsing(
@@ -145,6 +150,7 @@ class PossibleViolations extends Page implements HasTable
             ->recordActions([
                 OpenIncidentAction::forPossibleViolationRow(),
             ])
+            ->defaultSort('posted', 'desc')
             ->emptyStateHeading(__('Nothing listed'))
             ->emptyStateDescription(
                 __('A message appears here when the model thinks it may need moderation but is not confident or consistent enough to open an incident.')

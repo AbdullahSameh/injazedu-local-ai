@@ -21,7 +21,9 @@ writes are dismiss and hand-open, and both are actions.
 | Waiting | `now() - opened_at`, server-side | Human units |
 
 **P1.** Ordered **longest-waiting first** (`opened_at ASC`), because that is the order the work should be
-done in.
+done in. *Amended 2026-10-17 by the operator (`docs/plan/side/panel-users-and-sorting-plan.md` §1): ordered
+**newest first** (`opened_at DESC`) by default; "Waiting" is a sortable header, so one click restores
+longest-waiting first. Only the list order changed — every figure is untouched.*
 **P2.** `->poll('15s')` — `Filament\Tables\Table\Concerns\CanPollRecords::poll()`, measured present in
 v5.7.8. No custom JavaScript.
 **P3.** The waiting time is recomputed **server-side on each poll**. A browser ticker would disagree with

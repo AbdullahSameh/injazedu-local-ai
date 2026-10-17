@@ -29,6 +29,10 @@ class ModeratorsTable
                     ->formatStateUsing(fn (?string $state): ?string => $state ? "@{$state}" : null),
                 IconColumn::make('is_active')->label(__('Active'))->boolean()->sortable(),
                 TextColumn::make('injaz_user_id')->label(__('Org reference'))->placeholder('—'),
+                TextColumn::make('user.name')
+                    ->label(__('Panel account'))
+                    ->placeholder('—')
+                    ->extraAttributes(['dir' => 'auto']),
                 TextColumn::make('updated_at')
                     ->label(__('Updated at'))
                     ->dateTime()

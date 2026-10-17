@@ -86,7 +86,9 @@ A read-only custom page in the **Moderation Intelligence** navigation group, aft
 | Model | roster name · instruction version |
 
 - **V1.** Rows are exactly C4's: live predictions routed `possible_violation` whose message anchors no incident.
-  Default sort: newest posting first. Filters: group, posting period.
+  Default sort: newest posting first. Filters: group, posting period. *Amended 2026-10-17
+  (`docs/plan/side/panel-users-and-sorting-plan.md` §2): "Posted" is a sortable header showing that default;
+  oldest first is C4's own order reversed, never a second query.*
 - **V2.** One row action, **"Flag message"**: TG-M4's opening form (category and severity required, chosen by the
   operator), which calls `ModerationIncident::openOn($message, $category, $severity, $user,
   promptedByClassificationId: $row->id)`. The incident is operator-opened in every respect (FR-043); it is

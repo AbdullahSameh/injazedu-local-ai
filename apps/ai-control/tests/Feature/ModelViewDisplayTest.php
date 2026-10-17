@@ -202,8 +202,9 @@ class ModelViewDisplayTest extends TestCase
             'sent_at' => now()->subMinutes(5),
         ]));
 
+        // P1 as amended 2026-10-17: newest first — the column still never reorders anything.
         Livewire::test(LiveAttentionQueue::class)
-            ->assertCanSeeTableRecords([$longestWaiting, $shortestWaiting], inOrder: true)
+            ->assertCanSeeTableRecords([$shortestWaiting, $longestWaiting], inOrder: true)
             ->assertTableActionExists('dismiss_not_a_question')
             ->assertTableActionExists('dismiss_member_discussion')
             ->assertTableActionExists('dismiss_message_removed');

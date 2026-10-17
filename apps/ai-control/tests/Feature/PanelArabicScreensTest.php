@@ -33,6 +33,7 @@ class PanelArabicScreensTest extends TestCase
             'groups' => ['/admin/telegram-chats', 'المجموعات', 'Telegram Chats'],
             'moderators' => ['/admin/moderators', 'المشرفون', 'Moderators'],
             'model profiles' => ['/admin/model-profiles', 'ملفات النماذج', 'Model Profiles'],
+            'users' => ['/admin/users', 'المستخدمون', 'Users'],
         ];
     }
 

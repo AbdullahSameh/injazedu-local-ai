@@ -1414,7 +1414,7 @@ quit and with no Telegram token set**.
 | `scripts/scan_secrets.sh`       | bot-token shape                                                                             | none                                                  |
 | `infra/docker-compose.yml`      | one new `ai-telegram` service, `mem_limit: 256m`                                            | low — measured stack is 0.27 GiB against a 5 GB cap   |
 | `apps/ai-control`               | new navigation group + resources; `ModelProfileResource` gains `Platform`                   | low                                                   |
-| `alembic/versions/`             | revisions `0003`…`0009` — *TG-M5.3 (2026-10-09): `0008` taken by `0008_moderation_attention_judgement`; later moderation revisions take the next free numbers* | none — assessment milestones continue from `0010`     |
+| `alembic/versions/`             | revisions `0003`…`0009` — *TG-M5.3 (2026-10-09): `0008` taken by `0008_moderation_attention_judgement`; later moderation revisions take the next free numbers. 2026-10-17: `0009` taken by `0009_moderator_panel_user`, so TG-M6's `alert_rules`/`alerts` take the next free number* | none — assessment milestones continue from `0010`     |
 | Assessment domain               | **untouched**                                                                               | —                                                     |
 
 **Alembic numbering.** Moderation takes `0003`…`0009`. If assessment M2 lands first it takes the next
