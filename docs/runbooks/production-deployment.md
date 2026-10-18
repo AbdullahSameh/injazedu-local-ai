@@ -448,6 +448,19 @@ code change is needed.
 **Roll back:** blank the token, then `scripts/prod/dc up -d ai-telegram ai-api`. The poller exits 0,
 and captured data stays.
 
+**The link rule (migration `0010`, 2026-10-18).** A link from anyone who is not a **declared moderator**
+opens a "Link rule" incident, in text, a caption, a forward or an edit. Anonymous administrators and
+the linked channel are exempt.
+- **Before deploying it,** compare the group's administrator list in Telegram with the panel's
+  Moderators. Declare every administrator who posts links; their earlier messages stay as they were.
+- **A moderator declared late** is still a member for messages sent before the declaration:
+  `is_from_moderator` is fixed when a message is stored.
+- **Check it live:** a non-moderator test account posts a link, and an incident opened by "Link
+  rule" appears. A moderator posts one, and nothing opens.
+
+The same release lists an AI advert with no link, phone, handle or forward on Possible Violations
+("No link, phone or handle") instead of opening it.
+
 **Known limitation:** after a stand-down, `/health` keeps reporting "stood down" until the
 `ingestion_state` row is corrected. Restarting the poller resumes capture.
 

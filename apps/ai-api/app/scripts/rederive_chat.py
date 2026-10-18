@@ -176,7 +176,10 @@ async def rederive_chat(
                 if inserted_id is not None:
                     derived += 1
             else:
-                rows_matched = await apply_edit(session_factory, update_row_id=row.id)
+                # A replayed edit is history too: it records the flags and opens nothing.
+                rows_matched = await apply_edit(
+                    session_factory, update_row_id=row.id, open_incidents=False
+                )
                 if rows_matched:
                     derived += 1
 

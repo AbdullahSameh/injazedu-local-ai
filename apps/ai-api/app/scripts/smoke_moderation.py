@@ -44,9 +44,14 @@ from app.application.moderation.classification import (
     MessageClassificationResult,
     build_model_input,
 )
-from app.application.moderation.text import normalize
+from app.application.moderation.text import normalize, redact
 from app.domain.model_profile import ModelProfile
-from app.domain.moderation.classification import Prediction, quantise, route_prediction
+from app.domain.moderation.classification import (
+    Prediction,
+    has_contact_signal,
+    quantise,
+    route_prediction,
+)
 from app.infrastructure.config import load_settings
 from app.infrastructure.models import model_profiles
 from app.providers.llm.base import StructuredRequest
@@ -271,8 +276,15 @@ async def judge_moderation_fixture(
         severity=answer.severity,
         confidence=quantise(answer.confidence),
     )
+    # R4b's signal from the words alone: a fixture is text, with no entities, so a hidden link or
+    # a forward cannot be represented here — the live path also reads the entity flags.
+    contact_signal = has_contact_signal(entity_flags={}, redacted_text=redact(text))
     route, route_reason = route_prediction(
-        prediction, floor=floor, threshold=threshold, path="live"
+        prediction,
+        floor=floor,
+        threshold=threshold,
+        path="live",
+        has_contact_signal=contact_signal,
     )
     row = replace(
         base,

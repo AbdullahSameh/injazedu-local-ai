@@ -3,7 +3,8 @@
 
 Claims the message in Redis (I3), checks idempotency (I1-I2), resolves eligibility (E1-E8) and
 either records an exclusion or builds the model's input, calls the gateway with `role="moderation"`
-(O1-O2), range-checks and quantises the answer (O3-O4), routes it (R1-R6) and inserts the
+(O1-O2), range-checks and quantises the answer (O3-O4), routes it (R1-R6, with R4b's outside-
+contact signal read from the entity flags and the redacted words) and inserts the
 prediction (O5-O6); when the inserted prediction's route is `incident`, opens one in the same
 transaction (§7 A1-A6) — one transaction per outcome either way. Never retries a transient failure
 itself: US3 (T053) adds the task-level retry. The redacted string is bound only to `redacted_text`,
@@ -44,6 +45,7 @@ from app.domain.moderation.classification import (
     MessageFacts,
     Prediction,
     eligibility,
+    has_contact_signal,
     quantise,
     route_prediction,
 )
@@ -205,6 +207,19 @@ async def load_facts(
         is_automatic_forward=is_automatic_forward,
     )
     return facts, text
+
+
+async def _entity_flags_of(session: AsyncSession, chat_pk: int, message_id: int) -> Any:
+    """The message's recorded entity flags (`messages._entity_flags`) — R4b's structured signals
+    beside the redacted words."""
+    return (
+        await session.execute(
+            sa.select(telegram_messages.c.entity_flags).where(
+                telegram_messages.c.telegram_chat_id == chat_pk,
+                telegram_messages.c.message_id == message_id,
+            )
+        )
+    ).scalar_one()
 
 
 async def _already_attempted(session: AsyncSession, *, chat_pk: int, message_id: int) -> bool:
@@ -431,8 +446,16 @@ async def classify_one(
             is_catch_up = path == "catch_up"
             floor = None if is_catch_up else quantise(settings.moderation_confidence_floor)
             threshold = None if is_catch_up else quantise(settings.moderation_incident_confidence)
+            contact_signal = has_contact_signal(
+                entity_flags=await _entity_flags_of(session, chat_pk, message_id),
+                redacted_text=redact(text),
+            )
             route, route_reason = route_prediction(
-                prediction, floor=floor, threshold=threshold, path=path
+                prediction,
+                floor=floor,
+                threshold=threshold,
+                path=path,
+                has_contact_signal=contact_signal,
             )
 
             inserted_id = await _insert_prediction(

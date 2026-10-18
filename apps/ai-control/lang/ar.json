@@ -347,5 +347,9 @@
     "Off: this account can no longer sign in. Your own access cannot be switched off.": "عند الإيقاف لا يستطيع هذا الحساب تسجيل الدخول. لا يمكنك إيقاف دخولك أنت.",
     "Created at": "تاريخ الإنشاء",
     "This panel account is already linked to another moderator.": "حساب اللوحة هذا مرتبط بمشرف آخر.",
-    "Optional: the panel account this person signs in with. Linking grants and removes no access.": "اختياري: حساب اللوحة الذي يسجّل به هذا الشخص دخوله. الربط لا يمنح أي صلاحية ولا يسحبها."
+    "Optional: the panel account this person signs in with. Linking grants and removes no access.": "اختياري: حساب اللوحة الذي يسجّل به هذا الشخص دخوله. الربط لا يمنح أي صلاحية ولا يسحبها.",
+    "Link rule": "قاعدة الروابط",
+    "Opened by the link rule": "فتحتها قاعدة الروابط",
+    "the link rule's: a link from a member": "حدّدته قاعدة الروابط: رابط من عضو",
+    "No link, phone or handle": "لا رابط ولا رقم ولا معرّف"
 }

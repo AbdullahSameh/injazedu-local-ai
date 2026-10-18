@@ -48,6 +48,13 @@ menu); the per-field `dir="auto"` and every wording rule here hold in both langu
 - **L3.** The figures table: detection latency is shown per opener, from C8 (D-TG-159). Every other TG-M4
   figure is unchanged and includes model-opened incidents.
 
+> **Amended 2026-10-18: the link rule** (007 lifecycle I1 amendment).
+> - **L1–L3** gain a third opener, **"Link rule"** (`source = 'rule'`). One wording,
+>   `IncidentDisplay::openerLabel`, serves the column, the filter and the latency table.
+> - **On the detail page** the incident reads **"Opened by the link rule"**, and its labels read **"the link
+>   rule's: a link from a member"**.
+> - **"The model's view"** of the message is shown as for an operator-opened incident.
+
 ### §2.3 Incidents — detail (FR-054)
 
 TG-M4's "Why flagged" answer changes; nothing else on the page does.
@@ -82,7 +89,7 @@ A read-only custom page in the **Moderation Intelligence** navigation group, aft
 | Message | `original_text`, `dir="auto"`, truncated; "Text removed" once retention has taken it |
 | Posted | `sent_at`, rendered in the operator's timezone |
 | Model's view | category · severity · self-reported confidence |
-| Why listed | **"Uncertain"** (below the incident threshold) or **"Inconsistent"** (the model contradicted itself) |
+| Why listed | **"Uncertain"** (below the incident threshold), **"Inconsistent"** (the model contradicted itself), or **"No link, phone or handle"** (R4b, amended 2026-10-18: an advert reading with no outside-contact signal) |
 | Model | roster name · instruction version |
 
 - **V1.** Rows are exactly C4's: live predictions routed `possible_violation` whose message anchors no incident.

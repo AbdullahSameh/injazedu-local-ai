@@ -716,7 +716,8 @@ async def test_moderation_routes_live_at_the_given_thresholds() -> None:
             confidence=0.95,
         )
     )
-    text = "  عرض خاص تواصل خاص  "
+    # A phone number: R4b's outside-contact signal, so the confident advert still opens.
+    text = "  عرض خاص تواصل خاص 0551234567  "
 
     row, latency_ms = await _judge_moderation(
         gateway, {"text": text, "category": "SPAM_OR_AD", "needs_moderation": True}, line=9
@@ -733,6 +734,18 @@ async def test_moderation_routes_live_at_the_given_thresholds() -> None:
     assert row.confidence == 0.95
     assert row.matched
     assert isinstance(latency_ms, int)
+
+
+async def test_moderation_lists_an_advert_without_a_contact_signal() -> None:
+    gateway = _StubGateway(
+        _answer("SPAM_OR_AD", needs_response=False, needs_moderation=True, severity="medium")
+    )
+
+    row, _ = await _judge_moderation(
+        gateway, {"text": "عرض خاص تواصل خاص", "category": "SPAM_OR_AD", "needs_moderation": True}
+    )
+
+    assert row.route == "possible_violation/no_contact_signal"
 
 
 async def test_moderation_keeps_the_route_reason() -> None:
@@ -1049,7 +1062,8 @@ async def test_the_moderation_suite_judges_through_the_smokes_path(
     out, err = capsys.readouterr()
 
     [real, shipped, policy] = results
-    assert [row.route for row in real.first] == ["incident", None]
+    # The sentinel text carries no outside-contact signal, so R4b lists the advert.
+    assert [row.route for row in real.first] == ["possible_violation/no_contact_signal", None]
     assert not shipped.ran and not policy.ran
     assert {role for _, role in gateway.calls} == {"moderation"}
     assert "[OK] #1 expected=SPAM_OR_AD/True predicted=SPAM_OR_AD/True" in out

@@ -86,6 +86,19 @@ normalised*, not *pre-edit as opposed to post-edit*. **Accepted limitation:** on
 payload is purged, the pre-edit text of a message edited within that window is gone. That is the
 same cost the domain already accepted for message text generally.
 
+> **Amended 2026-10-18: sticky entity flags and the link rule**
+> (`docs/plan/telegram/tg-day-one-investigation-and-link-rule-plan.md` Step 1).
+> - **The edit also writes `entity_flags`, as an OR.** A flag is true once any captured version carried it, so an
+>   observation is never withdrawn by a later edit. A member can no longer post plain text, edit a link in, and
+>   leave the row saying "no link".
+> - **No other field changes.** `is_from_moderator`, `sent_at`, `telegram_user_id` and `source_update_id` stay as
+>   written at insert.
+> - **The link rule opens a policy incident on the live path,** at insert (`derive_message`) and on an edit
+>   (`apply_edit`). This is TG-M4's `source = 'rule'` (007 lifecycle I1 amendment), opened in the same transaction
+>   as the row.
+> - **`rederive_chat.py` is history,** for both write modes: `schedule_classification=False` and
+>   `open_incidents=False`. It records the flags and opens nothing.
+
 ---
 
 ## §3 — Per-field derivation rules

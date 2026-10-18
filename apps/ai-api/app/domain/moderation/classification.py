@@ -17,6 +17,7 @@ the benchmark judges the attention judgement too (`app/scripts/qualification/att
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -42,6 +43,12 @@ VIOLATION_CATEGORIES: frozenset[str] = frozenset({"SPAM_OR_AD", "ABUSE"})
 INCIDENT_CATEGORIES: frozenset[str] = frozenset({"SPAM_OR_AD", "ABUSE", "OTHER"})
 
 TAXONOMY_VERSION = 1
+
+# R4b's structured outside-contact signals: the four placeholders `redact` writes (TG-M0's
+# `moderation-text.md` §3), and the message's recorded entity flags. Words such as "خاص" are
+# deliberately not signals — "خاصة" (special) appeared in a day-one false positive.
+CONTACT_PLACEHOLDERS: tuple[str, ...] = ("«رابط»", "«رقم»", "«بريد»", "«مستخدم»")
+_CONTACT_FLAGS: tuple[str, ...] = ("has_url", "has_phone", "has_mention", "forwarded")
 
 
 @dataclass(frozen=True)
@@ -106,6 +113,14 @@ def is_consistent(prediction: Prediction) -> bool:
     return prediction.category not in VIOLATION_CATEGORIES
 
 
+def has_contact_signal(*, entity_flags: Mapping[str, bool], redacted_text: str) -> bool:
+    """R4b's input: the message points somewhere outside the group — a link, phone, mention or
+    forward entity, or a redacted link, number, email or handle in the words the model read."""
+    if any(entity_flags.get(flag, False) for flag in _CONTACT_FLAGS):
+        return True
+    return any(placeholder in redacted_text for placeholder in CONTACT_PLACEHOLDERS)
+
+
 def quantise(confidence: float) -> Decimal:
     """Three places, half-up (D-TG-135) — the value routed and stored, never the model's raw
     float."""
@@ -118,10 +133,14 @@ def route_prediction(
     floor: Decimal | None,
     threshold: Decimal | None,
     path: str,
+    has_contact_signal: bool,
 ) -> tuple[str, str | None]:
     """`(route, route_reason)`, R1-R6 top to bottom, first match wins (D-TG-142). `floor` and
     `threshold` are ignored on the catch-up path (R1) — the operator's command passes thresholds
-    that are never in force, so `None` there is deliberate (`ck_classification_thresholds`)."""
+    that are never in force, so `None` there is deliberate (`ck_classification_thresholds`).
+
+    R4b (2026-10-18): a SPAM_OR_AD prediction with no outside-contact signal is listed, never
+    opened — on day one three student requests were opened as adverts at 0.95 with none."""
     if path == "catch_up":
         return "measurement_only", None
     assert floor is not None and threshold is not None
@@ -131,6 +150,8 @@ def route_prediction(
         return "possible_violation", "inconsistent"
     if not prediction.needs_moderation:
         return "none", None
+    if prediction.category == "SPAM_OR_AD" and not has_contact_signal:
+        return "possible_violation", "no_contact_signal"
     if prediction.confidence >= threshold:
         return "incident", None
     return "possible_violation", "uncertain"

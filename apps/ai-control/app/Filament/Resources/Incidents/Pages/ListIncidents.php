@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Incidents\Pages;
 
 use App\Filament\Resources\Incidents\Concerns\IncidentMetrics;
 use App\Filament\Resources\Incidents\IncidentResource;
+use App\Filament\Resources\Incidents\Support\IncidentDisplay;
 use App\Models\Moderator;
 use App\Models\TelegramChat;
 use App\Support\PanelLocale;
@@ -171,12 +172,12 @@ class ListIncidents extends ListRecords
     }
 
     /**
-     * TG-M5, D-TG-159: `'operator'` / `'ai'` → the words the page uses, matching the Incidents
+     * TG-M5, D-TG-159: `'operator'` / `'ai'` / `'rule'` → the words the page uses, the Incidents
      * list's own "Opened by" column (L1) — never the raw `source` value.
      */
     public function openerLabel(string $source): string
     {
-        return $source === 'ai' ? __('Model') : __('Operator');
+        return IncidentDisplay::openerLabel($source);
     }
 
     /**
