@@ -187,3 +187,20 @@ def may_answer_by_group_message(*, forwarded: bool, media_kind: str | None, has_
     if forwarded:
         return False
     return media_kind is None or has_text
+
+
+def opening_signals(texts: Sequence[str | None]) -> tuple[str, ...]:
+    """Every rule-set-v1 text signal present in a burst's normalised texts, in a fixed order:
+    `"?"` for a question mark, then each matching `QUESTION_PATTERNS` literal. Measurement only —
+    the Step 3 review reads which literal opened an item, and alone, as rule set v2's evidence;
+    `evaluate` remains the one decision. Mention and reply-to-moderator signals need stored facts
+    and are not text, so they are not named here."""
+    present = [text for text in texts if text]
+    signals: list[str] = []
+    if any(_has_question_mark(text) for text in present):
+        signals.append("?")
+    lowered = [text.lower() for text in present]
+    for literal, pattern in _QUESTION_TOKEN_PATTERNS.items():
+        if any(pattern.search(text) for text in lowered):
+            signals.append(literal)
+    return tuple(signals)

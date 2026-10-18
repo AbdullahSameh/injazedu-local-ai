@@ -471,6 +471,12 @@ The same release lists an AI advert with no link, phone, handle or forward on Po
   for a question another member answered well enough. The **Replies** column shows member replies
   and whether the asker replied back; it never closes anything.
 
+**Weekly attention review (read-only, counts only).** Run it from the deploy date onwards, and keep
+the output in the pilot notes (the plan's Step 3 protocol):
+```bash
+scripts/prod/dc --profile tools run --rm migrate python -m app.scripts.attention_review --from <deploy date> --to <today>
+```
+
 **Known limitation:** after a stand-down, `/health` keeps reporting "stood down" until the
 `ingestion_state` row is corrected. Restarting the poller resumes capture.
 

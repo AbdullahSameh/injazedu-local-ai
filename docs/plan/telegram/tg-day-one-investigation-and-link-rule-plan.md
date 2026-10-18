@@ -267,6 +267,44 @@ It takes one query per page, like `classificationLabelsForItems`.
   outside the repo, and qualify on the production host before it replaces `classify_v2`. Until then, the R4b guard
   holds.
 
+> **Step 3 protocol (operator decisions, 2026-10-18).**
+>
+> **T0 is the deploy date of Steps 0–2** (operator: deploy later). Measurement never reaches back before T0:
+> figures are read from T0, and nothing before it is evidence.
+>
+> **The measurement tool.** It is read-only, prints counts only and never text:
+> ```bash
+> scripts/prod/dc --profile tools run --rm migrate python -m app.scripts.attention_review --from <T0> --to <today>
+> ```
+> It reports:
+> 1. outcomes by opener;
+> 2. rule-opened items with exactly one text signal, by literal and outcome (`opening_signals`);
+> 3. the shadow "answered by a member" signal against outcomes, with its agreement and dangerous cells.
+>
+> **Weekly:** run it, keep the output in the pilot notes, and dismiss with the right reason every time. The reasons
+> are the evidence.
+>
+> **Decision points** (each one goes to the operator for approval, never automatic):
+>
+> | When | Question | Bar to act |
+> |---|---|---|
+> | T0 + 2 weeks | Rule set v2: drop or narrow a literal? | ≥ 10 single-signal items for that literal, ≥ 80 % dismissed (not a real question or member discussion), **0** answered by direct reply |
+> | T0 + 4 weeks | Show the shadow signal as a hint on the queue? | ≥ 30 signalled items, **0** dangerous (signal on an item a moderator answered by direct reply) |
+> | Later only | Any automatic action | The hybrid review §9: a non-terminal "parked" state, ≥ 100 strong positives with 0 dangerous; never `dismissed` or `answered` |
+> | When the fixtures are reviewed | A request carve-out in a new classify wording | Freeze and qualify under 010's protocol on the production host; R4b stays until it is `QUALIFIED` |
+>
+> **The fixture draft.** `~/Projects/injaz-m5-fixtures/real-moderation-day1-draft.jsonl` is outside the repo, mode
+> 600, 10 lines, with a `draft_ref` key per line.
+> - **Lines:**
+>   - 4 student requests read as adverts (incidents #1, #6, #7, and the 2026-10-18 incident on message 165602);
+>   - 2 correctly-read requests as negative controls;
+>   - the 4 true or ambiguous violations (#2, #3, #5, #8).
+> - **Before use, the operator:**
+>   - reviews each label;
+>   - decides on #2 (an admin's own promotion);
+>   - merges the lines into `real-moderation.jsonl` (the qualification reads only that name).
+> - **Smoke it alone:** `smoke_moderation --prompt classify_v2 < real-moderation-day1-draft.jsonl`.
+
 ## 5. Verification
 
 **Step 0:** the before and after `SELECT`s show 15 rows moved, and the queue shows no item opened before the
