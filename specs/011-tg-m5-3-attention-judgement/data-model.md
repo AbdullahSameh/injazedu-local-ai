@@ -101,7 +101,9 @@ then "not yet". The four outcomes partition the eligible-or-excluded messages (C
 |---|---|---|
 | `not_a_question` | operator, "Not a real question" | not a question or request at all |
 | `member_discussion` | operator, "Member discussion" (**new**) | a real question or discussion between members; no moderator needed |
+| `member_answered` | operator, "Answered by a member" (**2026-10-18**) | a real question another member answered well enough; no moderator answer needed |
 | `message_removed` | operator, "Message removed" | the operator's own judgement that the message is gone (TG-M3 P7) |
+| `before_pilot` | one-off production write, 2026-10-18 (Step 0 of the day-one plan) | day one's open items, cleared unjudged; counted as `other` |
 | `expired` | expiry (`status = 'expired'`) | not a dismissal |
 | anything else | operator free text (TG-M3 FR-046's column note) | counted as `other` in the breakdowns |
 

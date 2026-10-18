@@ -160,6 +160,21 @@ dismissed or expired item is never closed. Re-running the matcher changes nothin
 **C9.** Ties are broken by `(sent_at, message_id)`, both from Telegram — so the answer is the same on
 every re-derivation, rather than "whichever transaction committed first".
 
+> **Amended 2026-10-18: rule (b) narrowed** (`docs/plan/telegram/tg-day-one-investigation-and-link-rule-plan.md`
+> Step 2, operator decisions). On day one, 5 of 8 "answered" items were closed by rule (b) 4–7 hours later:
+> promo posts, a "closing the group" announcement and a sticker. Rule (b) now also requires both of the
+> following.
+> - **C12, the answer window.** I's last burst message, or `opened_at` when it has none, is at most
+>   `MODERATION_GROUP_ANSWER_WINDOW_S` (default 1800, 30 minutes) before `R.sent_at`.
+>   - An older open item is skipped: it stays open, to be answered by a direct reply, dismissed or expired.
+>   - C3's "oldest" is the oldest **within the window**.
+>   - One definition: `_oldest_open_item_before`, shared by the live match and the lookback.
+> - **C13, never an answer.** A forwarded post, or media with no text (a sticker, a bare photo), never answers by
+>   rule (b) (`may_answer_by_group_message`, pure). The §4.1 lookback passes over such messages to the first that
+>   may answer.
+> - **Rule (a) is unchanged.** A direct reply answers whenever it comes. Moderators who answer late should use
+>   Telegram's Reply.
+
 ### §4.1 The lookback at open time
 
 **C10.** A moderator can answer inside the settle window, before the item exists. So **opening an item

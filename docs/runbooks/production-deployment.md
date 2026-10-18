@@ -461,6 +461,16 @@ the linked channel are exempt.
 The same release lists an AI advert with no link, phone, handle or forward on Possible Violations
 ("No link, phone or handle") instead of opening it.
 
+**Answering questions (same release).**
+- **Use Telegram's Reply.** A direct reply always answers its question.
+- **A plain moderator message** (not a reply) answers only the oldest question asked in the last
+  `MODERATION_GROUP_ANSWER_WINDOW_S` (1800 s, 30 minutes).
+- **Never an answer:** a forwarded post, a sticker or a photo without text. Promotions and
+  announcements no longer close questions.
+- **The Live Attention Queue's row actions** sit in one dropdown. It adds **"Answered by a member"**
+  for a question another member answered well enough. The **Replies** column shows member replies
+  and whether the asker replied back; it never closes anything.
+
 **Known limitation:** after a stand-down, `/health` keeps reporting "stood down" until the
 `ingestion_state` row is corrected. Restarting the poller resumes capture.
 

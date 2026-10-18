@@ -229,6 +229,7 @@ def insert_message(
         normalized_text: str | None = None,
         media_kind: str | None = None,
         edited_at: datetime | None = None,
+        entity_flags: dict[str, bool] | None = None,
     ) -> int:
         resolved_normalized_text = (
             normalize(original_text)
@@ -266,6 +267,7 @@ def insert_message(
                         original_text=original_text,
                         normalized_text=resolved_normalized_text,
                         media_kind=media_kind,
+                        entity_flags=entity_flags or {},
                         source_update_id=update_row_id,
                     )
                     .returning(telegram_messages.c.id)

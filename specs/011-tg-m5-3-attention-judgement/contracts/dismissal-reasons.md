@@ -85,6 +85,20 @@ count(*) FILTER (WHERE status = 'dismissed'
 - **`specs/008-…/contracts/control-panel-classification.md` §4:** K11.
 - **`specs/009-…/quickstart.md` §5:** K11.
 
+## §5a — Amended 2026-10-18: a fourth reason
+
+From `docs/plan/telegram/tg-day-one-investigation-and-link-rule-plan.md` Step 2, operator decision.
+
+- **The action.** **Dismiss (answered by a member)** (`dismiss_member_answered`, "Answered by a member") writes
+  `close_reason='member_answered'` through K3's guarded update, on an open item of any source.
+- **K2's confirmation** states four meanings. The new one: *answered by a member*, a real question another
+  member answered well enough, so no moderator answer was needed.
+- **§3 gains `dismissed_member_answered`** beside `dismissed_member_discussion`, in C7 and in both eras of C9′.
+  `dismissed_other` excludes it. K9 now has five parts. K5, K10 and N1–N4 are unchanged.
+- **The page prints** "not a real question a · member discussion b · answered by a member c · message removed d
+  · other e".
+- **The row actions now sit in one dropdown** (006 `control-panel-attention.md` §2 amendment, same date).
+
 ## §6 — What may never happen
 
 - **N1.** A changed value for any existing dismissal-based figure on the same rows.

@@ -176,3 +176,14 @@ def evaluate(
         return True
 
     return mentions_moderator or replies_to_moderator
+
+
+def may_answer_by_group_message(*, forwarded: bool, media_kind: str | None, has_text: bool) -> bool:
+    """Rule (b)'s message-side condition (contract §4, amended 2026-10-18): a moderator's message
+    that is not a reply may answer only if it is neither a forwarded post nor media with no text
+    (a sticker, a bare photo). On day one, promo forwards and a sticker "answered" questions hours
+    after they were asked. The time side — the answer window — is `_oldest_open_item_before`'s.
+    A direct reply (rule (a)) is not judged here."""
+    if forwarded:
+        return False
+    return media_kind is None or has_text

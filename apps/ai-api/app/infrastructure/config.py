@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     )
     moderation_burst_gap_s: int = Field(default=90, alias="MODERATION_BURST_GAP_S")
     moderation_item_max_age_s: int = Field(default=86400, alias="MODERATION_ITEM_MAX_AGE_S")
+    # Rule (b)'s answer window (2026-10-18): a moderator's non-reply message answers an item only
+    # within this many seconds of the item's last burst message.
+    moderation_group_answer_window_s: int = Field(
+        default=1800, alias="MODERATION_GROUP_ANSWER_WINDOW_S"
+    )
     moderation_text_retention_days: int = Field(default=90, alias="MODERATION_TEXT_RETENTION_DAYS")
 
     # --- Telegram Event Ingestion (TG-M1, all optional, all defaulted) ---
@@ -146,6 +151,7 @@ class Settings(BaseSettings):
         "moderation_prompt_version",
         "moderation_ai_attention_from",
         "moderation_attention_prompt_version",
+        "moderation_group_answer_window_s",
         mode="before",
     )
     @classmethod
@@ -244,6 +250,15 @@ class Settings(BaseSettings):
             raise ValueError(
                 "MODERATION_ITEM_MAX_AGE_S must be positive "
                 f"(got {self.moderation_item_max_age_s})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _moderation_group_answer_window_is_positive(self) -> Settings:
+        if self.moderation_group_answer_window_s <= 0:
+            raise ValueError(
+                "MODERATION_GROUP_ANSWER_WINDOW_S must be positive "
+                f"(got {self.moderation_group_answer_window_s})"
             )
         return self
 

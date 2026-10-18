@@ -172,7 +172,7 @@ class ModelOpenedQuestionsTest extends TestCase
         $this->assertSame(
             [
                 'opened' => 3, 'dismissed' => 1, 'kept' => 2, 'answered' => 1, 'unanswered' => 1,
-                'dismissed_not_a_question' => 1, 'dismissed_member_discussion' => 0,
+                'dismissed_not_a_question' => 1, 'dismissed_member_discussion' => 0, 'dismissed_member_answered' => 0,
                 'dismissed_message_removed' => 0, 'dismissed_other' => 0,
             ],
             $block['model_questions'],
@@ -225,7 +225,7 @@ class ModelOpenedQuestionsTest extends TestCase
         $this->assertSame(
             [
                 'opened' => 1, 'dismissed' => 0, 'kept' => 1, 'answered' => 1, 'unanswered' => 0,
-                'dismissed_not_a_question' => 0, 'dismissed_member_discussion' => 0,
+                'dismissed_not_a_question' => 0, 'dismissed_member_discussion' => 0, 'dismissed_member_answered' => 0,
                 'dismissed_message_removed' => 0, 'dismissed_other' => 0,
             ],
             $classificationBlock['model_questions'],
@@ -238,7 +238,7 @@ class ModelOpenedQuestionsTest extends TestCase
         $this->assertSame(
             [
                 'opened' => 2, 'dismissed' => 1, 'kept' => 1, 'answered' => 0, 'unanswered' => 1,
-                'dismissed_not_a_question' => 0, 'dismissed_member_discussion' => 1,
+                'dismissed_not_a_question' => 0, 'dismissed_member_discussion' => 1, 'dismissed_member_answered' => 0,
                 'dismissed_message_removed' => 0, 'dismissed_other' => 0,
             ],
             $attentionBlock['model_questions'],
@@ -250,7 +250,7 @@ class ModelOpenedQuestionsTest extends TestCase
         $this->assertStringContainsString("{$attention->name} · attention_test · attention judgement", $html);
         $this->assertStringContainsString('Model-opened, dismissed (any reason): 0 / 1', $html);
         $this->assertStringContainsString('Model-opened, dismissed (any reason): 1 / 2', $html);
-        $this->assertStringContainsString('not a real question 0 · member discussion 1 · message removed 0 · other 0', $html);
+        $this->assertStringContainsString('not a real question 0 · member discussion 1 · answered by a member 0 · message removed 0 · other 0', $html);
         $this->assertStringContainsString('Model-opened and kept: 2', $html);
         $this->assertStringNotContainsString('%', $html);
     }

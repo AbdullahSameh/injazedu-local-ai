@@ -30,7 +30,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
@@ -39,10 +39,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.moderation.assignments import responsible_at
 from app.application.moderation.locks import chat_lock
-from app.domain.moderation.attention import RULE_VERSION, evaluate
+from app.domain.moderation.attention import RULE_VERSION, evaluate, may_answer_by_group_message
 from app.domain.moderation.attention_judgement import judgement_proposes, vetoed
 from app.domain.moderation.classification import within_attention_window
-from app.infrastructure.config import Settings
+from app.infrastructure.config import Settings, load_settings
 from app.infrastructure.models_moderation import (
     attention_items,
     message_attention_judgements,
@@ -57,6 +57,10 @@ from app.infrastructure.models_moderation import (
 # `entity_flags.has_mention` alone — that flag only says *something* was mentioned, not whom
 # (D-TG-77). Mirrors `app.application.moderation.text`'s private `_HANDLE_RE` shape.
 _MENTION_RE = re.compile(r"@([A-Za-z0-9_]{3,})")
+
+# The open-time lookback reads at most this many later moderator messages to find the first that
+# may answer by group message — the answer window is minutes long, so this is never the limit.
+_LOOKBACK_CANDIDATES = 50
 
 
 @dataclass(frozen=True)
@@ -516,12 +520,29 @@ def _response_predicate(item: Mapping[str, Any], message: Mapping[str, Any]) -> 
     )
 
 
+def _group_answer_window() -> timedelta:
+    """`MODERATION_GROUP_ANSWER_WINDOW_S`, read once per match from the deployment's settings."""
+    return timedelta(seconds=load_settings().moderation_group_answer_window_s)
+
+
+def _may_answer_by_group_message(message: Mapping[str, Any]) -> bool:
+    """`may_answer_by_group_message` over a stored `telegram_messages` row."""
+    flags = message.get("entity_flags") or {}
+    text = message.get("original_text")
+    return may_answer_by_group_message(
+        forwarded=bool(flags.get("forwarded", False)),
+        media_kind=message.get("media_kind"),
+        has_text=bool(text and text.strip()),
+    )
+
+
 async def _oldest_open_item_before(
     session: AsyncSession,
     *,
     telegram_chat_id: int,
     message_thread_id: int | None,
     sent_at: datetime,
+    window: timedelta,
 ) -> sa.RowMapping | None:
     """Rule (b)'s candidate (contract §4, C3): the oldest open item in this chat and thread whose
     `opened_at` the given instant strictly follows, tie-broken by the anchor's own
@@ -530,7 +551,19 @@ async def _oldest_open_item_before(
     `match_response`'s live resolution and `match_existing_responses`' lookback, so "the oldest"
     means the same thing in both directions — the mechanism that keeps C3 true across both entry
     points.
+
+    Amended 2026-10-18: only an item whose last burst message is at most `window` before
+    `sent_at` qualifies — an older open item is skipped, never answered by a late broadcast. The
+    window's one definition.
     """
+    last_member_at = (
+        sa.select(sa.func.max(telegram_messages.c.sent_at))
+        .where(
+            telegram_messages.c.telegram_chat_id == attention_items.c.telegram_chat_id,
+            telegram_messages.c.attention_item_id == attention_items.c.id,
+        )
+        .scalar_subquery()
+    )
     return (
         (
             await session.execute(
@@ -542,6 +575,8 @@ async def _oldest_open_item_before(
                     ),
                     attention_items.c.status == "open",
                     attention_items.c.opened_at < sent_at,
+                    sa.func.coalesce(last_member_at, attention_items.c.opened_at)
+                    >= sent_at - window,
                 )
                 .order_by(
                     attention_items.c.opened_at.asc(),
@@ -632,7 +667,11 @@ async def match_existing_responses(session: AsyncSession, item: Mapping[str, Any
         await close_item(session, item["id"], dict(direct), "direct_reply")
         return
 
-    candidate = (
+    # The first moderator message after the item that may answer by group message at all —
+    # forwards and media-only messages are passed over, as live (2026-10-18). Bounded: a window
+    # of answers is minutes long, and the window itself is checked by `_oldest_open_item_before`.
+    window = _group_answer_window()
+    later = (
         (
             await session.execute(
                 sa.select(telegram_messages)
@@ -647,12 +686,13 @@ async def match_existing_responses(session: AsyncSession, item: Mapping[str, Any
                     ),
                 )
                 .order_by(telegram_messages.c.sent_at.asc(), telegram_messages.c.message_id.asc())
-                .limit(1)
+                .limit(_LOOKBACK_CANDIDATES)
             )
         )
         .mappings()
-        .one_or_none()
+        .all()
     )
+    candidate = next((dict(m) for m in later if _may_answer_by_group_message(dict(m))), None)
     if candidate is None:
         return
 
@@ -661,6 +701,7 @@ async def match_existing_responses(session: AsyncSession, item: Mapping[str, Any
         telegram_chat_id=telegram_chat_id,
         message_thread_id=item["message_thread_id"],
         sent_at=candidate["sent_at"],
+        window=window,
     )
     if oldest is not None and oldest["id"] == item["id"]:
         await close_item(session, item["id"], dict(candidate), "group_message")
@@ -707,11 +748,14 @@ async def match_response(session: AsyncSession, message: Mapping[str, Any]) -> i
                     return int(item["id"])
                 return None
 
+        if not _may_answer_by_group_message(message):
+            return None
         candidate_item = await _oldest_open_item_before(
             session,
             telegram_chat_id=telegram_chat_id,
             message_thread_id=message["message_thread_id"],
             sent_at=message["sent_at"],
+            window=_group_answer_window(),
         )
         if candidate_item is None:
             return None

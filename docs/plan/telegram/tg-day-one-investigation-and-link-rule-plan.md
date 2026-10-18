@@ -19,6 +19,13 @@
 >   - a runbook §11 note.
 > - **Edit semantics as built:** the guard reads the row's recorded (sticky) `entity_flags` plus the redacted
 >   words. The rule on an edit reads the edit's own entities, and the first-posted event's `is_automatic_forward`.
+> - **Step 2 implemented, not deployed:**
+>   - the answer window (`MODERATION_GROUP_ANSWER_WINDOW_S`, 1800) with forwards and media-only excluded, on rule
+>     (b) only;
+>   - `member_answered`, with the per-reason figures in Python and PHP;
+>   - the queue's actions dropdown and its Replies column;
+>   - dated amendments to the 006 and 011 contracts;
+>   - a runbook §11 note.
 
 ## Context
 
