@@ -448,6 +448,35 @@ code change is needed.
 **Roll back:** blank the token, then `scripts/prod/dc up -d ai-telegram ai-api`. The poller exits 0,
 and captured data stays.
 
+**The link rule (migration `0010`, 2026-10-18).** A link from anyone who is not a **declared moderator**
+opens a "Link rule" incident, in text, a caption, a forward or an edit. Anonymous administrators and
+the linked channel are exempt.
+- **Before deploying it,** compare the group's administrator list in Telegram with the panel's
+  Moderators. Declare every administrator who posts links; their earlier messages stay as they were.
+- **A moderator declared late** is still a member for messages sent before the declaration:
+  `is_from_moderator` is fixed when a message is stored.
+- **Check it live:** a non-moderator test account posts a link, and an incident opened by "Link
+  rule" appears. A moderator posts one, and nothing opens.
+
+The same release lists an AI advert with no link, phone, handle or forward on Possible Violations
+("No link, phone or handle") instead of opening it.
+
+**Answering questions (same release).**
+- **Use Telegram's Reply.** A direct reply always answers its question.
+- **A plain moderator message** (not a reply) answers only the oldest question asked in the last
+  `MODERATION_GROUP_ANSWER_WINDOW_S` (1800 s, 30 minutes).
+- **Never an answer:** a forwarded post, a sticker or a photo without text. Promotions and
+  announcements no longer close questions.
+- **The Live Attention Queue's row actions** sit in one dropdown. It adds **"Answered by a member"**
+  for a question another member answered well enough. The **Replies** column shows member replies
+  and whether the asker replied back; it never closes anything.
+
+**Weekly attention review (read-only, counts only).** Run it from the deploy date onwards, and keep
+the output in the pilot notes (the plan's Step 3 protocol):
+```bash
+scripts/prod/dc --profile tools run --rm migrate python -m app.scripts.attention_review --from <deploy date> --to <today>
+```
+
 **Known limitation:** after a stand-down, `/health` keeps reporting "stood down" until the
 `ingestion_state` row is corrected. Restarting the poller resumes capture.
 

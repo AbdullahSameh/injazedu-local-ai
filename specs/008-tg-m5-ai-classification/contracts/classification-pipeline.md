@@ -224,6 +224,27 @@ The only definition: `route_prediction(prediction, floor, threshold, path)` in
   > - **The prediction's one part:** V. A current prediction whose category is `SPAM_OR_AD` or `ABUSE` vetoes that opening. A missing prediction does not.
   > - **Today:** no attention instruction is qualified under the operator's Policy D′ (011 research §2, W-7′), so no model item opens.
 
+> **Amended 2026-10-18: R4b, the advert guard** (`docs/plan/telegram/tg-day-one-investigation-and-link-rule-plan.md`
+> Step 1; migration `0010`). On day one in production, three student requests were opened as `SPAM_OR_AD`
+> incidents at 0.95. They asked for collections or a group, and none carried a link, phone, handle or forward.
+> `route_prediction` takes a fifth input, `has_contact_signal`, and one rule sits between R4 and R5:
+>
+> | # | When | `route` | `route_reason` |
+> |---|---|---|---|
+> | R4b | category `SPAM_OR_AD` and **no outside-contact signal** | `possible_violation` | `no_contact_signal` |
+>
+> - **The signal** (`has_contact_signal`, pure, same module) is any of the following:
+>   - the message's recorded `entity_flags` `has_url`, `has_phone`, `has_mention` or `forwarded`;
+>   - one of TG-M0's four placeholders (`«رابط» «رقم» «بريد» «مستخدم»`) in the redacted words the model read.
+> - **Words are deliberately not signals.** "خاص" appears inside "خاصة" (special) in a day-one false positive.
+> - **R4b changes nothing else.** ABUSE, `OTHER`, the thresholds and R1–R3 are unchanged, and catch-up is still
+>   R1.
+> - **The smoke and qualification commands** read the signal from the fixture text alone: a fixture has no
+>   entities. Q7 can only gain from this, because it counts legitimate → incident.
+> - **Links themselves are now a rule,** not a model judgement: TG-M4's `source = 'rule'` (007 lifecycle
+>   amendment, same date). A member's link opens its rule incident first, and R12 then applies to the model's
+>   prediction.
+
 ---
 
 ## §7 — Opening an incident

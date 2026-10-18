@@ -372,10 +372,12 @@ trait ClassificationMetrics
                    count(*) FILTER (WHERE ai.status = 'dismissed'
                                       AND ai.close_reason = 'member_discussion') AS dismissed_member_discussion,
                    count(*) FILTER (WHERE ai.status = 'dismissed'
+                                      AND ai.close_reason = 'member_answered')   AS dismissed_member_answered,
+                   count(*) FILTER (WHERE ai.status = 'dismissed'
                                       AND ai.close_reason = 'message_removed')   AS dismissed_message_removed,
                    count(*) FILTER (WHERE ai.status = 'dismissed'
                                       AND (ai.close_reason IS NULL
-                                           OR ai.close_reason NOT IN ('not_a_question','member_discussion','message_removed')))
+                                           OR ai.close_reason NOT IN ('not_a_question','member_discussion','member_answered','message_removed')))
                                                                                  AS dismissed_other
             FROM attention_items ai
             JOIN message_classifications c ON c.id = ai.message_classification_id
@@ -395,10 +397,12 @@ trait ClassificationMetrics
                    count(*) FILTER (WHERE ai.status = 'dismissed'
                                       AND ai.close_reason = 'member_discussion'),
                    count(*) FILTER (WHERE ai.status = 'dismissed'
+                                      AND ai.close_reason = 'member_answered'),
+                   count(*) FILTER (WHERE ai.status = 'dismissed'
                                       AND ai.close_reason = 'message_removed'),
                    count(*) FILTER (WHERE ai.status = 'dismissed'
                                       AND (ai.close_reason IS NULL
-                                           OR ai.close_reason NOT IN ('not_a_question','member_discussion','message_removed')))
+                                           OR ai.close_reason NOT IN ('not_a_question','member_discussion','member_answered','message_removed')))
             FROM attention_items ai
             JOIN message_attention_judgements j ON j.id = ai.attention_judgement_id
             WHERE ai.source = 'ai'
@@ -444,10 +448,12 @@ trait ClassificationMetrics
                    count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
                                       AND close_reason = 'member_discussion') AS dismissed_member_discussion,
                    count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
+                                      AND close_reason = 'member_answered')   AS dismissed_member_answered,
+                   count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
                                       AND close_reason = 'message_removed')   AS dismissed_message_removed,
                    count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
                                       AND (close_reason IS NULL
-                                           OR close_reason NOT IN ('not_a_question','member_discussion','message_removed')))
+                                           OR close_reason NOT IN ('not_a_question','member_discussion','member_answered','message_removed')))
                                                                               AS dismissed_other
             FROM attention_items
             WHERE opened_at >= :period_from AND opened_at < :period_to

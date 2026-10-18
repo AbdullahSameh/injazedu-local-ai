@@ -73,9 +73,11 @@ class IncidentInfolist
                     TextEntry::make('opened_by')
                         ->label(__('Opened by'))
                         ->getStateUsing(
-                            fn (ModerationIncident $record): string => $record->source === 'ai'
-                                ? __('Opened by the model')
-                                : (User::find($record->opened_by_user_id)?->name ?? '—')
+                            fn (ModerationIncident $record): string => match ($record->source) {
+                                'ai' => __('Opened by the model'),
+                                'rule' => __('Opened by the link rule'),
+                                default => User::find($record->opened_by_user_id)?->name ?? '—',
+                            }
                         ),
                     TextEntry::make('category')
                         ->label(__('Category'))
@@ -86,9 +88,11 @@ class IncidentInfolist
                     TextEntry::make('classification')
                         ->label(__('Classification'))
                         ->getStateUsing(
-                            fn (ModerationIncident $record): string => $record->source === 'ai'
-                                ? __("the model's")
-                                : __('operator-assigned')
+                            fn (ModerationIncident $record): string => match ($record->source) {
+                                'ai' => __("the model's"),
+                                'rule' => __("the link rule's: a link from a member"),
+                                default => __('operator-assigned'),
+                            }
                         ),
                     // §2.3, independent and list-prompted operator flags: The model's view of the
                     // anchor message — read (§5), never computed (P2).

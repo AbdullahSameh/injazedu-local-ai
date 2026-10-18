@@ -32,6 +32,27 @@ message. Only enforcement or a human confirmation resolves it.
   recorded before the flag.
 - **I7.** Opening an incident never reads or writes an attention item.
 
+> **Amended 2026-10-18: a third opener, the link rule** (`docs/plan/telegram/tg-day-one-investigation-and-
+> link-rule-plan.md` Step 1; migration `0010`). The group allows no links from students. This is a
+> deterministic rule, never a model judgement (008 spec, clarification on links).
+> - **The rule** (`link_rule_opens`, `app/domain/moderation/incident.py`, pure) opens on a message carrying a
+>   Telegram `url` or `text_link` entity, in text or caption, forwarded or not.
+> - **Exempt:**
+>   - a **declared moderator** (`is_from_moderator`, the one definition of "administrator" here);
+>   - the group itself, meaning an anonymous administrator (`sender_chat` = the group);
+>   - the linked channel's automatic forward.
+> - **Not exempt:** a bot, and another channel's identity, are members for this rule.
+> - **The incident:**
+>   - written through `insert_incident` with `source = 'rule'`, `rule_version = 1` (set exactly then,
+>     `ck_incident_rule_version`), `category = 'OTHER'`, `severity = 'low'` and no opener;
+>   - opened on the live path only (message-derivation §2 amendment), in the message's (or edit's) own
+>     transaction;
+>   - I2–I7 hold unchanged. The model's later prediction on the same anchor opens nothing (008 R12).
+> - **Figures:** C3 (the model's false positives) still counts `source = 'ai'` only. The detection-latency table
+>   gains a "Link rule" row.
+> - **Limitation:** a Telegram administrator who is not a declared moderator is a member to this rule. Declare
+>   every administrator before relying on it (runbook).
+
 ---
 
 ## §2 — Recognising evidence

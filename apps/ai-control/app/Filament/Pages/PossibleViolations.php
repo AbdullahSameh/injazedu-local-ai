@@ -117,9 +117,12 @@ class PossibleViolations extends Page implements HasTable
                 TextColumn::make('why_listed')
                     ->label(__('Why listed'))
                     ->getStateUsing(
-                        fn (array $record): string => $record['route_reason'] === 'inconsistent'
-                            ? __('Inconsistent')
-                            : __('Uncertain')
+                        fn (array $record): string => match ($record['route_reason']) {
+                            'inconsistent' => __('Inconsistent'),
+                            // R4b (2026-10-18): an advert reading with nothing pointing outside.
+                            'no_contact_signal' => __('No link, phone or handle'),
+                            default => __('Uncertain'),
+                        }
                     )
                     ->badge(),
                 TextColumn::make('model')

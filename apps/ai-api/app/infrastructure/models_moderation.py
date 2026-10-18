@@ -500,7 +500,7 @@ moderation_incidents = sa.Table(
         name="fk_incident_message",
     ),
     sa.CheckConstraint(
-        "source IN ('operator', 'ai')", name="ck_incident_source"
+        "source IN ('operator', 'ai', 'rule')", name="ck_incident_source"
     ),
     sa.CheckConstraint(
         "(source = 'operator') = (opened_by_user_id IS NOT NULL)",
@@ -563,6 +563,20 @@ moderation_incidents.append_constraint(
     sa.CheckConstraint(
         "prompted_by_classification_id IS NULL OR source = 'operator'",
         name="ck_incident_prompted_by",
+    )
+)
+
+# --- The link rule (revision 0010, `docs/plan/telegram/tg-day-one-investigation-and-link-rule-
+# plan.md` Step 1): a regular member's link opens an incident with `source = 'rule'`, carrying the
+# rule's version exactly then, as `attention_items.rule_version` does for a rule item.
+
+moderation_incidents.append_column(
+    sa.Column("rule_version", sa.SmallInteger(), nullable=True)
+)
+moderation_incidents.append_constraint(
+    sa.CheckConstraint(
+        "(source = 'rule') = (rule_version IS NOT NULL)",
+        name="ck_incident_rule_version",
     )
 )
 
@@ -800,7 +814,8 @@ message_classifications = sa.Table(
     ),
     sa.CheckConstraint(
         "(route = 'possible_violation') = (route_reason IS NOT NULL) "
-        "AND (route_reason IS NULL OR route_reason IN ('uncertain', 'inconsistent'))",
+        "AND (route_reason IS NULL OR route_reason IN "
+        "('uncertain', 'inconsistent', 'no_contact_signal'))",
         name="ck_classification_route_reason",
     ),
     sa.CheckConstraint(

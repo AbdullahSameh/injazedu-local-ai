@@ -17,6 +17,7 @@ _MODERATION_VARS = (
     "TELEGRAM_ALLOWED_UPDATES",
     "MODERATION_BURST_GAP_S",
     "MODERATION_ITEM_MAX_AGE_S",
+    "MODERATION_GROUP_ANSWER_WINDOW_S",
     "MODERATION_TEXT_RETENTION_DAYS",
 )
 
@@ -83,6 +84,7 @@ def test_telegram_allowed_updates_empty_is_rejected(
     [
         ("MODERATION_BURST_GAP_S", "MODERATION_BURST_GAP_S"),
         ("MODERATION_ITEM_MAX_AGE_S", "MODERATION_ITEM_MAX_AGE_S"),
+        ("MODERATION_GROUP_ANSWER_WINDOW_S", "MODERATION_GROUP_ANSWER_WINDOW_S"),
         ("MODERATION_TEXT_RETENTION_DAYS", "MODERATION_TEXT_RETENTION_DAYS"),
     ],
 )
@@ -111,6 +113,7 @@ def test_duration_rejects_zero_and_negative(
     [
         "MODERATION_BURST_GAP_S",
         "MODERATION_ITEM_MAX_AGE_S",
+        "MODERATION_GROUP_ANSWER_WINDOW_S",
         "MODERATION_TEXT_RETENTION_DAYS",
     ],
 )
@@ -121,3 +124,12 @@ def test_duration_positive_value_is_accepted(
     monkeypatch.setenv(env_var, "1")
 
     load_settings()  # must not raise or exit
+
+
+def test_the_group_answer_window_defaults_to_thirty_minutes_blank_included(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_ai_api_env(monkeypatch)
+    assert load_settings().moderation_group_answer_window_s == 1800
+    monkeypatch.setenv("MODERATION_GROUP_ANSWER_WINDOW_S", "")
+    assert load_settings().moderation_group_answer_window_s == 1800

@@ -76,11 +76,11 @@ class IncidentsTable
                     ->label(__('Severity'))
                     ->formatStateUsing(fn (string $state): string => __($state))
                     ->badge(),
-                // L1 (`control-panel-classification.md` §2.2): "Operator" or "Model" — read
-                // straight from `source`, never recomputed (P2).
+                // L1 (`control-panel-classification.md` §2.2): "Operator", "Model" or "Link rule"
+                // — read straight from `source`, never recomputed (P2).
                 TextColumn::make('source')
                     ->label(__('Opened by'))
-                    ->formatStateUsing(fn (string $state): string => $state === 'ai' ? __('Model') : __('Operator'))
+                    ->formatStateUsing(fn (string $state): string => IncidentDisplay::openerLabel($state))
                     ->badge(),
                 // moderation_incident_state is the only definition of status (lifecycle
                 // contract N6) — this reads it, never computes it.
@@ -124,10 +124,13 @@ class IncidentsTable
                 SelectFilter::make('category')
                     ->label(__('Category'))
                     ->options(array_map(__(...), self::CATEGORIES)),
-                // L2: the same two values as the column above.
+                // L2: the same values as the column above.
                 SelectFilter::make('source')
                     ->label(__('Opened by'))
-                    ->options(['operator' => __('Operator'), 'ai' => __('Model')]),
+                    ->options(array_combine(
+                        ['operator', 'ai', 'rule'],
+                        array_map(IncidentDisplay::openerLabel(...), ['operator', 'ai', 'rule']),
+                    )),
                 SelectFilter::make('severity')
                     ->label(__('Severity'))
                     ->options(array_map(__(...), self::SEVERITIES)),

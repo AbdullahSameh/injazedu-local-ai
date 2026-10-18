@@ -43,11 +43,13 @@ async def insert_incident(
     opened_by_user_id: int | None = None,
     message_classification_id: int | None = None,
     prompted_by_classification_id: int | None = None,
+    rule_version: int | None = None,
 ) -> int | None:
-    """The one insert both `open_incident` (below) and TG-M5's classifier use, **on the caller's
-    own session** — never committing (D-TG-153): a model-opened incident is written in the same
-    transaction as its prediction (pipeline contract A1), so neither can exist without the other
-    having been decided.
+    """The one insert `open_incident` (below), TG-M5's classifier and the link rule use, **on the
+    caller's own session** — never committing (D-TG-153): a model-opened incident is written in the
+    same transaction as its prediction (pipeline contract A1), and a rule-opened one in the same
+    transaction as its message, so neither can exist without the other having been decided.
+    `rule_version` is set exactly when `source = 'rule'` (`ck_incident_rule_version`).
 
     `opened_at` = the anchor's `sent_at`, `detected_at` = one `SELECT now()` on this session, and
     `responsible_moderator_id` = `responsible_at(chat, detected_at)` (I5) — the owner at the
@@ -97,6 +99,7 @@ async def insert_incident(
             severity=severity,
             message_classification_id=message_classification_id,
             prompted_by_classification_id=prompted_by_classification_id,
+            rule_version=rule_version,
             responsible_moderator_id=responsible_moderator_id,
         )
         .on_conflict_do_nothing(constraint="uq_incident_anchor")

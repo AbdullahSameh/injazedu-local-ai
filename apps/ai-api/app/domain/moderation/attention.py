@@ -176,3 +176,31 @@ def evaluate(
         return True
 
     return mentions_moderator or replies_to_moderator
+
+
+def may_answer_by_group_message(*, forwarded: bool, media_kind: str | None, has_text: bool) -> bool:
+    """Rule (b)'s message-side condition (contract §4, amended 2026-10-18): a moderator's message
+    that is not a reply may answer only if it is neither a forwarded post nor media with no text
+    (a sticker, a bare photo). On day one, promo forwards and a sticker "answered" questions hours
+    after they were asked. The time side — the answer window — is `_oldest_open_item_before`'s.
+    A direct reply (rule (a)) is not judged here."""
+    if forwarded:
+        return False
+    return media_kind is None or has_text
+
+
+def opening_signals(texts: Sequence[str | None]) -> tuple[str, ...]:
+    """Every rule-set-v1 text signal present in a burst's normalised texts, in a fixed order:
+    `"?"` for a question mark, then each matching `QUESTION_PATTERNS` literal. Measurement only —
+    the Step 3 review reads which literal opened an item, and alone, as rule set v2's evidence;
+    `evaluate` remains the one decision. Mention and reply-to-moderator signals need stored facts
+    and are not text, so they are not named here."""
+    present = [text for text in texts if text]
+    signals: list[str] = []
+    if any(_has_question_mark(text) for text in present):
+        signals.append("?")
+    lowered = [text.lower() for text in present]
+    for literal, pattern in _QUESTION_TOKEN_PATTERNS.items():
+        if any(pattern.search(text) for text in lowered):
+            signals.append(literal)
+    return tuple(signals)

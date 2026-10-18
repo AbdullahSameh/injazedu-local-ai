@@ -37,12 +37,15 @@ _ACCURACY_SQL = sa.text(
                          AND close_reason = 'member_discussion')
                                                           AS dismissed_member_discussion,
       count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
+                         AND close_reason = 'member_answered')
+                                                          AS dismissed_member_answered,
+      count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
                          AND close_reason = 'message_removed')
                                                           AS dismissed_message_removed,
       count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
                          AND (close_reason IS NULL
                               OR close_reason NOT IN ('not_a_question','member_discussion',
-                                                      'message_removed')))
+                                                      'member_answered','message_removed')))
                                                           AS dismissed_other
     FROM attention_items
     WHERE opened_at >= :period_from AND opened_at < :period_to

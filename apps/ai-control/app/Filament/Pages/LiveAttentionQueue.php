@@ -16,6 +16,7 @@ use BackedEnum;
 use Carbon\CarbonInterval;
 use Closure;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\Select;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -104,7 +105,16 @@ class LiveAttentionQueue extends Page implements HasTable
      */
     private const DISMISS_CONFIRMATION = 'Not a real question: not a question or request at all; nothing to answer. '
         .'Member discussion: a real question or discussion between members; no moderator was needed. '
+        .'Answered by a member: a real question another member answered well enough; no moderator answer was needed. '
         .'Message removed: your own judgement that the message is gone. Telegram reports no deletion.';
+
+    /**
+     * The Replies column's facts, keyed by item id — one query for every row on the page, never
+     * one per row (as `$modelsViewLabels`).
+     *
+     * @var array<int, object>|null
+     */
+    private ?array $replyFacts = null;
 
     public function table(Table $table): Table
     {
@@ -163,40 +173,62 @@ class LiveAttentionQueue extends Page implements HasTable
                     ->label(__("Model's view"))
                     ->getStateUsing(fn (AttentionItem $record): string => $this->modelsViewFor($record))
                     ->extraAttributes(['dir' => 'auto']),
+                // Step 2 (2026-10-18): what members said back, as context for the moderator's
+                // own decision — display-only (Q1-Q2): it never closes, hides or sorts a row. A
+                // member's reply never answers an item.
+                TextColumn::make('replies')
+                    ->label(__('Replies'))
+                    ->getStateUsing(fn (AttentionItem $record): string => $this->repliesFor($record)),
             ])
             ->recordActions([
-                // All three go through the same guarded write (contract §4 C8) — a double-submitted
-                // dismissal updates zero rows and leaves the first one intact.
-                Action::make('dismiss_not_a_question')
-                    ->label(__('Not a real question'))
-                    ->icon(Heroicon::OutlinedXCircle)
-                    ->color('gray')
-                    ->requiresConfirmation()
-                    ->modalDescription(__(self::DISMISS_CONFIRMATION))
-                    ->action(fn (AttentionItem $record) => self::dismiss($record, 'not_a_question')),
-                // TG-M5.3 K1, K4: a real question or discussion between members that needed no
-                // moderator — offered whatever opened the item.
-                Action::make('dismiss_member_discussion')
-                    ->label(__('Member discussion'))
-                    ->icon(Heroicon::OutlinedChatBubbleLeftRight)
-                    ->color('gray')
-                    ->requiresConfirmation()
-                    ->modalDescription(__(self::DISMISS_CONFIRMATION))
-                    ->action(fn (AttentionItem $record) => self::dismiss($record, 'member_discussion')),
-                // P7: "message removed" is the operator's own judgement, never presented as a
-                // platform fact — Telegram reports no deletion in groups. The standing footnote
-                // saying so lives on the page view, not on this action.
-                Action::make('dismiss_message_removed')
-                    ->label(__('Message removed'))
-                    ->icon(Heroicon::OutlinedTrash)
-                    ->color('gray')
-                    ->requiresConfirmation()
-                    ->modalDescription(__(self::DISMISS_CONFIRMATION))
-                    ->action(fn (AttentionItem $record) => self::dismiss($record, 'message_removed')),
-                // TG-M4 (FR-072, D-TG-125): opens against the item's own anchor message. The
-                // item itself is never touched — no attention-item write is any part of opening
-                // an incident (lifecycle contract I7).
-                OpenIncidentAction::forQueueRow(),
+                // Step 2 (2026-10-18): one dropdown per row keeps the table narrow. Each action
+                // inside is unchanged; still no bulk action (P5).
+                ActionGroup::make([
+                    // All four go through the same guarded write (contract §4 C8) — a
+                    // double-submitted dismissal updates zero rows and leaves the first intact.
+                    Action::make('dismiss_not_a_question')
+                        ->label(__('Not a real question'))
+                        ->icon(Heroicon::OutlinedXCircle)
+                        ->color('gray')
+                        ->requiresConfirmation()
+                        ->modalDescription(__(self::DISMISS_CONFIRMATION))
+                        ->action(fn (AttentionItem $record) => self::dismiss($record, 'not_a_question')),
+                    // TG-M5.3 K1, K4: a real question or discussion between members that needed
+                    // no moderator — offered whatever opened the item.
+                    Action::make('dismiss_member_discussion')
+                        ->label(__('Member discussion'))
+                        ->icon(Heroicon::OutlinedChatBubbleLeftRight)
+                        ->color('gray')
+                        ->requiresConfirmation()
+                        ->modalDescription(__(self::DISMISS_CONFIRMATION))
+                        ->action(fn (AttentionItem $record) => self::dismiss($record, 'member_discussion')),
+                    // Step 2: a real question another member answered well enough — the moderator's
+                    // judgement, never inferred from a reply.
+                    Action::make('dismiss_member_answered')
+                        ->label(__('Answered by a member'))
+                        ->icon(Heroicon::OutlinedChatBubbleBottomCenterText)
+                        ->color('gray')
+                        ->requiresConfirmation()
+                        ->modalDescription(__(self::DISMISS_CONFIRMATION))
+                        ->action(fn (AttentionItem $record) => self::dismiss($record, 'member_answered')),
+                    // P7: "message removed" is the operator's own judgement, never presented as a
+                    // platform fact — Telegram reports no deletion in groups. The standing
+                    // footnote saying so lives on the page view, not on this action.
+                    Action::make('dismiss_message_removed')
+                        ->label(__('Message removed'))
+                        ->icon(Heroicon::OutlinedTrash)
+                        ->color('gray')
+                        ->requiresConfirmation()
+                        ->modalDescription(__(self::DISMISS_CONFIRMATION))
+                        ->action(fn (AttentionItem $record) => self::dismiss($record, 'message_removed')),
+                    // TG-M4 (FR-072, D-TG-125): opens against the item's own anchor message. The
+                    // item itself is never touched — no attention-item write is any part of
+                    // opening an incident (lifecycle contract I7).
+                    OpenIncidentAction::forQueueRow(),
+                ])
+                    ->label(__('Actions'))
+                    ->icon(Heroicon::OutlinedEllipsisVertical)
+                    ->tooltip(__('Actions')),
             ])
             ->headerActions([
                 // P6: prevented in the form — the option list already excludes a message that
@@ -271,6 +303,75 @@ class LiveAttentionQueue extends Page implements HasTable
         }
 
         return ModelView::status($record->telegram_chat_id, $record->telegram_message_id);
+    }
+
+    /**
+     * Step 2: "Member replies: n", plus "the asker replied back" when the asker replied to one of
+     * them; "—" when no other member replied. Read from `replyFactsForItems`, filled once per page.
+     */
+    private function repliesFor(AttentionItem $record): string
+    {
+        $this->replyFacts ??= self::replyFactsForItems($this->currentPageItemIds());
+        $facts = $this->replyFacts[$record->id] ?? null;
+
+        if ($facts === null || (int) $facts->member_replies === 0) {
+            return '—';
+        }
+
+        $text = __('Member replies: :count', ['count' => (int) $facts->member_replies]);
+
+        return $facts->asker_replied ? $text.' · '.__('the asker replied back') : $text;
+    }
+
+    /**
+     * Direct replies to any of each item's burst messages (the C1/C6 membership join) from someone
+     * other than a moderator and the asker, and whether the asker replied to one of those replies.
+     * Counts of stored facts only — nothing here decides an item's state.
+     *
+     * @param  array<int, int>  $itemIds
+     * @return array<int, object>
+     */
+    private static function replyFactsForItems(array $itemIds): array
+    {
+        if ($itemIds === []) {
+            return [];
+        }
+
+        $rows = DB::select(
+            <<<'SQL'
+            WITH items AS (
+                SELECT ai.id, ai.telegram_chat_id, ai.telegram_message_id, q.telegram_user_id AS asker
+                FROM attention_items ai
+                JOIN telegram_messages q
+                  ON q.telegram_chat_id = ai.telegram_chat_id AND q.message_id = ai.telegram_message_id
+                WHERE ai.id = ANY(?::bigint[])
+            ),
+            replies AS (
+                SELECT DISTINCT i.id AS item_id, r.telegram_chat_id, r.message_id, i.asker
+                FROM items i
+                JOIN telegram_messages m
+                  ON m.telegram_chat_id = i.telegram_chat_id
+                 AND (m.attention_item_id = i.id OR m.message_id = i.telegram_message_id)
+                JOIN telegram_messages r
+                  ON r.telegram_chat_id = i.telegram_chat_id AND r.reply_to_message_id = m.message_id
+                WHERE NOT r.is_from_moderator
+                  AND r.telegram_user_id IS DISTINCT FROM i.asker
+            )
+            SELECT item_id,
+                   count(*) AS member_replies,
+                   bool_or(EXISTS (
+                       SELECT 1 FROM telegram_messages b
+                       WHERE b.telegram_chat_id = replies.telegram_chat_id
+                         AND b.reply_to_message_id = replies.message_id
+                         AND b.telegram_user_id = replies.asker
+                   )) AS asker_replied
+            FROM replies
+            GROUP BY item_id
+            SQL,
+            ['{'.implode(',', array_map('intval', $itemIds)).'}'],
+        );
+
+        return collect($rows)->keyBy('item_id')->all();
     }
 
     /**

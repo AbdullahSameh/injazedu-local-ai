@@ -9,11 +9,45 @@ adds the reaction delta and Phase 5 (US3) the membership classifier, both here, 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 # D-TG-08's taxonomy, spelled exactly — an operator's label and TG-M5's prediction compare
 # without a mapping (D-TG-101).
 CATEGORIES: tuple[str, ...] = ("SPAM_OR_AD", "ABUSE", "OTHER")
 SEVERITIES: tuple[str, ...] = ("low", "medium", "high")
+
+# The no-links rule (`docs/plan/telegram/tg-day-one-investigation-and-link-rule-plan.md` Step 1):
+# a regular member may not post links, so a link from one opens an incident with
+# `source = 'rule'`. A new reading is a new version, so figures never pool two readings.
+LINK_RULE_VERSION = 1
+
+
+@dataclass(frozen=True)
+class LinkRuleFacts:
+    """The stored facts the link rule reads, resolved by the caller from the message's own
+    captured event and `telegram_messages` — this module has no session to look them up."""
+
+    has_url: bool
+    is_service: bool
+    is_from_moderator: bool
+    sender_chat_id: int | None
+    group_chat_id: int
+    is_automatic_forward: bool
+
+
+def link_rule_opens(facts: LinkRuleFacts) -> bool:
+    """Whether a message's link opens a rule incident: it carries a Telegram `url`/`text_link`
+    entity (text or caption, forwarded or not) and was not posted by someone the group allows to
+    post links — a declared moderator, the group itself (an anonymous administrator) or the linked
+    channel's automatic forward. A bot and another channel's identity are members here (FR-003).
+    Pure: no I/O, no clock."""
+    if not facts.has_url or facts.is_service:
+        return False
+    if facts.is_from_moderator:
+        return False
+    if facts.sender_chat_id is not None and facts.sender_chat_id == facts.group_chat_id:
+        return False
+    return not facts.is_automatic_forward
 
 
 def _reaction_identity(reaction: Mapping[str, object]) -> tuple[object, ...]:

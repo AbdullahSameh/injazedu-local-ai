@@ -123,6 +123,20 @@ class IncidentDisplay
         return 'within_window';
     }
 
+    /**
+     * L1 (`control-panel-classification.md` §2.2), with the link rule (2026-10-18): who opened the
+     * incident, read straight from `source` — the one wording the list, its filter and the
+     * detection-latency table share.
+     */
+    public static function openerLabel(string $source): string
+    {
+        return match ($source) {
+            'ai' => __('Model'),
+            'rule' => __('Link rule'),
+            default => __('Operator'),
+        };
+    }
+
     public static function outcomeLabel(string $outcome): string
     {
         return match ($outcome) {

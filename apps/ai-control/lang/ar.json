@@ -17,7 +17,7 @@
     "Not a real question": "ليس سؤالاً فعلياً",
     "Member discussion": "نقاش بين الأعضاء",
     "Message removed": "أُزيلت الرسالة",
-    "Not a real question: not a question or request at all; nothing to answer. Member discussion: a real question or discussion between members; no moderator was needed. Message removed: your own judgement that the message is gone. Telegram reports no deletion.": "ليس سؤالاً فعلياً: ليس سؤالاً ولا طلباً أصلاً، ولا شيء يحتاج إلى رد. نقاش بين الأعضاء: سؤال أو نقاش حقيقي بين الأعضاء، ولم يلزم تدخّل مشرف. أُزيلت الرسالة: تقديرك أنت أن الرسالة لم تعد موجودة؛ تيليجرام لا يُبلغ عن الحذف.",
+    "Not a real question: not a question or request at all; nothing to answer. Member discussion: a real question or discussion between members; no moderator was needed. Answered by a member: a real question another member answered well enough; no moderator answer was needed. Message removed: your own judgement that the message is gone. Telegram reports no deletion.": "ليس سؤالاً فعلياً: ليس سؤالاً ولا طلباً أصلاً، ولا شيء يحتاج إلى رد. نقاش بين الأعضاء: سؤال أو نقاش حقيقي بين الأعضاء، ولم يلزم تدخّل مشرف. أجاب عنه عضو: سؤال حقيقي أجاب عنه عضو آخر إجابة كافية، ولم يلزم ردّ مشرف. أُزيلت الرسالة: تقديرك أنت أن الرسالة لم تعد موجودة؛ تيليجرام لا يُبلغ عن الحذف.",
     "Open item by hand": "فتح عنصر يدوياً",
     "Message": "الرسالة",
     "Only messages that do not already anchor an item are listed.": "تظهر فقط الرسائل التي لا يرتكز عليها عنصر قائم.",
@@ -198,7 +198,7 @@
     "A message appears here when the model thinks it may need moderation but is not confident or consistent enough to open an incident.": "تظهر الرسالة هنا عندما يرى النموذج أنها قد تحتاج إلى إشراف، لكنه ليس واثقاً أو متّسقاً بما يكفي لفتح مخالفة.",
     "Classification Accuracy": "دقة التصنيف",
     "(profile :id)": "(الملف :id)",
-    "not a real question :not_a_question · member discussion :member_discussion · message removed :message_removed · other :other": "ليس سؤالاً فعلياً :not_a_question · نقاش بين الأعضاء :member_discussion · أُزيلت الرسالة :message_removed · أخرى :other",
+    "not a real question :not_a_question · member discussion :member_discussion · answered by a member :member_answered · message removed :message_removed · other :other": "ليس سؤالاً فعلياً :not_a_question · نقاش بين الأعضاء :member_discussion · أجاب عنه عضو :member_answered · أُزيلت الرسالة :message_removed · أخرى :other",
     "asking :asking · discussion :discussion · informing :informing · social :social · offering :offering · other :other": "سؤال :asking · نقاش :discussion · إخبار :informing · اجتماعي :social · عرض :offering · أخرى :other",
     "no labelled examples": "لا توجد أمثلة مصنّفة",
     "Estimates over the human labels available. The labels are few and not random; treat every ratio as a floor for discussion, not a measurement.": "تقديرات مبنية على التصنيفات البشرية المتاحة. التصنيفات قليلة وليست عشوائية؛ اعتبر كل نسبة حداً أدنى للنقاش، لا قياساً.",
@@ -347,5 +347,14 @@
     "Off: this account can no longer sign in. Your own access cannot be switched off.": "عند الإيقاف لا يستطيع هذا الحساب تسجيل الدخول. لا يمكنك إيقاف دخولك أنت.",
     "Created at": "تاريخ الإنشاء",
     "This panel account is already linked to another moderator.": "حساب اللوحة هذا مرتبط بمشرف آخر.",
-    "Optional: the panel account this person signs in with. Linking grants and removes no access.": "اختياري: حساب اللوحة الذي يسجّل به هذا الشخص دخوله. الربط لا يمنح أي صلاحية ولا يسحبها."
+    "Optional: the panel account this person signs in with. Linking grants and removes no access.": "اختياري: حساب اللوحة الذي يسجّل به هذا الشخص دخوله. الربط لا يمنح أي صلاحية ولا يسحبها.",
+    "Link rule": "قاعدة الروابط",
+    "Opened by the link rule": "فتحتها قاعدة الروابط",
+    "the link rule's: a link from a member": "حدّدته قاعدة الروابط: رابط من عضو",
+    "No link, phone or handle": "لا رابط ولا رقم ولا معرّف",
+    "Answered by a member": "أجاب عنه عضو",
+    "Actions": "الإجراءات",
+    "Replies": "الردود",
+    "Member replies: :count": "ردود الأعضاء: :count",
+    "the asker replied back": "وردّ السائل"
 }

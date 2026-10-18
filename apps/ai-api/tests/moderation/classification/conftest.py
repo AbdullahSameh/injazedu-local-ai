@@ -215,7 +215,8 @@ def insert_message(
     shape follows the Bot API reference exactly as `app/application/moderation/messages.py`'s own
     derivation reads it, so a future `load_facts` finds it there unmodified. `body_overrides` lets
     a test place fields this builder does not otherwise expose (e.g. an entity list for
-    redaction fixtures)."""
+    redaction fixtures). `entity_flags` is the row's recorded flags, which R4b reads: an advert
+    expected to open an incident carries one (`{"has_url": True}`)."""
 
     async def _insert(
         *,
@@ -236,6 +237,7 @@ def insert_message(
         edited_at: datetime | None = None,
         text_purged_at: datetime | None = None,
         body_overrides: dict[str, Any] | None = None,
+        entity_flags: dict[str, bool] | None = None,
     ) -> int:
         resolved_normalized_text = (
             normalize(original_text)
@@ -295,6 +297,7 @@ def insert_message(
                         normalized_text=resolved_normalized_text,
                         media_kind=media_kind,
                         text_purged_at=text_purged_at,
+                        entity_flags=entity_flags or {},
                         source_update_id=update_row_id,
                     )
                     .returning(telegram_messages.c.id)
@@ -477,6 +480,7 @@ def insert_incident(
         message_classification_id: int | None = None,
         prompted_by_classification_id: int | None = None,
         responsible_moderator_id: int | None = None,
+        rule_version: int | None = None,
     ) -> int:
         async with classification_session_factory() as session:
             row_id = (
@@ -494,6 +498,7 @@ def insert_incident(
                         message_classification_id=message_classification_id,
                         prompted_by_classification_id=prompted_by_classification_id,
                         responsible_moderator_id=responsible_moderator_id,
+                        rule_version=rule_version,
                     )
                     .returning(moderation_incidents.c.id)
                 )

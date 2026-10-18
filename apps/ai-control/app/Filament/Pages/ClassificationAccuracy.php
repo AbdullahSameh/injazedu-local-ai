@@ -194,7 +194,7 @@ class ClassificationAccuracy extends Page
      * One C9′ row's counts, as a block carries them — read straight from the statement, cast to
      * int; a block with no row reads zero, and the blade shows nothing when `opened` is zero.
      *
-     * @return array{opened: int, dismissed: int, kept: int, answered: int, unanswered: int, dismissed_not_a_question: int, dismissed_member_discussion: int, dismissed_message_removed: int, dismissed_other: int}
+     * @return array{opened: int, dismissed: int, kept: int, answered: int, unanswered: int, dismissed_not_a_question: int, dismissed_member_discussion: int, dismissed_member_answered: int, dismissed_message_removed: int, dismissed_other: int}
      */
     private function modelQuestions(?object $row): array
     {
@@ -206,6 +206,7 @@ class ClassificationAccuracy extends Page
             'unanswered' => (int) ($row->model_unanswered ?? 0),
             'dismissed_not_a_question' => (int) ($row->dismissed_not_a_question ?? 0),
             'dismissed_member_discussion' => (int) ($row->dismissed_member_discussion ?? 0),
+            'dismissed_member_answered' => (int) ($row->dismissed_member_answered ?? 0),
             'dismissed_message_removed' => (int) ($row->dismissed_message_removed ?? 0),
             'dismissed_other' => (int) ($row->dismissed_other ?? 0),
         ];
@@ -254,6 +255,7 @@ class ClassificationAccuracy extends Page
                     'operator_added' => $operatorAdded,
                     'dismissed_not_a_question' => (int) $row->dismissed_not_a_question,
                     'dismissed_member_discussion' => (int) $row->dismissed_member_discussion,
+                    'dismissed_member_answered' => (int) $row->dismissed_member_answered,
                     'dismissed_message_removed' => (int) $row->dismissed_message_removed,
                     'dismissed_other' => (int) $row->dismissed_other,
                 ];
@@ -279,13 +281,14 @@ class ClassificationAccuracy extends Page
     /**
      * TG-M5.3 K11, K12: one row's dismissal breakdown, as the page prints it — counts only.
      *
-     * @param  array{dismissed_not_a_question: int, dismissed_member_discussion: int, dismissed_message_removed: int, dismissed_other: int}  $row
+     * @param  array{dismissed_not_a_question: int, dismissed_member_discussion: int, dismissed_member_answered: int, dismissed_message_removed: int, dismissed_other: int}  $row
      */
     public function dismissalBreakdown(array $row): string
     {
-        return __('not a real question :not_a_question · member discussion :member_discussion · message removed :message_removed · other :other', [
+        return __('not a real question :not_a_question · member discussion :member_discussion · answered by a member :member_answered · message removed :message_removed · other :other', [
             'not_a_question' => $row['dismissed_not_a_question'],
             'member_discussion' => $row['dismissed_member_discussion'],
+            'member_answered' => $row['dismissed_member_answered'],
             'message_removed' => $row['dismissed_message_removed'],
             'other' => $row['dismissed_other'],
         ]);

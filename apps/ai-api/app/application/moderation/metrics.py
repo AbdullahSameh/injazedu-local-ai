@@ -98,11 +98,13 @@ _ACCURACY_SQL = sa.text(
       count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
                          AND close_reason = 'member_discussion') AS dismissed_member_discussion,
       count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
+                         AND close_reason = 'member_answered')   AS dismissed_member_answered,
+      count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
                          AND close_reason = 'message_removed')   AS dismissed_message_removed,
       count(*) FILTER (WHERE source = 'rule' AND status = 'dismissed'
                          AND (close_reason IS NULL
                               OR close_reason NOT IN ('not_a_question','member_discussion',
-                                                      'message_removed')))
+                                                      'member_answered','message_removed')))
                                                                  AS dismissed_other
     FROM attention_items
     WHERE opened_at >= :period_from AND opened_at < :period_to
@@ -461,6 +463,7 @@ async def accuracy_by_rule_version(
                 "recall": recall,
                 "dismissed_not_a_question": row["dismissed_not_a_question"],
                 "dismissed_member_discussion": row["dismissed_member_discussion"],
+                "dismissed_member_answered": row["dismissed_member_answered"],
                 "dismissed_message_removed": row["dismissed_message_removed"],
                 "dismissed_other": row["dismissed_other"],
             }
@@ -719,12 +722,15 @@ _MODEL_OPENED_DISMISSAL_BREAKDOWN = """
                               AND ai.close_reason = 'member_discussion')
                                                                    AS dismissed_member_discussion,
            count(*) FILTER (WHERE ai.status = 'dismissed'
+                              AND ai.close_reason = 'member_answered')
+                                                                   AS dismissed_member_answered,
+           count(*) FILTER (WHERE ai.status = 'dismissed'
                               AND ai.close_reason = 'message_removed')
                                                                    AS dismissed_message_removed,
            count(*) FILTER (WHERE ai.status = 'dismissed'
                               AND (ai.close_reason IS NULL
                                    OR ai.close_reason NOT IN ('not_a_question','member_discussion',
-                                                              'message_removed')))
+                                                              'member_answered','message_removed')))
                                                                    AS dismissed_other"""
 _MODEL_OPENED_QUESTIONS_SQL = sa.text(
     f"""

@@ -167,12 +167,13 @@ class DismissalBreakdownTest extends TestCase
             'operator_added' => 0,
             'dismissed_not_a_question' => 1,
             'dismissed_member_discussion' => 1,
+            'dismissed_member_answered' => 0,
             'dismissed_message_removed' => 1,
             'dismissed_other' => 2,
         ], $row);
         $this->assertSame(
             $row['rule_dismissed'],
-            $row['dismissed_not_a_question'] + $row['dismissed_member_discussion']
+            $row['dismissed_not_a_question'] + $row['dismissed_member_discussion'] + $row['dismissed_member_answered']
                 + $row['dismissed_message_removed'] + $row['dismissed_other'],
         );
         // Precision is the unchanged `1 − rule_dismissed ÷ rule_opened`, read as kept / opened.
@@ -190,22 +191,23 @@ class DismissalBreakdownTest extends TestCase
             'unanswered' => 1,
             'dismissed_not_a_question' => 0,
             'dismissed_member_discussion' => 1,
+            'dismissed_member_answered' => 0,
             'dismissed_message_removed' => 1,
             'dismissed_other' => 0,
         ], $questions);
         $this->assertSame(
             $questions['dismissed'],
-            $questions['dismissed_not_a_question'] + $questions['dismissed_member_discussion']
+            $questions['dismissed_not_a_question'] + $questions['dismissed_member_discussion'] + $questions['dismissed_member_answered']
                 + $questions['dismissed_message_removed'] + $questions['dismissed_other'],
         );
 
         // K11, K12: the wording, and counts only.
         $html = $component->html();
         $this->assertStringContainsString('Rule-dismissed (any reason)', $html);
-        $this->assertStringContainsString('not a real question 1 · member discussion 1 · message removed 1 · other 2', $html);
+        $this->assertStringContainsString('not a real question 1 · member discussion 1 · answered by a member 0 · message removed 1 · other 2', $html);
         $this->assertStringContainsString('1 / 6', $html);
         $this->assertStringContainsString('Model-opened, dismissed (any reason): 2 / 3', $html);
-        $this->assertStringContainsString('not a real question 0 · member discussion 1 · message removed 1 · other 0', $html);
+        $this->assertStringContainsString('not a real question 0 · member discussion 1 · answered by a member 0 · message removed 1 · other 0', $html);
         $this->assertStringNotContainsString('dismissed as not a real question', $html);
         $this->assertStringNotContainsString('%', $html);
     }

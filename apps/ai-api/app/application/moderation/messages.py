@@ -13,6 +13,7 @@ touches an existing row again.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -21,7 +22,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.moderation.identities import moderator_id_for, upsert_identity
+from app.application.moderation.incidents import insert_incident
 from app.application.moderation.text import normalize
+from app.domain.moderation.incident import LINK_RULE_VERSION, LinkRuleFacts, link_rule_opens
 from app.infrastructure.config import load_settings
 from app.infrastructure.models_moderation import (
     telegram_chats,
@@ -32,6 +35,8 @@ from app.workers.tasks.moderation.classify_message import classify_message
 from app.workers.tasks.moderation.evaluate_attention import evaluate_attention
 from app.workers.tasks.moderation.judge_attention import judge_attention
 from app.workers.tasks.moderation.match_response import match_response
+
+logger = logging.getLogger(__name__)
 
 # Coarse, in priority order. An entry here is stored as its own key name; anything present that
 # isn't one of these, isn't text/a caption, and isn't a recognised service field is content this
@@ -172,6 +177,50 @@ async def _is_declared_moderator(session: AsyncSession, *, telegram_user_id: int
     return await moderator_id_for(session, telegram_user_id=telegram_user_id) is not None
 
 
+async def _apply_link_rule(
+    session: AsyncSession,
+    *,
+    chat_pk: int,
+    message_id: int,
+    group_chat_id: int,
+    body: dict[str, Any],
+    is_from_moderator: bool,
+    sender_chat_id: int | None,
+    is_automatic_forward: bool,
+) -> int | None:
+    """The no-links rule (`docs/plan/telegram/tg-day-one-investigation-and-link-rule-plan.md`
+    Step 1): when `link_rule_opens` on `body`'s own entities, opens a `source='rule'` incident
+    through `insert_incident` on the caller's session, so the message (or its edit) and its incident
+    commit together — before the model is ever asked, so a later model incident on the same anchor
+    opens nothing (`uq_incident_anchor`, R12). Live path only: history never reaches here."""
+    facts = LinkRuleFacts(
+        has_url=_entity_flags(body)["has_url"],
+        is_service=_is_service(body),
+        is_from_moderator=is_from_moderator,
+        sender_chat_id=sender_chat_id,
+        group_chat_id=group_chat_id,
+        is_automatic_forward=is_automatic_forward,
+    )
+    if not link_rule_opens(facts):
+        return None
+    return await insert_incident(
+        session,
+        telegram_chat_id=chat_pk,
+        telegram_message_id=message_id,
+        category="OTHER",
+        severity="low",
+        source="rule",
+        rule_version=LINK_RULE_VERSION,
+    )
+
+
+def _log_incident_opened(incident_id: int | None, message_id: int) -> None:
+    if incident_id is not None:
+        logger.info(
+            "incident opened", extra={"incident_id": incident_id, "message_id": message_id}
+        )
+
+
 async def derive_message(
     session_factory: async_sessionmaker[AsyncSession],
     *,
@@ -196,6 +245,10 @@ async def derive_message(
     exclusions (`specs/011-…/contracts/attention-judgement.md` §1 J1). `rederive_chat.py` passes
     `False`: a re-derived message is history, never judged (L1), and classified only by the
     catch-up command, which never opens anything.
+
+    The no-links rule (2026-10-18) runs on the same live-path condition, inside the insert's own
+    transaction: a regular member's link opens a `source='rule'` incident before anything is sent
+    (`_apply_link_rule`). `rederive_chat.py`'s `False` keeps history from opening one.
 
     Returns the inserted row's id, or `None` when the row already existed or the chat is not
     measured.
@@ -269,7 +322,21 @@ async def derive_message(
         )
         result = await session.execute(insert_stmt)
         inserted_id = result.scalar_one_or_none()
+        incident_id: int | None = None
+        if inserted_id is not None and schedule_classification:
+            incident_id = await _apply_link_rule(
+                session,
+                chat_pk=chat_pk,
+                message_id=body["message_id"],
+                group_chat_id=update_row["chat_id"],
+                body=body,
+                is_from_moderator=is_from_moderator,
+                sender_chat_id=sender_chat_id,
+                is_automatic_forward=bool(body.get("is_automatic_forward")),
+            )
         await session.commit()
+
+    _log_incident_opened(incident_id, body["message_id"])
 
     # Scheduled only for a newly-inserted, non-moderator message from a real person (TG-M3,
     # T029, contract §1) — after the insert has committed, so the delayed judgement can always
@@ -338,19 +405,44 @@ async def group_history_chat_ids(session: AsyncSession, *, telegram_chat_id: int
     return list(seen)
 
 
+def _sticky_entity_flags(edited: dict[str, bool]) -> Any:
+    """`entity_flags` after an edit: each flag is true once any captured version carried it — an
+    observation is never withdrawn by a later edit (2026-10-18 amendment to §2(b))."""
+    pairs: list[Any] = []
+    for key, observed in edited.items():
+        stored = sa.func.coalesce(telegram_messages.c.entity_flags[key].as_boolean(), sa.false())
+        pairs += [key, sa.or_(stored, sa.literal(observed))]
+    return sa.func.jsonb_build_object(*pairs)
+
+
+async def _first_posted_is_automatic_forward(session: AsyncSession, source_update_id: int) -> bool:
+    """Whether the message's own first captured event was the linked channel's automatic forward —
+    read from that event, so an edit's payload cannot hide it."""
+    update_row = await _fetch_update(session, source_update_id)
+    body: dict[str, Any] = (update_row["payload"] or {}).get(update_row["update_type"]) or {}
+    return bool(body.get("is_automatic_forward"))
+
+
 async def apply_edit(
-    session_factory: async_sessionmaker[AsyncSession], *, update_row_id: int
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    update_row_id: int,
+    open_incidents: bool = True,
 ) -> int:
     """Applies the captured `edited_message` event at `telegram_updates.id == update_row_id` as a
-    targeted `UPDATE … SET original_text, normalized_text, edited_at` — and nothing else
-    (`contracts/message-derivation.md` §2(b), D-TG-50). `sent_at`, `is_from_moderator`,
-    `telegram_user_id` and `source_update_id` are untouched.
+    targeted `UPDATE … SET original_text, normalized_text, edited_at` (`contracts/message-
+    derivation.md` §2(b), D-TG-50), plus the sticky `entity_flags` (2026-10-18). `sent_at`,
+    `is_from_moderator`, `telegram_user_id` and `source_update_id` are untouched.
 
     Also clears `attention_evaluated_at` (`contracts/attention-rules.md` §3 E5, D-TG-88): this is
     the *only* mechanism that re-triggers judgement on an edit — the ordinary sweep
     (`sweep_unjudged_bursts`) picks the row up from its own authoritative work list and re-judges
     the burst through `open_item`, exactly as it would for any other unjudged message. One
     judgement path, not two.
+
+    `open_incidents=True` (the live path) applies the no-links rule to the edit's own entities: a
+    regular member who edits a link in opens a `source='rule'` incident, in this transaction.
+    `rederive_chat.py` passes `False` — a replayed edit is history and opens nothing.
 
     Returns the number of rows matched — `0` when the message was never derived (it predates
     measurement, or its `payload` was purged), which is a no-op, not an error.
@@ -373,9 +465,32 @@ async def apply_edit(
                 original_text=original_text,
                 normalized_text=normalized_text,
                 edited_at=edited_at,
+                entity_flags=_sticky_entity_flags(_entity_flags(body)),
                 attention_evaluated_at=None,
             )
+            .returning(
+                telegram_messages.c.is_from_moderator,
+                telegram_messages.c.sender_chat_id,
+                telegram_messages.c.source_update_id,
+            )
         )
+        matched = result.all()
+
+        incident_id: int | None = None
+        if open_incidents and matched and _entity_flags(body)["has_url"]:
+            [stored] = matched
+            incident_id = await _apply_link_rule(
+                session,
+                chat_pk=chat_pk,
+                message_id=body["message_id"],
+                group_chat_id=update_row["chat_id"],
+                body=body,
+                is_from_moderator=stored.is_from_moderator,
+                sender_chat_id=stored.sender_chat_id,
+                is_automatic_forward=bool(body.get("is_automatic_forward"))
+                or await _first_posted_is_automatic_forward(session, stored.source_update_id),
+            )
         await session.commit()
-        rows_matched: int = result.rowcount  # type: ignore[attr-defined]
-        return rows_matched
+
+    _log_incident_opened(incident_id, body["message_id"])
+    return len(matched)

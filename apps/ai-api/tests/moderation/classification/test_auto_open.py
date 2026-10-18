@@ -31,6 +31,9 @@ _CONFIDENT_VIOLATION = {
     "severity": "high",
     "confidence": 0.93,
 }
+# The advert carries a link entity: R4b's outside-contact signal, so a confident SPAM_OR_AD still
+# opens (`test_contact_signal.py`; the link-less case is below).
+_LINK = {"has_url": True, "has_phone": False, "has_mention": False, "forwarded": False}
 
 
 def _rand_id() -> int:
@@ -79,6 +82,7 @@ async def test_confident_consistent_prediction_opens_one_incident_with_full_prov
         sent_at=_SENT_AT,
         telegram_user_id=user_pk,
         original_text="اعلان عن كورس تاني بسعر مخفض جدا انضموا الآن",
+        entity_flags=_LINK,
     )
     gateway, calls = scripted_gateway(responses=[dict(_CONFIDENT_VIOLATION)])
     registry = ProfileRegistry(classification_session_factory)
@@ -136,6 +140,7 @@ async def test_no_owner_at_detection_is_null_and_unmoved_by_a_later_handover(
         message_id=1,
         sent_at=_SENT_AT,
         original_text="اعلان عن كورس تاني بسعر مخفض جدا انضموا الآن",
+        entity_flags=_LINK,
     )
     gateway, calls = scripted_gateway(responses=[dict(_CONFIDENT_VIOLATION)])
     registry = ProfileRegistry(classification_session_factory)
@@ -186,6 +191,7 @@ async def test_an_operator_incident_already_on_the_message_blocks_a_second_one(
         message_id=1,
         sent_at=_SENT_AT,
         original_text="اعلان عن كورس تاني بسعر مخفض جدا انضموا الآن",
+        entity_flags=_LINK,
     )
     operator_incident_id = await insert_incident(
         telegram_chat_id=chat_pk,
@@ -256,6 +262,7 @@ async def test_a_catch_up_prediction_with_the_same_values_opens_nothing(
         message_id=1,
         sent_at=_SENT_AT,
         original_text="اعلان عن كورس تاني بسعر مخفض جدا انضموا الآن",
+        entity_flags=_LINK,
     )
     gateway, calls = scripted_gateway(responses=[dict(_CONFIDENT_VIOLATION)])
     registry = ProfileRegistry(classification_session_factory)
@@ -300,6 +307,7 @@ async def test_closing_a_model_opened_incident_false_positive_removes_it_from_fi
         message_id=1,
         sent_at=_SENT_AT,
         original_text="اعلان عن كورس تاني بسعر مخفض جدا انضموا الآن",
+        entity_flags=_LINK,
     )
     gateway, calls = scripted_gateway(responses=[dict(_CONFIDENT_VIOLATION)])
     registry = ProfileRegistry(classification_session_factory)
@@ -380,3 +388,146 @@ async def test_closing_a_model_opened_incident_false_positive_removes_it_from_fi
     assert timing_after["acknowledgement"]["samples"] == 0
     # M17: detection latency is a figure about the system — a false positive still counts.
     assert latency_after["ai"]["flagged"] == 1
+
+
+# --- R4b: an advert with no outside-contact signal is listed, never opened ----------------------
+
+
+async def test_a_link_less_advert_is_listed_not_opened(
+    classification_session_factory: async_sessionmaker[AsyncSession],
+    classification_chat_id: int,
+    insert_chat: Any,
+    insert_user: Any,
+    insert_message: Any,
+    scripted_gateway: Any,
+    classification_redis: Any,
+    classification_settings: Any,
+    fetch_incident: Any,
+) -> None:
+    chat_pk = await insert_chat(chat_id=classification_chat_id)
+    user_pk = await insert_user(tg_user_id=_rand_id())
+    # Day one's shape: a student's request for collections, read as an advert at 0.95.
+    await insert_message(
+        telegram_chat_id=chat_pk,
+        message_id=1,
+        sent_at=_SENT_AT,
+        telegram_user_id=user_pk,
+        original_text="احتاج الى تجمعات تربية خاصة فكري او اعاقة فكرية",
+    )
+    gateway, _ = scripted_gateway(responses=[dict(_CONFIDENT_VIOLATION, confidence=0.95)])
+
+    outcome = await classify_one(
+        classification_session_factory,
+        gateway,
+        ProfileRegistry(classification_session_factory),
+        classification_redis,
+        classification_settings,
+        chat_pk=chat_pk,
+        message_id=1,
+        path="live",
+    )
+
+    assert outcome == "classified"
+    prediction = await _fetch_prediction(
+        classification_session_factory, chat_pk=chat_pk, message_id=1
+    )
+    assert prediction is not None
+    assert (prediction["route"], prediction["route_reason"]) == (
+        "possible_violation",
+        "no_contact_signal",
+    )
+    assert await fetch_incident(telegram_chat_id=chat_pk, telegram_message_id=1) is None
+
+
+async def test_a_redacted_phone_number_is_a_signal(
+    classification_session_factory: async_sessionmaker[AsyncSession],
+    classification_chat_id: int,
+    insert_chat: Any,
+    insert_user: Any,
+    insert_message: Any,
+    scripted_gateway: Any,
+    classification_redis: Any,
+    classification_settings: Any,
+    fetch_incident: Any,
+) -> None:
+    chat_pk = await insert_chat(chat_id=classification_chat_id)
+    user_pk = await insert_user(tg_user_id=_rand_id())
+    await insert_message(
+        telegram_chat_id=chat_pk,
+        message_id=1,
+        sent_at=_SENT_AT,
+        telegram_user_id=user_pk,
+        original_text="تجميعات الرخصة كاملة تواصل 0551234567",
+    )
+    gateway, _ = scripted_gateway(responses=[dict(_CONFIDENT_VIOLATION)])
+
+    await classify_one(
+        classification_session_factory,
+        gateway,
+        ProfileRegistry(classification_session_factory),
+        classification_redis,
+        classification_settings,
+        chat_pk=chat_pk,
+        message_id=1,
+        path="live",
+    )
+
+    incident = await fetch_incident(telegram_chat_id=chat_pk, telegram_message_id=1)
+    assert incident is not None
+    assert incident["source"] == "ai"
+
+
+async def test_a_rule_incident_already_on_the_message_blocks_the_models(
+    classification_session_factory: async_sessionmaker[AsyncSession],
+    classification_chat_id: int,
+    insert_chat: Any,
+    insert_user: Any,
+    insert_message: Any,
+    insert_incident: Any,
+    scripted_gateway: Any,
+    classification_redis: Any,
+    classification_settings: Any,
+    fetch_incident: Any,
+) -> None:
+    chat_pk = await insert_chat(chat_id=classification_chat_id)
+    user_pk = await insert_user(tg_user_id=_rand_id())
+    await insert_message(
+        telegram_chat_id=chat_pk,
+        message_id=1,
+        sent_at=_SENT_AT,
+        telegram_user_id=user_pk,
+        original_text="اعلان عن كورس تاني بسعر مخفض جدا انضموا الآن",
+        entity_flags=_LINK,
+    )
+    rule_incident_id = await insert_incident(
+        telegram_chat_id=chat_pk,
+        telegram_message_id=1,
+        opened_at=_SENT_AT,
+        detected_at=_SENT_AT,
+        category="OTHER",
+        severity="low",
+        source="rule",
+        opened_by_user_id=None,
+        rule_version=1,
+    )
+    gateway, _ = scripted_gateway(responses=[dict(_CONFIDENT_VIOLATION)])
+
+    await classify_one(
+        classification_session_factory,
+        gateway,
+        ProfileRegistry(classification_session_factory),
+        classification_redis,
+        classification_settings,
+        chat_pk=chat_pk,
+        message_id=1,
+        path="live",
+    )
+
+    prediction = await _fetch_prediction(
+        classification_session_factory, chat_pk=chat_pk, message_id=1
+    )
+    assert prediction is not None
+    assert prediction["route"] == "incident"
+    incident = await fetch_incident(telegram_chat_id=chat_pk, telegram_message_id=1)
+    assert incident is not None
+    assert (incident["id"], incident["source"]) == (rule_incident_id, "rule")
