@@ -209,7 +209,7 @@ class ModeratorResourceTest extends TestCase
         $this->assertSame($identity->id, $fresh->telegram_user_id);
     }
 
-    public function test_reassign_delegates_to_the_model_method_not_two_writes(): void
+    public function test_add_to_group_delegates_to_the_model_method(): void
     {
         $this->actingAsPanelOperator();
         $identity = $this->makeObservedIdentity();
@@ -222,15 +222,15 @@ class ModeratorResourceTest extends TestCase
         Livewire::test(AssignmentsRelationManager::class, [
             'ownerRecord' => $moderator,
             'pageClass' => EditModerator::class,
-        ])->callTableAction('reassign', null, [
+        ])->callTableAction('add_to_group', null, [
             'telegram_chat_id' => $chat->id,
             'note' => 'covering while on leave',
-        ]);
+        ])->assertHasNoTableActionErrors();
 
         $assignment = ModeratorGroupAssignment::query()
             ->where('telegram_chat_id', $chat->id)
             ->where('moderator_id', $moderator->id)
-            ->currentPrimary()
+            ->currentMembers()
             ->firstOrFail();
 
         $this->assertSame('covering while on leave', $assignment->note);
@@ -238,7 +238,7 @@ class ModeratorResourceTest extends TestCase
         $this->assertNull($assignment->valid_to);
     }
 
-    public function test_the_assignments_view_lists_history_chronologically_with_nothing_deletable(): void
+    public function test_the_assignments_view_lists_the_newest_ten_first_with_nothing_deletable(): void
     {
         $this->actingAsPanelOperator();
         $identity = $this->makeObservedIdentity();
@@ -246,18 +246,23 @@ class ModeratorResourceTest extends TestCase
             'telegram_user_id' => $identity->id,
             'display_name' => 'History Moderator',
         ]);
-        $chatA = $this->makeChat(['title' => 'Group A']);
-        $chatB = $this->makeChat(['title' => 'Group B']);
-
-        $first = ModeratorGroupAssignment::handover($chatA->id, $moderator->id);
-        $second = ModeratorGroupAssignment::handover($chatB->id, $moderator->id);
+        $chat = $this->makeChat(['title' => 'Group A']);
+        // Twelve ended memberships, one a day, written directly as fixtures: day 12 is the newest.
+        $history = collect(range(1, 12))->map(fn (int $day) => ModeratorGroupAssignment::create([
+            'telegram_chat_id' => $chat->id,
+            'moderator_id' => $moderator->id,
+            'assignment_role' => 'primary',
+            'valid_from' => now()->subDays(13 - $day)->format('Y-m-d H:i:s.u'),
+            'valid_to' => now()->subDays(13 - $day)->addHour()->format('Y-m-d H:i:s.u'),
+        ]));
 
         $component = Livewire::test(AssignmentsRelationManager::class, [
             'ownerRecord' => $moderator,
             'pageClass' => EditModerator::class,
         ]);
 
-        $component->assertCanSeeTableRecords([$first, $second], inOrder: true);
+        $component->assertCanSeeTableRecords($history->slice(2)->reverse()->values(), inOrder: true);
+        $component->assertCanNotSeeTableRecords($history->take(2));
         $component->assertTableActionDoesNotExist('delete');
         $component->assertTableBulkActionDoesNotExist('delete');
     }

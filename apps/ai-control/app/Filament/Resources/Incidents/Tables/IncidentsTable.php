@@ -8,6 +8,7 @@ use App\Filament\Resources\Incidents\Actions\OpenIncidentAction;
 use App\Filament\Resources\Incidents\Actions\ResolveIncidentAction;
 use App\Filament\Resources\Incidents\IncidentResource;
 use App\Filament\Resources\Incidents\Support\IncidentDisplay;
+use App\Filament\Support\TeamAssignment;
 use App\Models\ModerationIncident;
 use App\Models\Moderator;
 use App\Models\TelegramChat;
@@ -18,14 +19,18 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 
 /**
  * Group · Message · Category · Severity · Status (read from `moderation_incident_state`, never
- * computed here) · Responsible (**Unassigned** badge when NULL) · Posted · Flagged · Age/took
- * (`control-panel-incidents.md` §1.1, T057). Filters: status, category, severity, group,
- * responsible moderator, detection date range (P1). No bulk action anywhere (FR-038); no
- * create/edit/delete page on the resource — an incident is opened by an action and never edited
- * or deleted.
+ * computed here) · Assigned · Posted · Flagged · Age/took (`control-panel-incidents.md` §1.1,
+ * T057). Filters: Mine, status, category, severity, group, assigned moderator, detection date
+ * range (P1). No bulk action anywhere (FR-038); no create/edit/delete page on the resource — an
+ * incident is opened by an action and never edited or deleted.
+ *
+ * TG-M2.1 (`specs/012-tg-m2-1-group-teams/contracts/group-teams.md` S1-S3): "Assigned" is read
+ * from `moderation_incident_assignee` — the first team member's act, else "Team: …", else "No
+ * team" — and **Mine** is on by default for a moderator's own account. Neither is access control.
  */
 class IncidentsTable
 {
@@ -89,9 +94,18 @@ class IncidentsTable
                     ->getStateUsing(fn (ModerationIncident $record): ?string => $record->state()?->status)
                     ->formatStateUsing(fn (string $state): string => __($state))
                     ->badge(),
-                TextColumn::make('responsibleModerator.display_name')
-                    ->label(__('Responsible'))
-                    ->placeholder(__('Unassigned'))
+                TextColumn::make('assigned')
+                    ->label(__('Assigned'))
+                    ->getStateUsing(fn (ModerationIncident $record): string => TeamAssignment::label(
+                        TeamAssignment::forIncidents([$record->id])[$record->id] ?? null,
+                        TeamAssignment::currentTeams([$record->telegram_chat_id])[$record->telegram_chat_id] ?? [],
+                        $record->isLive(),
+                    ))
+                    ->color(fn (ModerationIncident $record): string => TeamAssignment::color(
+                        TeamAssignment::forIncidents([$record->id])[$record->id] ?? null,
+                        TeamAssignment::currentTeams([$record->telegram_chat_id])[$record->telegram_chat_id] ?? [],
+                        $record->isLive(),
+                    ))
                     ->badge(),
                 TextColumn::make('opened_at')->label(__('Posted'))->dateTime()->sortable(),
                 TextColumn::make('detected_at')->label(__('Flagged'))->dateTime()->sortable(),
@@ -109,6 +123,18 @@ class IncidentsTable
                     }),
             ])
             ->filters([
+                // TG-M2.1 S2: a default, not access control — one click shows everything.
+                Filter::make('mine')
+                    ->label(__('Mine'))
+                    ->toggle()
+                    ->default(fn (): bool => TeamAssignment::linkedModeratorId(Auth::user()) !== null)
+                    ->query(function (Builder $query): Builder {
+                        $moderatorId = TeamAssignment::linkedModeratorId(Auth::user());
+
+                        return $moderatorId === null ? $query : TeamAssignment::applyMine(
+                            $query, 'moderation_incidents', 'moderation_incident_assignee', 'incident_id', $moderatorId,
+                        );
+                    }),
                 SelectFilter::make('status')
                     ->label(__('Status'))
                     ->options(array_map(__(...), self::STATUSES))
@@ -145,9 +171,19 @@ class IncidentsTable
                             ])
                             ->all()
                     ),
-                SelectFilter::make('responsible_moderator_id')
-                    ->label(__('Responsible'))
-                    ->options(fn (): array => Moderator::query()->orderBy('display_name')->pluck('display_name', 'id')->all()),
+                // S3: read from the assignee view, never from `responsible_moderator_id` (N6).
+                SelectFilter::make('assigned_moderator_id')
+                    ->label(__('Assigned to'))
+                    ->options(fn (): array => Moderator::query()->orderBy('display_name')->pluck('display_name', 'id')->all())
+                    ->query(fn (Builder $query, array $data): Builder => $query->when(
+                        $data['value'] ?? null,
+                        fn (Builder $q, $moderatorId): Builder => $q->whereIn(
+                            'id',
+                            fn ($sub) => $sub->select('incident_id')
+                                ->from('moderation_incident_assignee')
+                                ->where('assigned_moderator_id', (int) $moderatorId)
+                        )
+                    )),
                 Filter::make('detected_at')
                     ->label(__('Detection date'))
                     ->schema([

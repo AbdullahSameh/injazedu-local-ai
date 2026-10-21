@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * same guarded write, `UPDATE … WHERE id = ? AND status = 'open'` (contract §4 C8, §6 G2): the
  * guard is simultaneously the concurrency control, the write-once rule, and the reason
  * re-running any step is harmless. `closeIfOpen()` lives here, not in a Filament action, so the
- * invariant holds from `tinker` too — mirroring `ModeratorGroupAssignment::handover()` and
+ * invariant holds from `tinker` too — mirroring `ModeratorGroupAssignment::replaceWith()` and
  * `ModelProfile::save()`.
  */
 class AttentionItem extends Model
@@ -36,7 +36,6 @@ class AttentionItem extends Model
         'opened_at',
         'source',
         'rule_version',
-        'responsible_moderator_id',
         'status',
     ];
 
@@ -55,6 +54,10 @@ class AttentionItem extends Model
         return $this->belongsTo(TelegramChat::class, 'telegram_chat_id');
     }
 
+    /**
+     * TG-M2.1 G1: the owner snapshot of items opened before TG-M2.1 — frozen, displayed nowhere and
+     * read by no figure (N6). The assigned moderator is `attention_item_assignee`'s.
+     */
     public function responsibleModerator(): BelongsTo
     {
         return $this->belongsTo(Moderator::class, 'responsible_moderator_id');

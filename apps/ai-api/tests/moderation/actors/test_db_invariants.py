@@ -119,7 +119,9 @@ def test_two_moderators_on_one_identity_is_rejected(actors_sync_engine: Engine) 
             trans.rollback()
 
 
-def test_second_current_primary_for_one_chat_is_rejected(actors_sync_engine: Engine) -> None:
+def test_a_second_current_member_is_allowed_but_not_the_same_moderator_twice(
+    actors_sync_engine: Engine,
+) -> None:
     chat_id = -_rand_id()
     tg_user_id_a = _rand_id()
     tg_user_id_b = _rand_id()
@@ -171,12 +173,23 @@ def test_second_current_primary_for_one_chat_is_rejected(actors_sync_engine: Eng
                 {"chat": chat_pk, "moderator": moderator_a},
             )
 
+            # TG-M2.1 T1: a team — a second current member is not an error.
+            conn.execute(
+                text(
+                    "INSERT INTO moderator_group_assignments "
+                    "(telegram_chat_id, moderator_id, assignment_role, valid_from) "
+                    "VALUES (:chat, :moderator, 'primary', now())"
+                ),
+                {"chat": chat_pk, "moderator": moderator_b},
+            )
+
+            # T2: the same moderator current twice in one group is.
             with pytest.raises(IntegrityError):
                 conn.execute(
                     text(
                         "INSERT INTO moderator_group_assignments "
                         "(telegram_chat_id, moderator_id, assignment_role, valid_from) "
-                        "VALUES (:chat, :moderator, 'primary', now())"
+                        "VALUES (:chat, :moderator, 'backup', now())"
                     ),
                     {"chat": chat_pk, "moderator": moderator_b},
                 )

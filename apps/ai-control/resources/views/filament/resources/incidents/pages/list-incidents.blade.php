@@ -149,8 +149,17 @@
             </table>
         </div>
 
-        {{-- P15: no detection-latency column here — the figure cannot be attributed to a moderator by construction (FR-054). --}}
-        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-6">{{ __('By moderator') }}</h3>
+        {{--
+            TG-M2.1 (`group-teams.md` §4): "My groups" is the same arithmetic as the group table, over
+            the groups each moderator was on the team of when the incident was flagged (F1) — a miss
+            counts once for every member (F2). "My work" is what they took themselves (F4). P15: no
+            detection-latency column — the figure cannot be attributed to a moderator (FR-054).
+        --}}
+        @php($moderatorRows = $this->figuresByModerator())
+        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-6">{{ __('By moderator: my groups') }}</h3>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            {{ __('Incidents flagged in the groups each moderator was on the team of at the time. An incident nobody handled counts for every member of the team.') }}
+        </p>
         <div class="overflow-x-auto mt-2">
             <table class="w-full text-sm text-start">
                 <thead>
@@ -168,9 +177,9 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @forelse ($this->figuresByModerator() as $row)
+                    @forelse ($moderatorRows as $row)
                         <tr class="border-t border-gray-100 dark:border-white/5">
-                            <td class="py-1.5 pe-4">{{ $row['label'] }}</td>
+                            <td class="py-1.5 pe-4" dir="auto">{{ $row['label'] }}</td>
                             <td class="py-1.5 pe-4">{{ $row['flagged'] }}</td>
                             <td class="py-1.5 pe-4">{{ $row['handled'] }}</td>
                             <td class="py-1.5 pe-4">{{ $row['missed'] }}</td>
@@ -188,6 +197,46 @@
                     @empty
                         <tr>
                             <td colspan="10" class="py-2 text-gray-500 dark:text-gray-400">{{ __('No data for this period.') }}</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+
+        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-6">{{ __('By moderator: my work') }}</h3>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            {{ __('Assigned: incidents this moderator acted on first, in Telegram or in the panel. Time to take: from the flag to that first act.') }}
+        </p>
+        <div class="overflow-x-auto mt-2">
+            <table class="w-full text-sm text-start">
+                <thead>
+                    <tr class="text-xs text-gray-500 dark:text-gray-400">
+                        <th class="py-1 pe-4">{{ __('Moderator') }}</th>
+                        <th class="py-1 pe-4">{{ __('Assigned') }}</th>
+                        <th class="py-1 pe-4">{{ __('Acknowledged / resolved / false positive') }}</th>
+                        <th class="py-1 pe-4">{{ __('Taken by') }}</th>
+                        <th class="py-1 pe-4">{{ __('Time to take (median / p90 / max)') }}</th>
+                        <th class="py-1 pe-4">{{ __('Outside their groups') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse ($moderatorRows as $row)
+                        @php($work = $row['work'])
+                        <tr class="border-t border-gray-100 dark:border-white/5">
+                            <td class="py-1.5 pe-4" dir="auto">{{ $row['label'] }}</td>
+                            <td class="py-1.5 pe-4">{{ $work['assigned'] }}</td>
+                            <td class="py-1.5 pe-4">{{ $work['assigned_acknowledged'] }} / {{ $work['assigned_resolved'] }} / {{ $work['assigned_false_positive'] }}</td>
+                            <td class="py-1.5 pe-4">{{ $this->viaDisplay($work['via']) }}</td>
+                            <td class="py-1.5 pe-4">
+                                {{ $this->humanDuration($work['take']['median']) }} /
+                                {{ $this->p90Display($work['take']['p90'], $work['take']['p90_suppressed'], $work['take']['samples']) }} /
+                                {{ $this->humanDuration($work['take']['max']) }}
+                            </td>
+                            <td class="py-1.5 pe-4">{{ $work['outside'] }}</td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="6" class="py-2 text-gray-500 dark:text-gray-400">{{ __('No data for this period.') }}</td>
                         </tr>
                     @endforelse
                 </tbody>

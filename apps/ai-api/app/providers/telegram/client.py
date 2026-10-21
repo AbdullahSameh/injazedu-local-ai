@@ -118,6 +118,10 @@ class TelegramProvider(Protocol):
 
     async def get_chat_member(self, *, chat_id: int, user_id: int) -> ChatMemberStatus: ...
 
+    async def get_chat_available_reactions(
+        self, *, chat_id: int
+    ) -> list[dict[str, Any]] | None: ...
+
 
 class TelegramClient:
     """Satisfies `TelegramProvider` against the real Bot API (or a scripted `httpx` transport)."""
@@ -195,3 +199,14 @@ class TelegramClient:
         return ChatMemberStatus(
             status=result["status"], can_delete_messages=result.get("can_delete_messages")
         )
+
+    async def get_chat_available_reactions(
+        self, *, chat_id: int
+    ) -> list[dict[str, Any]] | None:
+        """Read-only `getChat`, keeping only `available_reactions` (TG-M4.1 E9): the reactions the
+        chat's administrators allow, or `None` when the field is omitted — the platform's "all
+        emoji reactions are allowed". Nothing else of the chat (description, pinned message) is
+        kept or returned."""
+        result = await self._request("getChat", {"chat_id": chat_id})
+        reactions = result.get("available_reactions")
+        return None if reactions is None else list(reactions)

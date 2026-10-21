@@ -1,5 +1,7 @@
 """⚠ The handover protocol: one transaction, close before open, one timestamp value bound to
-both sides (`contracts/moderator-ownership.md` §2, D-TG-47, research Finding 2).
+both sides (`contracts/moderator-ownership.md` §2, D-TG-47, research Finding 2). Since TG-M2.1 it
+replaces one named member of a team (`group-teams.md` T5); with no name it replaces the sole
+member, which is every test here except the last two.
 
 T047: probe 3 measured a ~10 ms hole with **zero** owners when two clock readings are used, and
 **no constraint fires** — a test that checks *near* the handover instant cannot see it. These
@@ -15,7 +17,12 @@ from typing import Any
 
 import pytest
 import sqlalchemy as sa
-from app.application.moderation.assignments import handover, open_assignment, responsible_at
+from app.application.moderation.assignments import (
+    MembershipRefusedError,
+    handover,
+    open_assignment,
+    team_at,
+)
 from app.application.moderation.identities import map_moderator
 from app.infrastructure.models_moderation import moderator_group_assignments
 from sqlalchemy import Engine, text
@@ -61,19 +68,16 @@ async def test_handover_leaves_no_hole_and_no_overlap(
     assert await count_current_owners_at(telegram_chat_id=chat_pk, t=at) == 1
 
     async with actors_session_factory() as session:
-        owner = await responsible_at(session, telegram_chat_id=chat_pk, t=at)
-    assert owner == moderator_b
+        team = await team_at(session, telegram_chat_id=chat_pk, t=at)
+    assert team == [moderator_b]
 
 
-async def test_a_second_current_primary_is_refused_with_no_partial_rows(
+def test_a_second_current_row_for_one_moderator_is_refused_with_no_partial_rows(
     actors_sync_engine: Engine,
 ) -> None:
-    """A direct bypass of the handover protocol — two primaries opened without closing the
-    first — must be rejected atomically, leaving only the original row (`test_db_invariants.py`
-    covers the same constraint directly; this asserts the "no partial rows" half explicitly)."""
+    """T2: a team may hold several members, but one moderator is current in a group at most
+    once — a direct second insert is rejected atomically, leaving only the original row."""
     chat_id = -_rand_id()
-    tg_user_id_a = _rand_id()
-    tg_user_id_b = _rand_id()
 
     with actors_sync_engine.connect() as conn:
         trans = conn.begin()
@@ -90,14 +94,7 @@ async def test_a_second_current_primary_is_refused_with_no_partial_rows(
                     "INSERT INTO telegram_users (tg_user_id, is_bot) "
                     "VALUES (:id, false) RETURNING id"
                 ),
-                {"id": tg_user_id_a},
-            ).scalar_one()
-            user_b = conn.execute(
-                text(
-                    "INSERT INTO telegram_users (tg_user_id, is_bot) "
-                    "VALUES (:id, false) RETURNING id"
-                ),
-                {"id": tg_user_id_b},
+                {"id": _rand_id()},
             ).scalar_one()
             moderator_a = conn.execute(
                 text(
@@ -105,13 +102,6 @@ async def test_a_second_current_primary_is_refused_with_no_partial_rows(
                     "VALUES (:user, 'A') RETURNING id"
                 ),
                 {"user": user_a},
-            ).scalar_one()
-            moderator_b = conn.execute(
-                text(
-                    "INSERT INTO moderators (telegram_user_id, display_name) "
-                    "VALUES (:user, 'B') RETURNING id"
-                ),
-                {"user": user_b},
             ).scalar_one()
             conn.execute(
                 text(
@@ -129,7 +119,7 @@ async def test_a_second_current_primary_is_refused_with_no_partial_rows(
                         "(telegram_chat_id, moderator_id, assignment_role, valid_from) "
                         "VALUES (:chat, :moderator, 'primary', now())"
                     ),
-                    {"chat": chat_pk, "moderator": moderator_b},
+                    {"chat": chat_pk, "moderator": moderator_a},
                 )
         finally:
             trans.rollback()
@@ -273,3 +263,65 @@ async def test_no_closed_interval_is_deleted_or_rewritten_across_three_handovers
             await fetch_assignment(assignment_id=i) for i in (id_a, id_b, id_c, id_d)
         ]
     }
+
+
+async def test_replacing_one_member_of_a_team_leaves_the_other_current(
+    actors_session_factory: async_sessionmaker[AsyncSession],
+    actors_chat_id: int,
+    insert_chat: Any,
+    fetch_assignment: Any,
+) -> None:
+    """T5: a replace closes only the named incumbent, at the successor's own `valid_from`."""
+    chat_pk = await insert_chat(chat_id=actors_chat_id)
+    moderator_a, moderator_b, moderator_c = [
+        await map_moderator(actors_session_factory, tg_user_id=_rand_id(), display_name=name)
+        for name in ("A", "B", "C")
+    ]
+    id_a = await open_assignment(
+        actors_session_factory, telegram_chat_id=chat_pk, moderator_id=moderator_a
+    )
+    id_b = await open_assignment(
+        actors_session_factory, telegram_chat_id=chat_pk, moderator_id=moderator_b
+    )
+
+    id_c = await handover(
+        actors_session_factory,
+        telegram_chat_id=chat_pk,
+        moderator_id=moderator_c,
+        replacing=moderator_b,
+    )
+
+    row_a = await fetch_assignment(assignment_id=id_a)
+    row_b = await fetch_assignment(assignment_id=id_b)
+    row_c = await fetch_assignment(assignment_id=id_c)
+    assert row_a["valid_to"] is None
+    assert row_b["valid_to"] == row_c["valid_from"]
+    async with actors_session_factory() as session:
+        team = await team_at(session, telegram_chat_id=chat_pk, t=row_c["valid_from"])
+    assert team == sorted([moderator_a, moderator_c])
+
+
+async def test_an_unnamed_replace_in_a_team_is_refused_and_ends_nobody(
+    actors_session_factory: async_sessionmaker[AsyncSession],
+    actors_chat_id: int,
+    insert_chat: Any,
+    fetch_assignment: Any,
+) -> None:
+    """T5 / D-TG-209: with several current members, "replace" without naming the incumbent would
+    end the whole team. It is refused, and the transaction leaves every row as it was."""
+    chat_pk = await insert_chat(chat_id=actors_chat_id)
+    moderator_a, moderator_b, moderator_c = [
+        await map_moderator(actors_session_factory, tg_user_id=_rand_id(), display_name=name)
+        for name in ("A", "B", "C")
+    ]
+    ids = [
+        await open_assignment(actors_session_factory, telegram_chat_id=chat_pk, moderator_id=m)
+        for m in (moderator_a, moderator_b)
+    ]
+
+    with pytest.raises(MembershipRefusedError) as exc:
+        await handover(actors_session_factory, telegram_chat_id=chat_pk, moderator_id=moderator_c)
+
+    assert exc.value.reason == "ambiguous"
+    for assignment_id in ids:
+        assert (await fetch_assignment(assignment_id=assignment_id))["valid_to"] is None

@@ -204,6 +204,9 @@ collects items, and they surface as **Unassigned** — a coverage problem the sc
 **A3.** Reassigning a group afterwards never moves an existing item's attribution or its number. This is
 the runbook's own smoke-test check for this milestone.
 **A4.** Every per-moderator figure attributes to `responsible_moderator_id`, never to whoever answered.
+
+> **Amended by TG-M2.1 (2026-10-19).** A1–A4: nothing is assigned at open (G1). The item's assigned moderator is the first team member's reply, dismissal or reaction while it is live (G2, G4), read from `attention_item_assignee`; "Unassigned" became "Team: …" or "No team" (S1). Team history, not a snapshot, keeps A3 true, and every per-moderator figure selects the team at `opened_at` (F1). `specs/012-tg-m2-1-group-teams/contracts/group-teams.md`.
+
 **A5.** The rule set's accuracy is arithmetic over stored rows and nothing else:
 `precision = 1 − dismissed ÷ opened`, `recall ≈ opened ÷ (opened + operator_added)`. This is the
 baseline TG-M5's model must beat, which is why `source` and `rule_version` are stored rather than

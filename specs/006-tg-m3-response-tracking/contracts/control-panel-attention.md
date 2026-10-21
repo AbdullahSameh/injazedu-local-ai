@@ -20,6 +20,8 @@ writes are dismiss and hand-open, and both are actions.
 | Status | `attention_items.status` | |
 | Waiting | `now() - opened_at`, server-side | Human units |
 
+> **Amended by TG-M2.1 (2026-10-19).** Responsible became **Assigned** (S1), read from `attention_item_assignee`, plus a **Mine** filter on by default for a linked moderator (S2). The By-moderator figures are "My groups" (F1) and "My work" (F3). `specs/012-tg-m2-1-group-teams/contracts/group-teams.md`.
+
 **P1.** Ordered **longest-waiting first** (`opened_at ASC`), because that is the order the work should be
 done in. *Amended 2026-10-17 by the operator (`docs/plan/side/panel-users-and-sorting-plan.md` §1): ordered
 **newest first** (`opened_at DESC`) by default; "Waiting" is a sortable header, so one click restores

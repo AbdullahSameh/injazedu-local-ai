@@ -15,6 +15,10 @@ use Illuminate\Support\Facades\DB;
  * Every method takes its scoping (`$from`/`$to`, `$moderatorId`, `$chatId`) as an explicit
  * argument rather than reading page state itself, mirroring the Python side's explicit-parameter
  * style — a query has no business owning "the current period".
+ *
+ * TG-M2.1 (`specs/012-tg-m2-1-group-teams/contracts/group-teams.md` §4): `$moderatorId` selects
+ * "my groups" — items whose group had the moderator on its team at `opened_at` (F1), never
+ * `responsible_moderator_id` (N6) — and `attentionWorkStats()` is "my work" (F3).
  */
 trait AttentionMetrics
 {
@@ -46,7 +50,12 @@ trait AttentionMetrics
               FROM attention_items
               WHERE status = 'answered'
                 AND opened_at >= :period_from AND opened_at < :period_to
-                AND (:moderator_id1::bigint IS NULL OR responsible_moderator_id = :moderator_id2::bigint)
+                AND (:moderator_id1::bigint IS NULL OR EXISTS (
+                      SELECT 1 FROM moderation_team_intervals t
+                      WHERE t.telegram_chat_id = attention_items.telegram_chat_id
+                        AND t.moderator_id     = :moderator_id2::bigint
+                        AND t.valid_from      <= attention_items.opened_at
+                        AND (t.valid_to IS NULL OR t.valid_to > attention_items.opened_at)))
                 AND (:chat_id1::bigint      IS NULL OR telegram_chat_id        = :chat_id2::bigint)
             ) s
             SQL,
@@ -93,7 +102,12 @@ trait AttentionMetrics
                    count(*) FILTER (WHERE status <> 'dismissed')             AS opened
             FROM attention_items
             WHERE opened_at >= :period_from AND opened_at < :period_to
-              AND (:moderator_id1::bigint IS NULL OR responsible_moderator_id = :moderator_id2::bigint)
+              AND (:moderator_id1::bigint IS NULL OR EXISTS (
+                    SELECT 1 FROM moderation_team_intervals t
+                    WHERE t.telegram_chat_id = attention_items.telegram_chat_id
+                      AND t.moderator_id     = :moderator_id2::bigint
+                      AND t.valid_from      <= attention_items.opened_at
+                      AND (t.valid_to IS NULL OR t.valid_to > attention_items.opened_at)))
               AND (:chat_id1::bigint      IS NULL OR telegram_chat_id        = :chat_id2::bigint)
             SQL,
             [
@@ -136,6 +150,90 @@ trait AttentionMetrics
         );
 
         return $row->oldest_waiting_s !== null ? (float) $row->oldest_waiting_s : null;
+    }
+
+    /**
+     * F3 — one moderator's attention work over items opened in the period: `assigned`, split by
+     * how it was taken (`via_*`) and by status (`assigned_*`), each split summing to it;
+     * `outside` (answers given while not on that group's team); and `answered_by_me`, the
+     * first-response time over items this moderator answered, under §2's small-sample rule.
+     *
+     * @return array<string, mixed>
+     */
+    private function attentionWorkStats(Carbon $from, Carbon $to, int $moderatorId): array
+    {
+        $params = ['period_from' => $from, 'period_to' => $to, 'moderator_id' => $moderatorId];
+
+        $work = (array) DB::selectOne(
+            <<<'SQL'
+            WITH me AS (SELECT CAST(:moderator_id AS bigint) AS id)
+            SELECT
+              count(*) FILTER (WHERE a.assigned_moderator_id = me.id) AS assigned,
+              count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                                 AND a.assigned_via = 'reply') AS via_reply,
+              count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                                 AND a.assigned_via = 'dismissal') AS via_dismissal,
+              count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                                 AND a.assigned_via = 'reaction') AS via_reaction,
+              count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                                 AND i.status = 'answered') AS assigned_answered,
+              count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                                 AND i.status = 'dismissed') AS assigned_dismissed,
+              count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                                 AND i.status = 'open') AS assigned_open,
+              count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                                 AND i.status = 'expired') AS assigned_expired,
+              count(*) FILTER (WHERE i.status = 'answered'
+                                 AND i.first_response_moderator_id = me.id
+                                 AND NOT EXISTS (
+                                       SELECT 1 FROM moderation_team_intervals t
+                                       WHERE t.telegram_chat_id = i.telegram_chat_id
+                                         AND t.moderator_id     = me.id
+                                         AND t.valid_from      <= i.first_response_at
+                                         AND (t.valid_to IS NULL OR t.valid_to > i.first_response_at)))
+                                                                                        AS outside
+            FROM attention_items i
+            JOIN attention_item_assignee a ON a.attention_item_id = i.id
+            CROSS JOIN me
+            WHERE i.opened_at >= :period_from AND i.opened_at < :period_to
+              AND (a.assigned_moderator_id = me.id OR i.first_response_moderator_id = me.id)
+
+            SQL,
+            $params,
+        );
+
+        $frt = DB::selectOne(
+            <<<'SQL'
+            WITH me AS (SELECT CAST(:moderator_id AS bigint) AS id)
+            SELECT
+              count(*) AS answered,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY frt) AS median_frt,
+              percentile_cont(0.9) WITHIN GROUP (ORDER BY frt) AS p90_frt,
+              max(frt) AS max_frt
+            FROM (
+              SELECT extract(epoch FROM (first_response_at - opened_at)) AS frt
+              FROM attention_items CROSS JOIN me
+              WHERE status = 'answered'
+                AND first_response_moderator_id = me.id
+                AND opened_at >= :period_from AND opened_at < :period_to
+            ) s
+
+            SQL,
+            $params,
+        );
+
+        $answered = (int) $frt->answered;
+        $suppressed = $answered < $this->attentionPercentileMinSamples();
+
+        return array_merge(array_map('intval', $work), [
+            'answered_by_me' => [
+                'answered' => $answered,
+                'median_frt' => $frt->median_frt !== null ? (float) $frt->median_frt : null,
+                'p90_frt' => (! $suppressed && $frt->p90_frt !== null) ? (float) $frt->p90_frt : null,
+                'p90_suppressed' => $suppressed,
+                'max_frt' => $frt->max_frt !== null ? (float) $frt->max_frt : null,
+            ],
+        ]);
     }
 
     /**

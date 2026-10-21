@@ -5,7 +5,7 @@ instant without going through `open_incident` or `process_update` — so US2/US3
 depend on US1's code (`tasks.md` T007).
 
 TG-M2's chat, moderator and assignment factories are reused directly rather than re-implemented:
-`map_moderator`, `open_assignment`, `handover`, `responsible_at` and `upsert_identity` are imported
+`map_moderator`, `open_assignment`, `handover`, `team_at` and `upsert_identity` are imported
 from `app.application.moderation`, exactly as `tests/moderation/attention/conftest.py` does.
 `insert_message` mirrors that same package's direct `telegram_messages` builder (explicit
 `sent_at`, `is_from_moderator`, `reply_to_message_id`, `sender_chat_id`) — siblings under

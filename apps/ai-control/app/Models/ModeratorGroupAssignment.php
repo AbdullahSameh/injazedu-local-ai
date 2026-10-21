@@ -6,16 +6,21 @@ use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Ownership as history: a moderator bound to a chat in a role over a half-open interval
- * `[valid_from, valid_to)` (data-model.md §4, `contracts/moderator-ownership.md` §1).
+ * Ownership as history, held by a team: a moderator bound to a chat in a role over a half-open
+ * interval `[valid_from, valid_to)` (data-model.md §4, `contracts/moderator-ownership.md` §1, amended
+ * by TG-M2.1's `specs/012-tg-m2-1-group-teams/contracts/group-teams.md` §1). A `primary` row is a team
+ * membership, and several can be current in one group (T1); one moderator is current in a group
+ * at most once (T2, `uq_assignment_one_current_membership`).
  *
  * The table is owned by Alembic — this model never migrates it (config/database.php: "Alembic
- * owns this schema"). The handover — one transaction, close before open, one timestamp value
- * bound to both sides — lives on this model, not in a Filament action, mirroring
- * `ModelProfile::save()` so it holds from `tinker` too (D-TG-58).
+ * owns this schema"). Every write — add (T4), end and replace (T5) — lives on this model, not in a
+ * Filament action, mirroring `ModelProfile::save()` so it holds from `tinker` too (D-TG-58). Python's
+ * `assignments.py` holds the same rules; "on the team" itself is defined once, by the view
+ * `moderation_team_intervals`, which `teamAt()` reads.
  */
 class ModeratorGroupAssignment extends Model
 {
@@ -26,8 +31,8 @@ class ModeratorGroupAssignment extends Model
     /**
      * Microsecond precision, not Eloquent's default `Y-m-d H:i:s` — a whole-second-granularity
      * `valid_from`/`valid_to` can manufacture a false zero-width interval (`ck_assignment_
-     * interval`) whenever two handovers land in the same wall-clock second, which is exactly the
-     * kind of precision hazard `handover()` below exists to avoid (D-TG-47).
+     * interval`) whenever two writes land in the same wall-clock second, which is exactly the
+     * kind of precision hazard `replaceWith()` below exists to avoid (D-TG-47).
      */
     protected $dateFormat = 'Y-m-d H:i:s.u';
 
@@ -59,71 +64,155 @@ class ModeratorGroupAssignment extends Model
     }
 
     /**
-     * The one current primary assignment per chat — mirrors `uq_assignment_one_current_primary`
-     * and `assignments.py`'s `responsible_at` predicate at `t = now()` (D-TG-48).
+     * Current team memberships — `primary` rows with no `valid_to` (T1). Several per chat.
      */
-    public function scopeCurrentPrimary(Builder $query): Builder
+    public function scopeCurrentMembers(Builder $query): Builder
     {
         return $query->where('assignment_role', 'primary')->whereNull('valid_to');
     }
 
     /**
-     * `responsible_at(chat, t)`, mirrored from `app/application/moderation/assignments.py`'s
-     * `responsible_at` (D-TG-48, `contracts/moderator-ownership.md` §3) — that is the single
-     * Python definition; this scope must not drift from it. Half-open: `valid_from` inclusive,
-     * `valid_to` exclusive. Never a backup — the role predicate excludes it (O4).
+     * `team_at(chat, t)` (T3): the moderator ids on the chat's team at `$t`, sorted, read from the
+     * one definition, `moderation_team_intervals` — which also follows a chat migration one hop.
+     * Half-open: `valid_from` included, `valid_to` excluded. Empty — never today's team — when no
+     * interval covers `$t` (O2).
+     *
+     * @return array<int, int>
      */
-    public function scopeResponsibleAt(Builder $query, int $telegramChatId, $t): Builder
+    public static function teamAt(int $telegramChatId, DateTimeInterface|string $t): array
     {
         // A raw DateTimeInterface bound straight into the query builder is formatted by the
-        // *connection's* date format (`Y-m-d H:i:s`, no microseconds) rather than this model's,
-        // which can put a boundary instant on the wrong side of a microsecond-precision
-        // `valid_from`/`valid_to` — the same hazard `handover()` below guards against (D-TG-47).
-        $at = $t instanceof DateTimeInterface ? $t->format('Y-m-d H:i:s.u') : $t;
+        // *connection's* date format (no microseconds), which can put a boundary instant on the
+        // wrong side of a microsecond-precision `valid_from`/`valid_to` (D-TG-47).
+        $at = $t instanceof DateTimeInterface ? $t->format('Y-m-d H:i:s.uP') : $t;
 
-        return $query
+        return DB::table('moderation_team_intervals')
             ->where('telegram_chat_id', $telegramChatId)
-            ->where('assignment_role', 'primary')
             ->where('valid_from', '<=', $at)
-            ->where(function (Builder $q) use ($at) {
-                $q->whereNull('valid_to')->orWhere('valid_to', '>', $at);
-            });
+            ->where(fn ($q) => $q->whereNull('valid_to')->orWhere('valid_to', '>', $at))
+            ->distinct()
+            ->orderBy('moderator_id')
+            ->pluck('moderator_id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
     }
 
     /**
-     * A change of primary owner (`contracts/moderator-ownership.md` §2, D-TG-47, Finding 2):
-     * close the incumbent, open the successor, one transaction, one **PHP** `now()` value bound
-     * to both `valid_to` and `valid_from` — never two separate `now()` calls, which is the
-     * PHP-side hazard that leaves a ~10 ms hole with zero owners that no constraint detects.
-     *
-     * "Opening a first owner" (a chat that has never had one) is the same protocol with the
-     * close affecting zero rows, so this method also serves as `open_assignment`.
+     * T4: adds `$moderatorId` to the chat's team from `$since` (default: now). Nobody else's
+     * membership is touched. Refused — `MembershipRefused`, nothing written — for an inactive
+     * moderator, a start in the future or before the moderator was declared (D-TG-207), and one
+     * that would overlap that moderator's own interval in this group.
      */
-    public static function handover(
+    public static function addMember(
         int $telegramChatId,
         int $moderatorId,
+        ?DateTimeInterface $since = null,
         ?string $note = null,
+        string $role = 'primary',
     ): self {
-        // Pre-formatted to a string, not left as a Carbon instance: the bulk `update()` below
-        // goes through the query builder rather than `setAttribute()`, so it would otherwise be
-        // serialized using the *connection's* date format (`Y-m-d H:i:s`, no microseconds)
-        // instead of this model's `$dateFormat` above — and truncating either side breaks "one
-        // value, bound to both sides" (D-TG-47) even though only one `now()` call is made.
-        $at = now()->format('Y-m-d H:i:s.u');
+        // UTC before formatting: the stored string carries no offset, and a "since" picked in
+        // Asia/Riyadh would otherwise land three hours off.
+        $now = now()->utc();
+        $from = Carbon::instance($since ?? $now)->utc();
 
-        return DB::transaction(function () use ($telegramChatId, $moderatorId, $note, $at): self {
-            static::query()
-                ->currentPrimary()
-                ->where('telegram_chat_id', $telegramChatId)
-                ->update(['valid_to' => $at]);
+        return DB::transaction(function () use ($telegramChatId, $moderatorId, $from, $now, $note, $role): self {
+            static::refuseUnlessOpenable($telegramChatId, $moderatorId, $from, $now);
 
             return static::create([
                 'telegram_chat_id' => $telegramChatId,
                 'moderator_id' => $moderatorId,
+                'assignment_role' => $role,
+                'valid_from' => $from->format('Y-m-d H:i:s.u'),
+                'note' => $note,
+            ]);
+        });
+    }
+
+    /**
+     * T5: ends this membership now. Returns whether it was current — an ended row is left exactly
+     * as it is.
+     */
+    public function end(): bool
+    {
+        $updated = static::query()
+            ->where('id', $this->id)
+            ->whereNull('valid_to')
+            ->update(['valid_to' => now()->utc()->format('Y-m-d H:i:s.u')]);
+
+        $this->refresh();
+
+        return $updated === 1;
+    }
+
+    /**
+     * T5, the handover protocol of `contracts/moderator-ownership.md` §2 for one member: close this
+     * membership, open the successor's, one transaction, one **PHP** `now()` value bound to both
+     * `valid_to` and `valid_from` — never two `now()` calls, which is the PHP-side hazard that
+     * leaves a hole no constraint detects. Every other member of the team is untouched.
+     */
+    public function replaceWith(int $successorId, ?string $note = null): self
+    {
+        // Pre-formatted to a string, not left as a Carbon instance: the bulk `update()` below goes
+        // through the query builder rather than `setAttribute()`, so it would otherwise be
+        // serialized using the *connection's* date format (no microseconds) instead of this
+        // model's `$dateFormat` — and truncating either side breaks "one value, bound to both
+        // sides" (D-TG-47) even though only one `now()` call is made.
+        $now = now()->utc();
+        $at = $now->format('Y-m-d H:i:s.u');
+
+        return DB::transaction(function () use ($successorId, $note, $now, $at): self {
+            $closed = static::query()
+                ->where('id', $this->id)
+                ->whereNull('valid_to')
+                ->update(['valid_to' => $at]);
+            if ($closed !== 1) {
+                throw new MembershipRefused('not_current');
+            }
+
+            static::refuseUnlessOpenable($this->telegram_chat_id, $successorId, $now, $now);
+
+            return static::create([
+                'telegram_chat_id' => $this->telegram_chat_id,
+                'moderator_id' => $successorId,
                 'assignment_role' => 'primary',
                 'valid_from' => $at,
                 'note' => $note,
             ]);
         });
+    }
+
+    /**
+     * T4's refusals, inside the caller's transaction. An unknown moderator is left to the foreign
+     * key, which refuses it with the same rollback.
+     */
+    private static function refuseUnlessOpenable(
+        int $telegramChatId,
+        int $moderatorId,
+        Carbon $from,
+        Carbon $now,
+    ): void {
+        $moderator = Moderator::find($moderatorId);
+        if ($moderator === null) {
+            return;
+        }
+        if (! $moderator->is_active) {
+            throw new MembershipRefused('inactive');
+        }
+        if ($from->greaterThan($now)) {
+            throw new MembershipRefused('future');
+        }
+        if ($moderator->created_at !== null && $from->lessThan($moderator->created_at)) {
+            throw new MembershipRefused('before_declared');
+        }
+
+        $overlaps = static::query()
+            ->where('telegram_chat_id', $telegramChatId)
+            ->where('moderator_id', $moderatorId)
+            ->where(fn (Builder $q) => $q->whereNull('valid_to')
+                ->orWhere('valid_to', '>', $from->format('Y-m-d H:i:s.u')))
+            ->exists();
+        if ($overlaps) {
+            throw new MembershipRefused('overlap');
+        }
     }
 }

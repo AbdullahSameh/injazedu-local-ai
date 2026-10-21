@@ -7,9 +7,11 @@ import random
 from datetime import timedelta
 from typing import Any
 
+import sqlalchemy as sa
 from app.application.moderation.assignments import open_assignment
 from app.application.moderation.identities import map_moderator
 from app.application.moderation.text import normalize
+from app.infrastructure.models_moderation import attention_item_assignee
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
@@ -378,7 +380,7 @@ async def test_first_response_moderator_id_separate_from_responsible_when_collea
     item_id = await judge_burst(telegram_chat_id=chat_pk, telegram_user_id=student_id, around=t1)
     assert item_id is not None
     row = await fetch_item(item_id=item_id)
-    assert row["responsible_moderator_id"] == responsible["moderator_id"]
+    assert row["responsible_moderator_id"] is None  # TG-M2.1 G1: nothing assigned at creation
 
     reply_at = attention_clock.advance(60)
     await insert_message(
@@ -393,8 +395,18 @@ async def test_first_response_moderator_id_separate_from_responsible_when_collea
     await match_message(telegram_chat_id=chat_pk, message_id=2)
 
     row = await fetch_item(item_id=item_id)
-    assert row["responsible_moderator_id"] == responsible["moderator_id"]
     assert row["first_response_moderator_id"] == colleague["moderator_id"]
+    # The colleague is not on the group's team, so the answer closes the item without assigning
+    # it (TG-M2.1 G4, G7): covered from outside, never a transfer of credit.
+    async with attention_session_factory() as session:
+        assigned = (
+            await session.execute(
+                sa.select(attention_item_assignee.c.assigned_moderator_id).where(
+                    attention_item_assignee.c.attention_item_id == item_id
+                )
+            )
+        ).scalar_one()
+    assert assigned is None
 
 
 async def test_a_message_from_someone_not_a_moderator_at_send_time_closes_nothing_even_if_mapped(

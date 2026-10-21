@@ -120,6 +120,8 @@ strength — so neither can ever stand as an incident's earliest enforcement or 
 | `ck_actions_membership_subject` | membership kinds ⇒ `subject_telegram_user_id IS NOT NULL` | a ban with no subject cannot link to anything |
 | `ck_actions_reaction_shape` | `reaction` ⇒ `target_message_id IS NOT NULL AND actor_moderator_id IS NOT NULL` | only a moderator's reaction is ever recorded |
 
+> **Amended by TG-M4.1 (2026-10-21, revision `0012`).** Kinds: `reaction` carries `acknowledgement`, or `confirmation` when it is an active moderator's 👀. `ck_actions_strength` allows both for `reaction`. New `ck_actions_reaction_confirmation`: `action_type <> 'reaction' OR action_strength <> 'confirmation' OR detail -> 'added' @> '[{"type": "emoji", "emoji": "👀"}]'`. Neither view changes.
+
 ### Indexes
 
 | Name | Shape | Serves |

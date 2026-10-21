@@ -562,24 +562,31 @@ async def test_period_selection_by_detected_at_boundary_inclusive_exclusive(
     assert excluded_by_upper["flagged"] == 0
 
 
-async def test_per_moderator_figures_follow_responsible_moderator_never_the_actor(
+async def test_per_moderator_figures_follow_the_team_at_detection_never_the_actor(
     incident_session_factory: async_sessionmaker[AsyncSession],
     insert_chat: Any,
     insert_message: Any,
     insert_incident: Any,
     insert_user: Any,
     insert_moderator: Any,
+    insert_assignment: Any,
     insert_action: Any,
     captured_update: Any,
     db_now: Any,
 ) -> None:
-    """M2: per-moderator figures filter on `responsible_moderator_id` — the owner snapshotted at
-    detection — never on the actor who happened to perform the resolving evidence."""
+    """M2, amended by TG-M2.1 F1: per-moderator "my groups" figures select the group's team at
+    `detected_at` — never the actor who happened to perform the resolving evidence, and never
+    `responsible_moderator_id`."""
     now = await db_now()
     chat_pk = await insert_chat(chat_id=-_rand_id())
     detected_at = now - _FAR_PAST
-    responsible = await insert_moderator(display_name="Responsible")
+    member = await insert_moderator(display_name="Member")
     actor = await insert_moderator(display_name="Actor")
+    await insert_assignment(
+        telegram_chat_id=chat_pk,
+        moderator_id=member["moderator_id"],
+        valid_from=detected_at - timedelta(days=1),
+    )
 
     await _new_incident(
         insert_message,
@@ -587,7 +594,7 @@ async def test_per_moderator_figures_follow_responsible_moderator_never_the_acto
         chat_pk=chat_pk,
         opened_at=detected_at,
         detected_at=detected_at,
-        responsible_moderator_id=responsible["moderator_id"],
+        responsible_moderator_id=actor["moderator_id"],  # a legacy snapshot F1 never reads (N6)
     )
     subject_id = await insert_user(tg_user_id=_rand_id())
     update_id = await captured_update("chat_member", {}, chat_id=None)
@@ -606,12 +613,12 @@ async def test_per_moderator_figures_follow_responsible_moderator_never_the_acto
     period_to = now + timedelta(days=1)
 
     async with incident_session_factory() as session:
-        by_responsible = await incident_outcome_stats(
+        by_member = await incident_outcome_stats(
             session,
             period_from=period_from,
             period_to=period_to,
             max_age_s=_MAX_AGE_S,
-            moderator_id=responsible["moderator_id"],
+            moderator_id=member["moderator_id"],
         )
         by_actor = await incident_outcome_stats(
             session,
@@ -621,5 +628,5 @@ async def test_per_moderator_figures_follow_responsible_moderator_never_the_acto
             moderator_id=actor["moderator_id"],
         )
 
-    assert by_responsible["flagged"] == 1
+    assert by_member["flagged"] == 1
     assert by_actor["flagged"] == 0

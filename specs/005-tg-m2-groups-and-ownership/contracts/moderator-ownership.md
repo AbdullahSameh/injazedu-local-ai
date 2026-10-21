@@ -14,6 +14,8 @@ TG-M6 (who an alert names), TG-M7 (every per-moderator figure), TG-M8, TG-M10.
 > **Asked who was responsible for group *C* at instant *T*, the platform answers with the person who
 > was responsible *then* — and no change made afterwards moves that answer.**
 
+> **Amended by TG-M2.1 (2026-10-19).** A group has a **team** of one or more members, and the promise is now about the team at *T* and about the first team member to act on an item or incident (`specs/012-tg-m2-1-group-teams/contracts/group-teams.md` §0). Superseded clauses below carry their own note; nothing here is deleted.
+
 That is the whole contract. It is worth stating what it is *not*:
 
 - It is **not** "who owns the group now". A current-owner value cannot answer a question about the
@@ -63,6 +65,8 @@ All three are forced by measurement, and each has a distinct failure mode if dro
 | One transaction | A partial failure leaves a chat with no current owner, or two | nothing — the screen shows a plausible list |
 | Close before open | `ERROR: duplicate key value violates unique constraint "uq_assignment_one_current_primary"` | loudly, at once — and it **cannot** be worked around by deferring, because a partial unique index is not deferrable (probe 2) |
 | One timestamp | **A hole in ownership history with zero owners.** Measured at ~10 ms with two clock readings | ⚠ **nothing.** No constraint fires. `responsible_at` silently returns nothing for any instant inside it, which a later milestone renders as an "Unassigned" coverage problem that never existed |
+
+> **Amended by TG-M2.1 (2026-10-19).** Revision 0011 replaced `uq_assignment_one_current_primary` with `uq_assignment_one_current_membership` (one current row per moderator per group, T2). Close before open and one timestamp still govern a **replace** of one named member (T5); adding a member closes nobody (T4).
 
 The third is the dangerous one and it is a PHP-side hazard, because the panel is the writer and
 Laravel's `now()` is evaluated per call:
@@ -117,6 +121,8 @@ Guarantees:
 | **O4** | Never returns a backup. Backups are recorded and visible, and are not responsible |
 | **O5** | **Stable.** For a fixed `chat` and a fixed `t`, the answer changes only if the history covering `t` is itself corrected. No assignment made after `t` can change it |
 
+> **Amended by TG-M2.1 (2026-10-19).** O1 is withdrawn: `team_at(chat, t)` returns the **set** of members covering `t` (T3), defined once by the view `moderation_team_intervals`. O2, O3 and O5 hold for the set; O4 still holds (a backup is never on the team). `responsible_at` and the `responsibleAt` scope are removed.
+
 O5 is what the whole contract is for, and it is the one a reviewer should test adversarially: assign,
 query a past instant, reassign twice, query the same instant again, and require the identical answer.
 
@@ -139,9 +145,13 @@ Normative, so TG-M3 and TG-M4 do not each invent their own:
 | Who gets recorded as having answered? | The actual sender, separately from the responsible owner, so "covered by a colleague" is visible without being a penalty |
 | Who is responsible when nobody was assigned? | Nobody. The item or incident carries no owner and the chat is surfaced as unassigned (§5) |
 
+> **Amended by TG-M2.1 (2026-10-19).** Nobody is assigned at creation. An item's or incident's **assigned moderator** is the first team member to act on it while it is live (G2–G5), derived by `attention_item_assignee` / `moderation_incident_assignee`. Per-moderator figures count the items of the groups a moderator was on the team of at `opened_at` / `detected_at` (F1). Who answered and who acted are still recorded separately.
+
 Each consumer **snapshots** the answer onto its own row at creation time rather than joining through
 `responsible_at` at read time. The join is the definition; the snapshot is what makes a report
 reproducible after an ownership correction.
+
+> **Amended by TG-M2.1 (2026-10-19).** `responsible_moderator_id` is frozen (G1): new rows leave it NULL and no figure reads it (N6). The assignment is derived from immutable acts plus team history, so a correction of team history re-derives the acts inside the corrected interval (`specs/012-tg-m2-1-group-teams/contracts/group-teams.md` §7).
 
 ---
 

@@ -134,3 +134,35 @@ def is_anonymous_performer(user: Mapping[str, object]) -> bool:
     (research probe 2), so callers should treat it as unverified live rather than asserted. Pure:
     no I/O, no clock."""
     return bool(user.get("is_bot")) and user.get("username") == "GroupAnonymousBot"
+
+
+# TG-M4.1 (`docs/plan/telegram/tg-eyes-reaction-resolution-plan.md` E1-E3): the one reaction that
+# records a moderator's word that the violation was handled. The standard emoji only — a custom
+# emoji that looks like it, or a paid reaction, never counts.
+RESOLVING_REACTION = "👀"
+
+
+def is_resolving_reaction(reaction: Mapping[str, object]) -> bool:
+    """Whether one `ReactionType` object is the standard 👀 emoji. Pure: no I/O, no clock."""
+    return reaction.get("type") == "emoji" and reaction.get("emoji") == RESOLVING_REACTION
+
+
+def reaction_strength(
+    added: Sequence[Mapping[str, object]], *, moderator_is_active: bool
+) -> str:
+    """A recorded reaction's strength, decided once at write time (TG-M4.1 E1, E3):
+    `confirmation` when an active moderator added 👀, `acknowledgement` for any other added
+    reaction — and for a deactivated moderator's 👀, because a reaction needs no admin rights and
+    someone who left must not close incidents. Pure: no I/O, no clock."""
+    if moderator_is_active and any(is_resolving_reaction(reaction) for reaction in added):
+        return "confirmation"
+    return "acknowledgement"
+
+
+def allows_resolving_reaction(available: Sequence[Mapping[str, object]] | None) -> bool:
+    """Whether a chat lets members react with 👀 (TG-M4.1 E9): `available` is the chat's
+    `available_reactions`, `None` when the platform omits it — every emoji reaction allowed.
+    Pure: no I/O, no clock."""
+    if available is None:
+        return True
+    return any(is_resolving_reaction(reaction) for reaction in available)

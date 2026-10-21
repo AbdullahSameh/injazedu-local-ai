@@ -3,7 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * A group or channel TG-M1 has captured events for (data-model.md §0, 0003_moderation_ingest).
@@ -34,13 +34,21 @@ class TelegramChat extends Model
     }
 
     /**
-     * The one `primary` assignment currently open for this chat, if any —
-     * `uq_assignment_one_current_primary` guarantees at most one row. Used to surface a measured
-     * group with no current primary owner as a coverage problem (FR-049).
+     * Every assignment row of this chat, past and current — the Groups › Team relation manager's
+     * history (TG-M2.1 S4).
      */
-    public function currentPrimaryAssignment(): HasOne
+    public function assignments(): HasMany
     {
-        return $this->hasOne(ModeratorGroupAssignment::class, 'telegram_chat_id')
+        return $this->hasMany(ModeratorGroupAssignment::class, 'telegram_chat_id');
+    }
+
+    /**
+     * The chat's current team memberships — several since TG-M2.1 (T1). An empty set on a
+     * measured group is a coverage problem to surface (FR-049).
+     */
+    public function currentMemberships(): HasMany
+    {
+        return $this->hasMany(ModeratorGroupAssignment::class, 'telegram_chat_id')
             ->where('assignment_role', 'primary')
             ->whereNull('valid_to');
     }

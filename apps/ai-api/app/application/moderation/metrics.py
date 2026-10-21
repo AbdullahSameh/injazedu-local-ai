@@ -26,6 +26,13 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# TG-M2.1 F1 (`specs/012-tg-m2-1-group-teams/contracts/group-teams.md` §4): in every attention
+# and incident statement below, `:moderator_id` selects "my groups" — the rows whose group had the
+# moderator on its team at `opened_at` (items) or `detected_at` (incidents), read from
+# `moderation_team_intervals` — and nothing else in the statement changed. A one-member team gives
+# the pre-TG-M2.1 figure; a miss in an n-member team counts once in each member's row (F2).
+# `responsible_moderator_id` is read by no figure (N6).
+#
 # §2 — First Response Time. Only `status = 'answered'` contributes (M3): `open`, `expired` and
 # `dismissed` items contribute no value, not zero. `percentile_cont` returns NULL over zero rows
 # (M8), which this query lets through unchanged — the caller never turns that NULL into a 0.
@@ -41,7 +48,12 @@ _FIRST_RESPONSE_TIME_SQL = sa.text(
       FROM attention_items
       WHERE status = 'answered'
         AND opened_at >= :period_from AND opened_at < :period_to
-        AND (:moderator_id IS NULL OR responsible_moderator_id = :moderator_id)
+        AND (:moderator_id IS NULL OR EXISTS (
+              SELECT 1 FROM moderation_team_intervals t
+              WHERE t.telegram_chat_id = attention_items.telegram_chat_id
+                AND t.moderator_id     = :moderator_id
+                AND t.valid_from      <= attention_items.opened_at
+                AND (t.valid_to IS NULL OR t.valid_to > attention_items.opened_at)))
         AND (:chat_id      IS NULL OR telegram_chat_id        = :chat_id)
     ) s
     """
@@ -59,7 +71,12 @@ _UNANSWERED_SQL = sa.text(
            count(*) FILTER (WHERE status <> 'dismissed')             AS opened
     FROM attention_items
     WHERE opened_at >= :period_from AND opened_at < :period_to
-      AND (:moderator_id IS NULL OR responsible_moderator_id = :moderator_id)
+      AND (:moderator_id IS NULL OR EXISTS (
+            SELECT 1 FROM moderation_team_intervals t
+            WHERE t.telegram_chat_id = attention_items.telegram_chat_id
+              AND t.moderator_id     = :moderator_id
+              AND t.valid_from      <= attention_items.opened_at
+              AND (t.valid_to IS NULL OR t.valid_to > attention_items.opened_at)))
       AND (:chat_id      IS NULL OR telegram_chat_id        = :chat_id)
     """
 ).bindparams(
@@ -232,7 +249,12 @@ _INCIDENT_OUTCOME_SQL = sa.text(
     FROM moderation_incidents i
     JOIN moderation_incident_state s ON s.incident_id = i.id
     WHERE i.detected_at >= :period_from AND i.detected_at < :period_to
-      AND (:moderator_id IS NULL OR i.responsible_moderator_id = :moderator_id)
+      AND (:moderator_id IS NULL OR EXISTS (
+            SELECT 1 FROM moderation_team_intervals t
+            WHERE t.telegram_chat_id = i.telegram_chat_id
+              AND t.moderator_id     = :moderator_id
+              AND t.valid_from      <= i.detected_at
+              AND (t.valid_to IS NULL OR t.valid_to > i.detected_at)))
       AND (:chat_id      IS NULL OR i.telegram_chat_id        = :chat_id)
     """
 ).bindparams(
@@ -272,7 +294,12 @@ _INCIDENT_TIMING_SQL = sa.text(
       JOIN moderation_incident_state s ON s.incident_id = i.id
       WHERE s.status <> 'closed_false_positive'
         AND i.detected_at >= :period_from AND i.detected_at < :period_to
-        AND (:moderator_id IS NULL OR i.responsible_moderator_id = :moderator_id)
+        AND (:moderator_id IS NULL OR EXISTS (
+              SELECT 1 FROM moderation_team_intervals t
+              WHERE t.telegram_chat_id = i.telegram_chat_id
+                AND t.moderator_id     = :moderator_id
+                AND t.valid_from      <= i.detected_at
+                AND (t.valid_to IS NULL OR t.valid_to > i.detected_at)))
         AND (:chat_id      IS NULL OR i.telegram_chat_id        = :chat_id)
     ) t
     """
@@ -421,6 +448,198 @@ async def detection_latency_stats(
             "max": row["latency_max"],
         }
     return result
+
+
+# --- TG-M2.1: "My work" (`specs/012-tg-m2-1-group-teams/contracts/group-teams.md` §4 F3-F4) ---
+#
+# What one moderator did, read from the assignee views (G6) and the recorded acts — beside "My
+# groups" (F1, the re-scoped figures above), never instead of them. `:moderator_id` is required
+# here: a work figure is always someone's, bound once into `me` because the panel's PDO cannot
+# repeat a named parameter — so `AttentionMetrics.php` and `IncidentMetrics.php` quote this SQL
+# byte for byte.
+
+# F3 — attention: items assigned to me (by how they were taken and how they ended), and items I
+# answered while not on that group's team ("outside"). Selected by `opened_at`, as F1.
+_ATTENTION_WORK_SQL = sa.text(
+    """
+    WITH me AS (SELECT CAST(:moderator_id AS bigint) AS id)
+    SELECT
+      count(*) FILTER (WHERE a.assigned_moderator_id = me.id) AS assigned,
+      count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                         AND a.assigned_via = 'reply') AS via_reply,
+      count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                         AND a.assigned_via = 'dismissal') AS via_dismissal,
+      count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                         AND a.assigned_via = 'reaction') AS via_reaction,
+      count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                         AND i.status = 'answered') AS assigned_answered,
+      count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                         AND i.status = 'dismissed') AS assigned_dismissed,
+      count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                         AND i.status = 'open') AS assigned_open,
+      count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                         AND i.status = 'expired') AS assigned_expired,
+      count(*) FILTER (WHERE i.status = 'answered'
+                         AND i.first_response_moderator_id = me.id
+                         AND NOT EXISTS (
+                               SELECT 1 FROM moderation_team_intervals t
+                               WHERE t.telegram_chat_id = i.telegram_chat_id
+                                 AND t.moderator_id     = me.id
+                                 AND t.valid_from      <= i.first_response_at
+                                 AND (t.valid_to IS NULL OR t.valid_to > i.first_response_at)))
+                                                                                AS outside
+    FROM attention_items i
+    JOIN attention_item_assignee a ON a.attention_item_id = i.id
+    CROSS JOIN me
+    WHERE i.opened_at >= :period_from AND i.opened_at < :period_to
+      AND (a.assigned_moderator_id = me.id OR i.first_response_moderator_id = me.id)
+    """
+).bindparams(sa.bindparam("moderator_id", type_=sa.BigInteger))
+
+# F3 — attention: first-response time over the items I answered, whoever they were assigned to.
+_ATTENTION_ANSWERED_BY_SQL = sa.text(
+    """
+    WITH me AS (SELECT CAST(:moderator_id AS bigint) AS id)
+    SELECT
+      count(*) AS answered,
+      percentile_cont(0.5) WITHIN GROUP (ORDER BY frt) AS median_frt,
+      percentile_cont(0.9) WITHIN GROUP (ORDER BY frt) AS p90_frt,
+      max(frt) AS max_frt
+    FROM (
+      SELECT extract(epoch FROM (first_response_at - opened_at)) AS frt
+      FROM attention_items CROSS JOIN me
+      WHERE status = 'answered'
+        AND first_response_moderator_id = me.id
+        AND opened_at >= :period_from AND opened_at < :period_to
+    ) s
+    """
+).bindparams(sa.bindparam("moderator_id", type_=sa.BigInteger))
+
+# F4 — incidents assigned to me, by current status, with the time from the flag to the assigning
+# act. An act before the flag lands in `take_before_flagging`, never in a percentile (as M12).
+_INCIDENT_WORK_SQL = sa.text(
+    """
+    WITH me AS (SELECT CAST(:moderator_id AS bigint) AS id)
+    SELECT
+      count(*) AS assigned,
+      count(*) FILTER (WHERE s.status = 'acknowledged') AS assigned_acknowledged,
+      count(*) FILTER (WHERE s.status = 'resolved') AS assigned_resolved,
+      count(*) FILTER (WHERE s.status = 'closed_false_positive') AS assigned_false_positive,
+      count(*) FILTER (WHERE take >= 0) AS take_samples,
+      count(*) FILTER (WHERE take <  0) AS take_before_flagging,
+      percentile_cont(0.5) WITHIN GROUP (ORDER BY take) FILTER (WHERE take >= 0) AS take_median,
+      percentile_cont(0.9) WITHIN GROUP (ORDER BY take) FILTER (WHERE take >= 0) AS take_p90,
+      max(take) FILTER (WHERE take >= 0) AS take_max
+    FROM (
+      SELECT s.status, extract(epoch FROM a.assigned_at - i.detected_at) AS take
+      FROM moderation_incidents i
+      JOIN moderation_incident_assignee a ON a.incident_id = i.id
+      JOIN moderation_incident_state s    ON s.incident_id = i.id
+      CROSS JOIN me
+      WHERE a.assigned_moderator_id = me.id
+        AND i.detected_at >= :period_from AND i.detected_at < :period_to
+    ) s
+    """
+).bindparams(sa.bindparam("moderator_id", type_=sa.BigInteger))
+
+# F4 — how my incidents were taken, one row per evidence kind.
+_INCIDENT_WORK_VIA_SQL = sa.text(
+    """
+    WITH me AS (SELECT CAST(:moderator_id AS bigint) AS id)
+    SELECT a.assigned_via, count(*) AS assigned
+    FROM moderation_incidents i
+    JOIN moderation_incident_assignee a ON a.incident_id = i.id
+    CROSS JOIN me
+    WHERE a.assigned_moderator_id = me.id
+      AND i.detected_at >= :period_from AND i.detected_at < :period_to
+    GROUP BY a.assigned_via
+    """
+).bindparams(sa.bindparam("moderator_id", type_=sa.BigInteger))
+
+# F4 — incidents I acted on while not on that group's team ("outside").
+_INCIDENT_OUTSIDE_SQL = sa.text(
+    """
+    WITH me AS (SELECT CAST(:moderator_id AS bigint) AS id)
+    SELECT count(DISTINCT i.id) AS outside
+    FROM moderation_incidents i
+    JOIN moderation_incident_evidence e ON e.incident_id = i.id
+    CROSS JOIN me
+    WHERE e.actor_moderator_id = me.id
+      AND e.kind <> 'reversal'
+      AND i.detected_at >= :period_from AND i.detected_at < :period_to
+      AND NOT EXISTS (
+            SELECT 1 FROM moderation_team_intervals t
+            WHERE t.telegram_chat_id = i.telegram_chat_id
+              AND t.moderator_id     = me.id
+              AND t.valid_from      <= e.occurred_at
+              AND (t.valid_to IS NULL OR t.valid_to > e.occurred_at))
+    """
+).bindparams(sa.bindparam("moderator_id", type_=sa.BigInteger))
+
+
+async def attention_work_stats(
+    session: AsyncSession,
+    *,
+    period_from: datetime,
+    period_to: datetime,
+    min_samples: int,
+    moderator_id: int,
+) -> dict[str, Any]:
+    """F3: one moderator's attention work over items opened in `[period_from, period_to)`.
+
+    `assigned` splits two ways, each summing to it: by `assigned_via` (`via_reply`,
+    `via_dismissal`, `via_reaction`) and by status (`assigned_answered`, `_dismissed`, `_open`,
+    `_expired`). An item taken with a reaction and then left to expire counts here as
+    `assigned_expired` — and stays unanswered in every member's F1 figures too (D-TG-205).
+    `answered_by_me` is the first-response time over items this moderator answered, under the same
+    small-sample rule as §2. `outside` counts answers given while not on that group's team.
+    """
+    params = {"period_from": period_from, "period_to": period_to, "moderator_id": moderator_id}
+    work = (await session.execute(_ATTENTION_WORK_SQL, params)).mappings().one()
+    frt = (await session.execute(_ATTENTION_ANSWERED_BY_SQL, params)).mappings().one()
+    answered = frt["answered"]
+    suppressed = answered < min_samples
+    return {
+        **dict(work),
+        "answered_by_me": {
+            "answered": answered,
+            "median_frt": frt["median_frt"],
+            "p90_frt": None if suppressed else frt["p90_frt"],
+            "p90_suppressed": suppressed,
+            "max_frt": frt["max_frt"],
+        },
+    }
+
+
+async def incident_work_stats(
+    session: AsyncSession,
+    *,
+    period_from: datetime,
+    period_to: datetime,
+    min_samples: int,
+    moderator_id: int,
+) -> dict[str, Any]:
+    """F4: one moderator's incident work over incidents flagged in `[period_from, period_to)`.
+
+    `assigned` splits by current status and, in `via`, by the evidence kind that assigned it. The
+    time to take — the assigning act minus `detected_at` — is a timing block shaped like §3's,
+    judged against `min_samples`; acts before the flag count only in `before_flagging`. `outside`
+    counts incidents acted on while not on that group's team. Detection latency is never here
+    (F5, M16).
+    """
+    params = {"period_from": period_from, "period_to": period_to, "moderator_id": moderator_id}
+    row = (await session.execute(_INCIDENT_WORK_SQL, params)).mappings().one()
+    via_rows = (await session.execute(_INCIDENT_WORK_VIA_SQL, params)).mappings().all()
+    outside = (await session.execute(_INCIDENT_OUTSIDE_SQL, params)).scalar_one()
+    return {
+        "assigned": row["assigned"],
+        "assigned_acknowledged": row["assigned_acknowledged"],
+        "assigned_resolved": row["assigned_resolved"],
+        "assigned_false_positive": row["assigned_false_positive"],
+        "via": {via_row["assigned_via"]: via_row["assigned"] for via_row in via_rows},
+        "take": _timing_block(row, "take", min_samples),
+        "outside": outside,
+    }
 
 
 async def accuracy_by_rule_version(

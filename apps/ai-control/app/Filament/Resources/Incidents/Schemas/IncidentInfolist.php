@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Incidents\Schemas;
 
 use App\Filament\Resources\Incidents\Support\IncidentDisplay;
 use App\Filament\Support\ModelView;
+use App\Filament\Support\TeamAssignment;
 use App\Models\MessageClassification;
 use App\Models\ModerationIncident;
 use App\Models\User;
@@ -126,7 +127,24 @@ class IncidentInfolist
                 ->columns(4),
 
             Section::make(__('Who handled it'))
-                ->schema([self::evidenceTrail()]),
+                ->schema([
+                    // TG-M2.1 S3: the team that counts this incident (the team at the flag) and
+                    // the first team member who acted — both read, never computed (G6).
+                    TextEntry::make('team_at_flagging')
+                        ->label(__('Team at flagging'))
+                        ->getStateUsing(fn (ModerationIncident $record): string => self::teamAtFlagging($record)),
+                    TextEntry::make('assigned')
+                        ->label(__('Assigned'))
+                        ->getStateUsing(fn (ModerationIncident $record): string => self::assignedText($record)),
+                    // TG-M4.1: who resolved it, how and when — the state view's resolving row,
+                    // which may be a colleague of the assigned moderator (requirement 2).
+                    TextEntry::make('resolved_by')
+                        ->label(__('Resolved by'))
+                        ->getStateUsing(fn (ModerationIncident $record): string => self::resolvedByText($record))
+                        ->visible(fn (ModerationIncident $record): bool => $record->state()?->status === 'resolved'),
+                    self::evidenceTrail()->columnSpanFull(),
+                ])
+                ->columns(3),
 
             Section::make(__('How long'))
                 ->schema([
@@ -202,7 +220,7 @@ class IncidentInfolist
             ->getStateUsing(
                 fn (ModerationIncident $record): array => $record->evidence()
                     ->map(fn (object $row): array => [
-                        'kind' => IncidentDisplay::kindLabel($row->kind),
+                        'kind' => IncidentDisplay::kindLabel($row->kind, $row->strength),
                         'strength' => IncidentDisplay::strengthLabel($row->strength, $row->kind),
                         'actor' => IncidentDisplay::actorLabel($row),
                         'affected_member' => IncidentDisplay::affectedMember($row) ?? '—',
@@ -287,6 +305,29 @@ class IncidentInfolist
         return $present === [] ? '—' : implode(', ', $present);
     }
 
+    /**
+     * The resolving row of `moderation_incident_state` (S3): its actor by lifecycle contract
+     * A3's order, its kind and its moment — read, never recomputed.
+     */
+    private static function resolvedByText(ModerationIncident $record): string
+    {
+        $state = $record->state();
+
+        if ($state === null || $state->resolved_at === null) {
+            return '—';
+        }
+
+        $actor = IncidentDisplay::actorLabel((object) [
+            'actor_is_anonymous' => (bool) $state->resolved_by_anonymous,
+            'actor_moderator_id' => $state->resolved_by_moderator_id,
+            'actor_telegram_user_id' => $state->resolved_by_telegram_user_id,
+            'panel_user_id' => $state->resolved_by_user_id,
+        ]);
+
+        return $actor.' · '.IncidentDisplay::kindLabel((string) $state->resolution_kind, $state->resolution_strength)
+            .' · '.self::formatMoment(self::instant($state->resolved_at));
+    }
+
     private static function resolvedOrClosedMoment(ModerationIncident $record): string
     {
         $state = $record->state();
@@ -328,5 +369,26 @@ class IncidentInfolist
     private static function instant(mixed $value): ?Carbon
     {
         return $value === null ? null : Carbon::parse($value);
+    }
+
+    private static function teamAtFlagging(ModerationIncident $record): string
+    {
+        $names = TeamAssignment::teamNamesAt($record->telegram_chat_id, $record->detected_at);
+
+        return $names === [] ? __('No team') : implode(', ', $names);
+    }
+
+    private static function assignedText(ModerationIncident $record): string
+    {
+        $assignee = TeamAssignment::forIncidents([$record->id])[$record->id] ?? null;
+
+        if ($assignee === null || $assignee->assigned_moderator_id === null) {
+            return $record->isLive()
+                ? __('Not yet — the first team member to act takes it')
+                : __('Not taken by the team');
+        }
+
+        return $assignee->display_name.' · '.TeamAssignment::viaLabel((string) $assignee->assigned_via)
+            .' · '.self::formatMoment(self::instant($assignee->assigned_at));
     }
 }

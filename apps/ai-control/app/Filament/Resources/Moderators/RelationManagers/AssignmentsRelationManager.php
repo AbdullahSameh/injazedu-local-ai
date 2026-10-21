@@ -2,23 +2,21 @@
 
 namespace App\Filament\Resources\Moderators\RelationManagers;
 
-use App\Models\ModeratorGroupAssignment;
-use App\Models\TelegramChat;
-use Filament\Actions\Action;
-use Filament\Forms\Components\Select;
-use Filament\Forms\Components\Textarea;
+use App\Filament\Support\TeamMembershipActions;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
 /**
- * Every past and current assignment for this moderator — group, role, interval and note, in
- * chronological order, nothing deletable (`control-panel-moderation.md` §3, FR-048).
+ * Every past and current assignment for this moderator — group, role, interval and note, newest
+ * first and ten to a page, nothing deletable (`control-panel-moderation.md` §3, FR-048).
  *
  * A relation manager rather than a resource of its own: assignments are never navigated to
- * independently, and they must be created through the **Reassign** action below rather than a
- * free-form create form, which a top-level resource would invite bypassing (D-TG-66).
+ * independently, and they must be created through the actions below rather than a free-form create
+ * form, which a top-level resource would invite bypassing (D-TG-66). TG-M2.1 S4
+ * (`specs/012-tg-m2-1-group-teams/contracts/group-teams.md`): a group has a team, so "Reassign"
+ * became **Add to group**, **End** and **Replace with…**, each delegated to the model (T4-T5).
  */
 class AssignmentsRelationManager extends RelationManager
 {
@@ -40,45 +38,27 @@ class AssignmentsRelationManager extends RelationManager
                     ->placeholder(__('(untitled)')),
                 TextColumn::make('assignment_role')
                     ->label(__('Role'))
-                    ->formatStateUsing(fn (string $state): string => __($state))
+                    ->formatStateUsing(fn (string $state): string => $state === 'primary' ? __('Team member') : __($state))
                     ->badge(),
                 TextColumn::make('valid_from')->label(__('From'))->dateTime(),
                 TextColumn::make('valid_to')->label(__('Until'))->dateTime()->placeholder(__('current')),
                 TextColumn::make('note')->label(__('Note'))->extraAttributes(['dir' => 'auto'])->wrap(),
             ])
             ->headerActions([
-                // The whole reassign protocol of moderator-ownership.md §2, delegated to the
-                // Eloquent model method (T052) rather than performed here as two writes — one
-                // transaction, close before open, one timestamp value bound to both sides
-                // (FR-037, D-TG-58).
-                Action::make('reassign')
-                    ->label(__('Reassign'))
-                    ->schema([
-                        Select::make('telegram_chat_id')
-                            ->label(__('Group'))
-                            ->options(fn (): array => TelegramChat::query()
-                                ->orderBy('title')
-                                ->get()
-                                ->mapWithKeys(fn (TelegramChat $chat): array => [
-                                    $chat->id => $chat->title ?? __('Chat :id', ['id' => $chat->chat_id]),
-                                ])
-                                ->all())
-                            ->searchable()
-                            ->required(),
-                        Textarea::make('note')->label(__('Note'))->extraInputAttributes(['dir' => 'auto']),
-                    ])
-                    ->action(function (array $data): void {
-                        ModeratorGroupAssignment::handover(
-                            (int) $data['telegram_chat_id'],
-                            $this->getOwnerRecord()->id,
-                            $data['note'] ?? null,
-                        );
-                    }),
+                TeamMembershipActions::add(
+                    'add_to_group',
+                    __('Add to group'),
+                    fn (): array => ['moderator_id' => $this->getOwnerRecord()->id],
+                ),
             ])
-            ->recordActions([])
+            ->recordActions([
+                TeamMembershipActions::end(),
+                TeamMembershipActions::replace(),
+            ])
             ->toolbarActions([])
-            ->defaultSort('valid_from')
+            ->defaultSort('valid_from', 'desc')
+            ->paginated([10])
             ->emptyStateHeading(__('No assignments yet'))
-            ->emptyStateDescription(__('Use Reassign to make this moderator the primary owner of a group.'));
+            ->emptyStateDescription(__('Use Add to group to put this moderator on a group\'s team.'));
     }
 }

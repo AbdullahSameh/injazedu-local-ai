@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Filament\Resources\TelegramChats\Pages\EditTelegramChat;
 use App\Filament\Resources\TelegramChats\Pages\ListTelegramChats;
+use App\Filament\Resources\TelegramChats\RelationManagers\TeamRelationManager;
 use App\Filament\Resources\TelegramChats\TelegramChatResource;
 use App\Models\Moderator;
 use App\Models\ModeratorGroupAssignment;
@@ -128,16 +129,16 @@ class TelegramChatResourceTest extends TestCase
         $this->assertSame(999_999, $chat->fresh()->injaz_course_id);
     }
 
-    public function test_a_measured_group_with_no_current_primary_owner_is_flagged(): void
+    public function test_a_measured_group_with_nobody_on_its_team_is_flagged(): void
     {
         $this->actingAsPanelOperator();
         $chat = $this->makeChat(['is_monitored' => true]);
 
         Livewire::test(ListTelegramChats::class)
-            ->assertTableColumnStateSet('has_current_owner', false, $chat);
+            ->assertTableColumnStateSet('team', __('Nobody'), $chat);
     }
 
-    public function test_a_measured_group_with_a_current_primary_owner_is_not_flagged(): void
+    public function test_a_measured_group_shows_its_whole_current_team_by_name(): void
     {
         $this->actingAsPanelOperator();
         $chat = $this->makeChat(['is_monitored' => true]);
@@ -147,12 +148,49 @@ class TelegramChatResourceTest extends TestCase
         ]);
         $moderator = Moderator::create([
             'telegram_user_id' => $identity->id,
-            'display_name' => 'Owner',
+            'display_name' => 'Zainab',
         ]);
-        ModeratorGroupAssignment::handover($chat->id, $moderator->id);
+        $colleague = Moderator::create([
+            'telegram_user_id' => TelegramUser::forceCreate([
+                'tg_user_id' => random_int(10_000_000, 2_000_000_000),
+                'is_bot' => false,
+            ])->id,
+            'display_name' => 'Ahmed',
+        ]);
+        ModeratorGroupAssignment::addMember($chat->id, $moderator->id);
+        ModeratorGroupAssignment::addMember($chat->id, $colleague->id);
 
+        // TG-M2.1 S4: every current member, by name — a team, not one owner.
         Livewire::test(ListTelegramChats::class)
-            ->assertTableColumnStateSet('has_current_owner', true, $chat);
+            ->assertTableColumnStateSet('team', 'Ahmed, Zainab', $chat);
+    }
+
+    public function test_the_team_history_lists_the_newest_ten_first(): void
+    {
+        $this->actingAsPanelOperator();
+        $chat = $this->makeChat(['is_monitored' => true]);
+        $moderator = Moderator::create([
+            'telegram_user_id' => TelegramUser::forceCreate([
+                'tg_user_id' => random_int(10_000_000, 2_000_000_000),
+                'is_bot' => false,
+            ])->id,
+            'display_name' => 'Zainab',
+        ]);
+        // Twelve ended memberships, one a day, written directly as fixtures: day 12 is the newest.
+        $history = collect(range(1, 12))->map(fn (int $day) => ModeratorGroupAssignment::create([
+            'telegram_chat_id' => $chat->id,
+            'moderator_id' => $moderator->id,
+            'assignment_role' => 'primary',
+            'valid_from' => now()->subDays(13 - $day)->format('Y-m-d H:i:s.u'),
+            'valid_to' => now()->subDays(13 - $day)->addHour()->format('Y-m-d H:i:s.u'),
+        ]));
+
+        Livewire::test(TeamRelationManager::class, [
+            'ownerRecord' => $chat,
+            'pageClass' => EditTelegramChat::class,
+        ])
+            ->assertCanSeeTableRecords($history->slice(2)->reverse()->values(), inOrder: true)
+            ->assertCanNotSeeTableRecords($history->take(2));
     }
 
     public function test_a_measured_group_where_the_bot_is_not_an_administrator_is_flagged(): void
@@ -179,7 +217,7 @@ class TelegramChatResourceTest extends TestCase
         $chat = $this->makeChat(['is_monitored' => false, 'bot_status' => 'member']);
 
         Livewire::test(ListTelegramChats::class)
-            ->assertTableColumnStateSet('has_current_owner', true, $chat)
+            ->assertTableColumnStateSet('team', '—', $chat)
             ->assertTableColumnStateSet('bot_is_admin', true, $chat);
     }
 }

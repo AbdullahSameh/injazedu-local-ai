@@ -11,6 +11,7 @@ from __future__ import annotations
 import random
 from typing import Any
 
+import pytest
 from app.application.moderation.text import normalize
 from app.infrastructure.models_moderation import telegram_updates
 from app.workers.tasks.moderation.process_update import process_update_row
@@ -21,7 +22,11 @@ def _rand_id() -> int:
     return random.randint(10_000_000, 2_000_000_000)
 
 
+# TG-M4.1: 👀 resolves an incident, but on a question it is a reaction like any other — it still
+# closes nothing here.
+@pytest.mark.parametrize("emoji", ["✅", "👀"])
 async def test_a_message_reaction_from_a_mapped_moderator_leaves_the_item_open_and_changes_nothing(
+    emoji: str,
     attention_session_factory: async_sessionmaker[AsyncSession],
     attention_bot_id: int,
     insert_chat: Any,
@@ -69,7 +74,7 @@ async def test_a_message_reaction_from_a_mapped_moderator_leaves_the_item_open_a
                             "user": {"id": moderator["telegram_user_id"]},
                             "date": int(attention_clock.now().timestamp()),
                             "old_reaction": [],
-                            "new_reaction": [{"type": "emoji", "emoji": "✅"}],
+                            "new_reaction": [{"type": "emoji", "emoji": emoji}],
                         }
                     },
                 )

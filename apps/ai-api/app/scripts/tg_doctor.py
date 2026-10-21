@@ -15,6 +15,7 @@ import sys
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.domain.moderation.incident import RESOLVING_REACTION, allows_resolving_reaction
 from app.infrastructure.config import Settings, load_settings
 from app.infrastructure.db import make_engine, make_session_factory
 from app.infrastructure.models_moderation import ingestion_state, telegram_chats
@@ -74,6 +75,7 @@ async def _run(
         chat_rows = (
             await session.execute(
                 sa.select(
+                    telegram_chats.c.chat_id,
                     telegram_chats.c.title,
                     telegram_chats.c.bot_status,
                     telegram_chats.c.bot_can_delete,
@@ -97,6 +99,7 @@ async def _run(
 
     print("  chats")
     not_admin: list[str] = []
+    no_eyes: list[str] = []
     for row in chat_rows:
         title = row.title or "(untitled)"
         can_delete = "yes" if row.bot_can_delete else "no"
@@ -105,6 +108,10 @@ async def _run(
         if row.is_monitored and row.bot_status != "administrator":
             flag = "   ⚠ not admin"
             not_admin.append(title)
+        elif row.is_monitored:
+            flag = await _eyes_flag(active_client, chat_id=row.chat_id)
+            if flag.startswith("   ⚠"):
+                no_eyes.append(title)
         print(f"    {title:<30} {row.bot_status:<14} can_delete={can_delete:<4} {monitored}{flag}")
 
     if not_admin:
@@ -112,7 +119,27 @@ async def _run(
         print("  chat_member and message_reaction updates are NOT being delivered, silently.")
         exit_code = 1
 
+    if no_eyes:
+        print(
+            f"\n⚠ {len(no_eyes)} monitored chat(s) whose reactions do not include "
+            f"{RESOLVING_REACTION}."
+        )
+        print("  A moderator cannot resolve an incident there with a reaction (TG-M4.1).")
+        exit_code = 1
+
     return exit_code
+
+
+async def _eyes_flag(client: TelegramProvider, *, chat_id: int) -> str:
+    """TG-M4.1 E9: whether moderators can react 👀 in this chat — read-only `getChat`. A failed
+    read is reported, not guessed."""
+    try:
+        available = await client.get_chat_available_reactions(chat_id=chat_id)
+    except TelegramError as exc:
+        return f"   ? {RESOLVING_REACTION} unknown — {exc.category}"
+    if allows_resolving_reaction(available):
+        return f"   {RESOLVING_REACTION} allowed"
+    return f"   ⚠ {RESOLVING_REACTION} not allowed"
 
 
 def main() -> None:

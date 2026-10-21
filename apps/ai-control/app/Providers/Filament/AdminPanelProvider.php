@@ -75,9 +75,9 @@ class AdminPanelProvider extends PanelProvider
             // own logout item.
             ->userMenuItems([
                 Action::make('locale')
-                    ->label(fn (): string => PanelLocale::SUPPORTED[PanelLocale::other(app()->getLocale())])
+                    ->label(fn(): string => PanelLocale::SUPPORTED[PanelLocale::other(app()->getLocale())])
                     ->icon(Heroicon::OutlinedLanguage)
-                    ->url(fn (): string => route('filament.admin.locale', [
+                    ->url(fn(): string => route('filament.admin.locale', [
                         'locale' => PanelLocale::other(app()->getLocale()),
                     ]))
                     ->postToUrl(),

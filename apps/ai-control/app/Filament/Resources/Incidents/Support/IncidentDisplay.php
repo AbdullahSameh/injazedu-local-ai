@@ -148,8 +148,16 @@ class IncidentDisplay
         };
     }
 
-    public static function kindLabel(string $kind): string
+    /**
+     * The fixed kind label. A reaction recorded as a confirmation is a moderator's 👀 (TG-M4.1
+     * E1), so it reads as what it means rather than as a bare reaction.
+     */
+    public static function kindLabel(string $kind, ?string $strength = null): string
     {
+        if ($kind === 'reaction' && $strength === 'confirmation') {
+            return __('Reaction 👀 — handled');
+        }
+
         return __(self::KIND_LABELS[$kind] ?? $kind);
     }
 

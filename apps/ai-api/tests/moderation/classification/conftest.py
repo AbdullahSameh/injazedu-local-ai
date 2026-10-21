@@ -5,7 +5,7 @@ builder writing `message_classifications` directly, a namespaced Redis fixture f
 and `scripted_gateway` — a real `Gateway` wired to a scripted `FakeLLMProvider` (`tasks.md` T005).
 
 TG-M2's chat, moderator and assignment factories are reused directly rather than re-implemented:
-`map_moderator`, `open_assignment`, `handover`, `responsible_at` and `upsert_identity` are imported
+`map_moderator`, `open_assignment`, `handover`, `team_at` and `upsert_identity` are imported
 from `app.application.moderation`, exactly as `tests/moderation/incidents/conftest.py` does.
 `insert_chat` / `insert_user` / `insert_moderator` / `insert_assignment` / `insert_message` mirror
 that same package's direct builders — siblings under `tests/moderation/` do not inherit each

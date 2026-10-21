@@ -25,6 +25,8 @@ is opened by an action, its labels are never edited, and it is never deleted (D-
 | Posted · Flagged | `opened_at`, `detected_at` | `Asia/Riyadh`, human format |
 | Age / took | `now() − detected_at` while open or acknowledged; `resolved_at − detected_at` once resolved | server-side, human units; "acted before flagging" when negative |
 
+> **Amended by TG-M2.1 (2026-10-19).** Responsible became **Assigned** (S1), read from `moderation_incident_assignee`; the Responsible filter became **Assigned to** and a **Mine** filter was added (S2, S3); the incident page shows **Team at flagging** and **Assigned**. `specs/012-tg-m2-1-group-teams/contracts/group-teams.md`.
+
 - **P1.** Default order `detected_at DESC`. Filters: status, category, severity, group, responsible
   moderator, detection date range (FR-067).
 - **P2.** Header action **Open incident** (§2). **No bulk action anywhere** (FR-038).
@@ -84,6 +86,8 @@ string $severity, User $by)`.
   `now()`, `source = 'operator'`, `opened_by_user_id`, and `responsible_moderator_id` from TG-M2's
   `responsibleAt` scope **at `detected_at`**. It writes nothing else and touches no attention item.
 
+> **Amended by TG-M2.1 (2026-10-19).** P9: `openOn` no longer writes `responsible_moderator_id` (G1).
+
 ---
 
 ## §3 — Acting on an incident
@@ -136,6 +140,8 @@ days converted once to a half-open UTC bound (TG-M3's `periodBounds()` pattern).
   "Unban / restriction lifted — no effect", `reaction` → "Reaction", `reply` → "Direct reply",
   `panel_*` → "Acknowledged / Resolved / Not a violation (panel)". The membership kind is named
   `expulsion`, not `removal`, precisely so that this test can stay strict.
+
+> **Amended by TG-M4.1 (2026-10-21).** A `reaction` row with `confirmation` strength reads "Reaction 👀 — handled". The incident page's "Who handled it" adds **Resolved by**: the resolving row's actor (A3's order), its kind label and its moment, read from `moderation_incident_state`.
 - **P18.** No average and no composite score: `IncidentMetricsTest` asserts `average`, `avg` and
   `score` are absent from the rendered page, mirroring TG-M3's D-TG-92.
 

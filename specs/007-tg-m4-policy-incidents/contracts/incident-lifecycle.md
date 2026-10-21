@@ -27,6 +27,9 @@ message. Only enforcement or a human confirmation resolves it.
 - **I5.** `responsible_moderator_id` = `responsible_at(chat, detected_at)` — the primary owner at the
   **flagging** moment, via TG-M2's single definition (Python `assignments.responsible_at`, PHP
   `ModeratorGroupAssignment::responsibleAt`). NULL when nobody owned the group then.
+
+> **Amended by TG-M2.1 (2026-10-19).** I5: nothing is assigned at open (G1); `responsible_moderator_id` is no longer written. The team that counts the incident is `team_at(chat, detected_at)` (F1); its assigned moderator is the first non-reversal evidence by a team member while it is live (G3, G4), read from `moderation_incident_assignee`. `specs/012-tg-m2-1-group-teams/contracts/group-teams.md`.
+
 - **I6.** Opening evaluates nothing and writes nothing else. The incident's state is correct the instant
   its row is visible, because the state is a view over evidence (§4) that already includes anything
   recorded before the flag.
@@ -97,6 +100,8 @@ Evidence is recognised inside `process_update`, from the captured event, for mea
 - **V10.** The row records `target_message_id` (the event's `message_id`), the actor, `occurred_at` =
   the event's `date`, and the added reactions in `detail`.
 
+> **Amended by TG-M4.1 (2026-10-21, `docs/plan/telegram/tg-eyes-reaction-resolution-plan.md` E1-E3, revision `0012`).** A reaction row's strength is decided once, at recording: `confirmation` when an **active** declared moderator's added reactions include the standard 👀 emoji, `acknowledgement` otherwise — including a deactivated moderator's 👀, a custom emoji that looks like it and a paid reaction. Nothing recorded before is reinterpreted. V7–V9 are unchanged, so a removal still records nothing and never reverses a resolution, and V13 still gives one row per captured event.
+
 ### §2.3 Replies and panel acts
 
 - **V11.** A moderator's direct reply is **not** recorded as a row. The evidence view reads it from
@@ -144,6 +149,8 @@ language re-states it.
   resolution's kind and actor are that row's.
 - **S4.** Acknowledgement never resolves: no acknowledgement kind carries a resolving strength
   (`ck_actions_strength`).
+
+> **Amended by TG-M4.1 (2026-10-21).** S4 still holds for every acknowledgement. A moderator's 👀 is not an acknowledgement: its `reaction` row carries `confirmation`, so S1 resolves the incident at that moment, from `open` or `acknowledged`, with that row's moderator as the resolver (S3). `ck_actions_strength` allows `reaction` either strength, and `ck_actions_reaction_confirmation` refuses a confirming reaction without 👀 among its added reactions.
 - **S5.** The state is an aggregate over a set, so it is identical whatever order evidence was processed
   in (FR-045). Evidence recorded after resolution still counts towards its own kind's timing.
 - **S6.** Nothing reads the clock, an absence, or a deletion to decide a state (FR-042).
@@ -169,6 +176,8 @@ language re-states it.
 - **H4.** The lock is `pg_advisory_xact_lock(hashtext('moderation:incidents'))` — this exact literal, in
   both languages. Taken by every panel act and by every **membership-change** insert. Reaction inserts do
   not take it: two acknowledgements racing are two harmless rows.
+
+> **Amended by TG-M4.1 (2026-10-21).** H4: a **confirming** (👀) reaction insert takes the lock too, before its insert, because it resolves and must not race a panel "Not a violation". An acknowledging reaction still takes no lock.
 - **H5.** A human act is judged against the state visible when it is made. A ban captured *after* a
   closure committed does not reopen the question: the closure stands (S1) and the ban is listed in the
   trail.
@@ -177,12 +186,17 @@ language re-states it.
 - **H7.** Panel accounts are not moderators. A panel act records `panel_user_id` and credits no
   moderator.
 
+> **Amended by TG-M2.1 (2026-10-19).** H7: a panel act by an account linked to a moderator (`moderators.user_id`) now also records `actor_moderator_id`, at write time (C1), so the act is that moderator's and can assign the incident to them. `panel_user_id` is still written; an unlinked account still credits nobody.
+
 ---
 
 ## §6 — Attribution
 
 - **A1.** Every per-moderator figure attributes an incident to `responsible_moderator_id` (I5).
 - **A2.** Reassigning a group never changes a recorded `responsible_moderator_id`.
+
+> **Amended by TG-M2.1 (2026-10-19).** A1–A2: per-moderator figures select the team at `detected_at` (F1), never `responsible_moderator_id` (N6); team history keeps A2's guarantee. A4 stands: acting outside one's team is shown, never a penalty, and counts as "outside" in "My work" (F4).
+
 - **A3.** The actor of an acknowledgement or resolution is recorded separately: a moderator through
   `actor_moderator_id`, an unmapped performer through `actor_telegram_user_id`, an anonymous one through
   `actor_is_anonymous`, a panel account through `panel_user_id`.
@@ -211,6 +225,8 @@ language re-states it.
 ## §8 — What may never happen
 
 - **N1.** Resolution from acknowledgement alone — in any amount, any combination, any order.
+
+> **Amended by TG-M4.1 (2026-10-21).** N1 stands: the 👀 that resolves is recorded as a confirmation — a moderator's word that the violation was handled — never as an acknowledgement. N3 and N5 stand: 👀 is not read as a deletion, and the bot still takes no action in a group.
 - **N2.** A transition out of `resolved` or `closed_false_positive`.
 - **N3.** Any state change from an inferred deletion, from the absence of evidence, or from time.
 - **N4.** Any field, kind, label, figure or screen text implying a deletion or its author was observed.

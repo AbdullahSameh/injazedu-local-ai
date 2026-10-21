@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Incidents\Pages;
 use App\Filament\Resources\Incidents\Concerns\IncidentMetrics;
 use App\Filament\Resources\Incidents\IncidentResource;
 use App\Filament\Resources\Incidents\Support\IncidentDisplay;
+use App\Filament\Support\TeamAssignment;
 use App\Models\Moderator;
 use App\Models\TelegramChat;
 use App\Support\PanelLocale;
@@ -89,32 +90,43 @@ class ListIncidents extends ListRecords
     }
 
     /**
-     * T062: one row per moderator responsible for any incident flagged in the period — from
-     * `moderation_incidents.responsible_moderator_id`, the owner snapshotted at detection, never
-     * the actor who happened to perform the resolving evidence (M2). No detection-latency column
-     * (P15, FR-054): the figure cannot be attributed to a moderator by construction.
+     * TG-M2.1 (`group-teams.md` §4): one row per moderator on a team or acting in the period.
+     * "My groups" is §2-§3 re-scoped to the incidents whose group had them on its team at
+     * `detected_at` (F1) — a miss counts once for every member (F2) — and "My work" is what they
+     * took themselves (F4). No detection-latency column (P15, FR-054, F5): the figure cannot be
+     * attributed to a moderator by construction.
      */
     public function figuresByModerator(): Collection
     {
         [$from, $to] = $this->periodBounds();
 
-        $moderatorIds = DB::table('moderation_incidents')
-            ->where('detected_at', '>=', $from)
-            ->where('detected_at', '<', $to)
-            ->whereNotNull('responsible_moderator_id')
-            ->distinct()
-            ->pluck('responsible_moderator_id');
-
         return Moderator::query()
-            ->whereIn('id', $moderatorIds)
+            ->whereIn('id', TeamAssignment::moderatorsActiveIn($from, $to))
             ->orderBy('display_name')
             ->get()
             ->map(fn (Moderator $moderator): array => array_merge(
                 ['label' => $moderator->display_name],
                 $this->incidentOutcomeStats($from, $to, $moderator->id, null),
                 ['timings' => $this->incidentTimingStats($from, $to, $moderator->id, null)],
+                ['work' => $this->incidentWorkStats($from, $to, $moderator->id)],
             ))
             ->values();
+    }
+
+    /**
+     * F4's `via` keys, worded, for the "Taken by" column.
+     *
+     * @param  array<string, int>  $via
+     */
+    public function viaDisplay(array $via): string
+    {
+        if ($via === []) {
+            return '—';
+        }
+
+        return collect($via)
+            ->map(fn (int $count, string $kind): string => TeamAssignment::viaLabel($kind).': '.$count)
+            ->implode(' · ');
     }
 
     /**

@@ -20,6 +20,9 @@ Parameters: `:period_from`, `:period_to` (UTC, half-open), `:max_age_s` (`MODERA
 - **M2.** Per-moderator figures filter on `responsible_moderator_id`; per-group figures on
   `telegram_chat_id`. A NULL `:moderator_id` means "no filter", never "unassigned only" — the TG-M3
   convention (its M-A4).
+
+> **Amended by TG-M2.1 (2026-10-19).** M2: per-moderator figures now filter on the team at `detected_at` in §2 and §3 alike (F1): `EXISTS (SELECT 1 FROM moderation_team_intervals t WHERE t.telegram_chat_id = i.telegram_chat_id AND t.moderator_id = :moderator_id AND t.valid_from <= i.detected_at AND (t.valid_to IS NULL OR t.valid_to > i.detected_at))`. "My work" is F4. `specs/012-tg-m2-1-group-teams/contracts/group-teams.md`.
+
 - **M3.** The ceiling is `detected_at + make_interval(secs => :max_age_s)`, written `ceiling` below.
 
 ---

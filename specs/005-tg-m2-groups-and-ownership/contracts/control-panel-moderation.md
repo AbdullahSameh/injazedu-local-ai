@@ -109,6 +109,8 @@ record, because both are silent by nature:
 | Measured, no current primary owner | Items and incidents will accumulate with nobody responsible |
 | Measured, bot is not an administrator | Several event kinds stop arriving **with no error anywhere** — the source plan's §27 calls this the single most likely way the system quietly stops working |
 
+> **Amended by TG-M2.1 (2026-10-19).** The Groups list's Owner icon became a **Team** column: current members by name, a red "Nobody" when a measured group has an empty team (`specs/012-tg-m2-1-group-teams/contracts/group-teams.md` S4).
+
 A coverage-losing standing change never clears `is_monitored`: the group stays measured so the loss
 shows. Switching it off would tidy away the failure.
 
@@ -152,6 +154,8 @@ form, which a top-level resource would invite bypassing.
 
 **The reassign action.** One action, performing the whole protocol of `moderator-ownership.md` §2:
 
+> **Amended by TG-M2.1 (2026-10-19).** "Reassign" became **Add to group** (T4, with a "since"), **End** and **Replace with…** (T5, one named member), on Moderators › Assignments and on the new Groups › Team relation manager. Each delegates to `ModeratorGroupAssignment` (`addMember`, `end`, `replaceWith`); the normative clause below still governs Replace.
+
 **Normative.** It MUST close the incumbent and open the successor in one transaction, using **one**
 timestamp value bound to both sides, and it MUST delegate to the Eloquent model method rather than
 inlining the two writes.
@@ -173,6 +177,8 @@ front of them."* That sentence is the precedent; this action follows it.
 
 **The history view** lists every past and current assignment with its role, its interval and its note,
 in chronological order. Nothing in it is deletable.
+
+> **Amended 2026-10-21 (operator request, TG-M2.1 smoke).** The history view, and Groups › Team, list newest first, ten to a page; older rows stay on the following pages. Nothing is hidden or deletable.
 
 ---
 
@@ -207,6 +213,8 @@ Following Principle I, and consistent with the existing `ModelProfileResourceTes
 | The measured toggle starts no job | R2 of `message-derivation.md` §7 |
 | Mapping a not-yet-observed identifier creates exactly one placeholder | The runbook's normal path |
 | The panel makes no platform call and runs no schema change | Standing prohibitions, cheap to assert |
+
+> **Amended by TG-M2.1 (2026-10-19).** Now a second current **member** is allowed, and the same moderator current twice in one group is refused (T2) — `TeamMembershipTest`, `test_db_invariants.py`.
 
 **Exempt** — recorded so the omissions are deliberate: Filament table rendering, pagination, column
 sorting and filtering; form validation messages; Eloquent attribute casting; navigation-group

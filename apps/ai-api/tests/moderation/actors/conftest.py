@@ -349,8 +349,8 @@ def fetch_assignment(
 def count_current_owners_at(
     actors_session_factory: async_sessionmaker[AsyncSession],
 ):
-    """Counts `primary` assignments covering instant `t` for one chat — an independent check of
-    O1 (`responsible_at` returns at most one) that does not go through `responsible_at` itself."""
+    """Counts `primary` assignments covering instant `t` for one chat — an independent count that
+    does not go through `team_at` itself (a sole member's handover covers its instant once)."""
 
     async def _count(*, telegram_chat_id: int, t: Any) -> int:
         async with actors_session_factory() as session:
