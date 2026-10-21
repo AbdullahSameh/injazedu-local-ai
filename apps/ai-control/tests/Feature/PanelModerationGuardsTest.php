@@ -124,7 +124,7 @@ class PanelModerationGuardsTest extends TestCase
         Queue::assertNothingPushed();
     }
 
-    public function test_reassign_makes_no_platform_call_and_starts_no_job(): void
+    public function test_adding_a_team_member_makes_no_platform_call_and_starts_no_job(): void
     {
         $this->actingAsPanelOperator();
         Http::preventStrayRequests();
@@ -136,7 +136,7 @@ class PanelModerationGuardsTest extends TestCase
         Livewire::test(AssignmentsRelationManager::class, [
             'ownerRecord' => $moderator,
             'pageClass' => EditModerator::class,
-        ])->callTableAction('reassign', null, ['telegram_chat_id' => $chat->id]);
+        ])->callTableAction('add_to_group', null, ['telegram_chat_id' => $chat->id]);
 
         Http::assertNothingSent();
         Queue::assertNothingPushed();

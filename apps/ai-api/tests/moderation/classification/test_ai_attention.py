@@ -26,6 +26,7 @@ from typing import Any
 import pytest
 import sqlalchemy as sa
 from app.application.gateway.registry import ProfileRegistry
+from app.application.moderation.assignments import team_at
 from app.application.moderation.attention import (
     AiAttention,
     assemble_burst,
@@ -399,7 +400,7 @@ async def test_an_implicit_question_the_rules_miss_opens_a_model_item(
     assert item["status"] == "open"
     assert item["opened_at"] == sent_at
     assert item["telegram_message_id"] == 1
-    assert item["responsible_moderator_id"] == seeded["owner"]["moderator_id"]
+    assert item["responsible_moderator_id"] is None  # TG-M2.1 G1: assigned to nobody yet
     message = await _message(
         classification_session_factory, chat_pk=seeded["chat_pk"], message_id=1
     )
@@ -1269,7 +1270,7 @@ async def test_an_edited_member_keeps_its_first_posted_judgement_and_the_e3_cloc
     assert item["opened_at"] == edited_at
 
 
-async def test_the_responsible_moderator_is_the_owner_at_the_question_not_at_judgement(
+async def test_the_team_that_counts_the_item_is_the_team_at_the_question_not_at_judgement(
     classification_session_factory: async_sessionmaker[AsyncSession],
     classification_chat_id: int,
     classification_seeded_profile: None,
@@ -1325,7 +1326,12 @@ async def test_the_responsible_moderator_is_the_owner_at_the_question_not_at_jud
     await sweep_unjudged_bursts_once(classification_session_factory, gap_s=_GAP_S, ai=_ai())
 
     [item] = await _items(classification_session_factory, chat_pk=chat_pk)
-    assert item["responsible_moderator_id"] == before["moderator_id"]
+    # TG-M2.1 F1: the item counts for the team at its `opened_at`, the question's own instant —
+    # never the team at the later judgement.
+    assert item["responsible_moderator_id"] is None
+    async with classification_session_factory() as session:
+        team = await team_at(session, telegram_chat_id=chat_pk, t=item["opened_at"])
+    assert team == [before["moderator_id"]]
 
 
 # --- decision 1: one message, two units of work, each from its own judgement -------------------

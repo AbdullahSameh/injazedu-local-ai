@@ -317,13 +317,16 @@ moderator_group_assignments = sa.Table(
     ),
 )
 
-# Exactly one current primary per chat. Cannot be deferred (probe 2), which is what forces
-# close-before-open in every handover (data-model.md §4.1).
+# TG-M2.1 (revision 0011, `specs/012-tg-m2-1-group-teams/contracts/group-teams.md` T2): a group
+# has a team, so several current primaries may coexist; one moderator holds at most one current
+# row per group, whatever the role. Replaced `uq_assignment_one_current_primary` (one current
+# primary per chat). Not deferrable (probe 2), so a replace still closes before it opens (T5).
 sa.Index(
-    "uq_assignment_one_current_primary",
+    "uq_assignment_one_current_membership",
     moderator_group_assignments.c.telegram_chat_id,
+    moderator_group_assignments.c.moderator_id,
     unique=True,
-    postgresql_where=sa.text("assignment_role = 'primary' AND valid_to IS NULL"),
+    postgresql_where=sa.text("valid_to IS NULL"),
 )
 sa.Index(
     "ix_assignment_chat_from",
@@ -363,6 +366,9 @@ attention_items = sa.Table(
     # prediction that opened it, written once at insert and never updated
     # (specs/009-tg-m5-1-ai-attention/contracts/attention-opening.md O3).
     sa.Column("message_classification_id", sa.BigInteger(), nullable=True),
+    # TG-M2.1 G1 (`specs/012-tg-m2-1-group-teams/contracts/group-teams.md`): frozen. Rows opened
+    # before TG-M2.1 keep TG-M2's owner snapshot; new rows leave it NULL, and no figure reads it
+    # (N6) — the assigned moderator is `attention_item_assignee`'s.
     sa.Column(
         "responsible_moderator_id",
         sa.BigInteger(),
@@ -383,6 +389,14 @@ attention_items = sa.Table(
     sa.Column("first_response_kind", sa.String(length=20), nullable=True),
     sa.Column("closed_at", sa.DateTime(timezone=True), nullable=True),
     sa.Column("closed_by_user_id", sa.BigInteger(), nullable=True),
+    # TG-M2.1 C1 (revision 0011): the moderator linked to the dismissing panel account, set at
+    # write time and never recomputed (as V5) — NULL for every other close.
+    sa.Column(
+        "closed_by_moderator_id",
+        sa.BigInteger(),
+        sa.ForeignKey("moderators.id", name="fk_attention_closed_by_moderator"),
+        nullable=True,
+    ),
     sa.Column("close_reason", sa.String(length=40), nullable=True),
     sa.Column(
         "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
@@ -479,8 +493,9 @@ moderation_incidents = sa.Table(
     # The prediction that opened this incident — set, and required (`ck_incident_ai_link`),
     # only when `source = 'ai'`; `fk_incident_classification` (below) is composite.
     sa.Column("message_classification_id", sa.BigInteger(), nullable=True),
-    # Snapshotted from responsible_at(chat, detected_at) — the owner at the flag, not the anchor
-    # message (I5). NULL is a real answer: nobody owned the group then.
+    # Before TG-M2.1, snapshotted from responsible_at(chat, detected_at) (I5). Frozen since
+    # (group-teams.md G1): new rows leave it NULL and no figure reads it (N6) — the assigned
+    # moderator is `moderation_incident_assignee`'s.
     sa.Column(
         "responsible_moderator_id",
         sa.BigInteger(),
@@ -670,9 +685,10 @@ moderation_actions = sa.Table(
         name="ck_actions_type",
     ),
     # The kind table of data-model.md §2, as one boolean expression: a reversal or a closure can
-    # never be given a strength.
+    # never be given a strength. TG-M4.1 (revision 0012): a reaction is an acknowledgement, or a
+    # confirmation when it is a moderator's 👀.
     sa.CheckConstraint(
-        "(action_type = 'reaction' AND action_strength = 'acknowledgement') OR "
+        "(action_type = 'reaction' AND action_strength IN ('acknowledgement', 'confirmation')) OR "
         "(action_type IN ('ban', 'expulsion', 'restriction') "
         "AND action_strength = 'enforcement') OR "
         "(action_type = 'reversal' AND action_strength IS NULL) OR "
@@ -708,6 +724,12 @@ moderation_actions = sa.Table(
         "action_type <> 'reaction' OR "
         "(target_message_id IS NOT NULL AND actor_moderator_id IS NOT NULL)",
         name="ck_actions_reaction_shape",
+    ),
+    # TG-M4.1: a confirming reaction carries the standard 👀 among its added reactions.
+    sa.CheckConstraint(
+        "action_type <> 'reaction' OR action_strength <> 'confirmation' OR "
+        "detail -> 'added' @> '[{\"type\": \"emoji\", \"emoji\": \"👀\"}]'::jsonb",
+        name="ck_actions_reaction_confirmation",
     ),
 )
 
@@ -1107,4 +1129,34 @@ moderation_incident_state = sa.table(
     sa.column("closed_at"),
     sa.column("closed_by_user_id"),
     sa.column("close_reason"),
+)
+
+# TG-M2.1's three views (revision 0011, `specs/012-tg-m2-1-group-teams/data-model.md` §3-§5) —
+# declared the same lightweight way, for the same reason. `moderation_team_intervals` is the one
+# definition of "on the team" (T3); the two assignee views derive each assigned moderator from
+# recorded acts (G6) and are never written.
+
+moderation_team_intervals = sa.table(
+    "moderation_team_intervals",
+    sa.column("assignment_id"),
+    sa.column("telegram_chat_id"),
+    sa.column("moderator_id"),
+    sa.column("valid_from"),
+    sa.column("valid_to"),
+)
+
+attention_item_assignee = sa.table(
+    "attention_item_assignee",
+    sa.column("attention_item_id"),
+    sa.column("assigned_moderator_id"),
+    sa.column("assigned_at"),
+    sa.column("assigned_via"),
+)
+
+moderation_incident_assignee = sa.table(
+    "moderation_incident_assignee",
+    sa.column("incident_id"),
+    sa.column("assigned_moderator_id"),
+    sa.column("assigned_at"),
+    sa.column("assigned_via"),
 )

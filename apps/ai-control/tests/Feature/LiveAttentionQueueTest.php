@@ -7,6 +7,7 @@ use App\Models\AttentionItem;
 use App\Models\MessageClassification;
 use App\Models\ModelProfile;
 use App\Models\Moderator;
+use App\Models\ModeratorGroupAssignment;
 use App\Models\TelegramChat;
 use App\Models\TelegramMessage;
 use App\Models\TelegramUser;
@@ -221,26 +222,28 @@ class LiveAttentionQueueTest extends TestCase
             ->assertCanNotSeeTableRecords([$answered]);
     }
 
-    public function test_an_item_whose_group_has_no_responsible_moderator_shows_the_unassigned_marker(): void
+    public function test_an_unassigned_item_shows_its_groups_team_or_no_team(): void
     {
         $this->actingAsPanelOperator();
-        $chat = $this->makeChat();
+        $teamChat = $this->makeChat();
+        $emptyChat = $this->makeChat();
         $student = $this->makeStudent();
-        $moderator = $this->makeModerator('Named Responsible');
+        ModeratorGroupAssignment::addMember($teamChat->id, $this->makeModerator('Zainab')->id);
+        ModeratorGroupAssignment::addMember($teamChat->id, $this->makeModerator('Ahmed')->id);
 
-        $this->makeItem(
-            $chat,
-            $this->makeMessage($chat, $student, 1, 'متى الاختبار؟', now()->subMinutes(10)),
+        $waitingOnTeam = $this->makeItem(
+            $teamChat,
+            $this->makeMessage($teamChat, $student, 1, 'متى الاختبار؟', now()->subMinutes(10)),
         );
-        $this->makeItem(
-            $chat,
-            $this->makeMessage($chat, $student, 2, 'وين رابط الزوم', now()->subMinutes(5)),
-            ['responsible_moderator_id' => $moderator->id],
+        $nobodyToTake = $this->makeItem(
+            $emptyChat,
+            $this->makeMessage($emptyChat, $student, 1, 'وين رابط الزوم', now()->subMinutes(5)),
         );
 
-        $test = Livewire::test(LiveAttentionQueue::class);
-        $test->assertSee('Unassigned');
-        $test->assertSee('Named Responsible');
+        // TG-M2.1 S1: nobody has acted yet, so the item shows who may take it — never blank.
+        Livewire::test(LiveAttentionQueue::class)
+            ->assertTableColumnStateSet('assigned', __('Team: :names', ['names' => 'Ahmed, Zainab']), $waitingOnTeam)
+            ->assertTableColumnStateSet('assigned', __('No team'), $nobodyToTake);
     }
 
     public function test_an_item_whose_question_text_was_purged_renders_as_removed_and_keeps_its_timings(): void

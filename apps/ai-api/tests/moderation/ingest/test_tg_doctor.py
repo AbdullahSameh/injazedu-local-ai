@@ -21,10 +21,12 @@ class _StubProvider:
         identity: BotIdentity | None = None,
         error: Exception | None = None,
         webhook_url: str = "",
+        available_reactions: list[dict[str, str]] | None = None,
     ) -> None:
         self._identity = identity
         self._error = error
         self._webhook_url = webhook_url
+        self._available_reactions = available_reactions
 
     async def get_me(self) -> BotIdentity:
         if self._error is not None:
@@ -40,6 +42,9 @@ class _StubProvider:
 
     async def get_chat_member(self, **_kwargs: object) -> object:  # pragma: no cover
         raise NotImplementedError
+
+    async def get_chat_available_reactions(self, **_kwargs: object) -> list[dict[str, str]] | None:
+        return self._available_reactions
 
 
 def _settings(*, token: str | None) -> Settings:
@@ -150,3 +155,66 @@ async def test_the_credential_is_never_printed_not_even_truncated(
     output = capsys.readouterr()
     assert fake_credential not in output.out
     assert fake_credential not in output.err
+
+
+async def _monitored_admin_chat(
+    session_factory: async_sessionmaker[AsyncSession], chat_id: int
+) -> None:
+    async with session_factory() as session:
+        await session.execute(
+            telegram_chats.insert().values(
+                chat_id=chat_id,
+                chat_type="supergroup",
+                title="Test Group",
+                is_monitored=True,
+                bot_status="administrator",
+            )
+        )
+        await session.commit()
+
+
+async def test_a_monitored_chat_that_allows_every_reaction_allows_eyes(
+    ingest_session_factory: async_sessionmaker[AsyncSession],
+    ingest_bot_id: int,
+    ingest_chat_id: int,
+    ingest_cleanup: None,
+    ingest_chat_cleanup: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """TG-M4.1 E9: `available_reactions` omitted means every emoji reaction is allowed."""
+    await _monitored_admin_chat(ingest_session_factory, ingest_chat_id)
+
+    await _run(
+        _settings(token="t"),
+        session_factory=ingest_session_factory,
+        client=_StubProvider(identity=BotIdentity(bot_id=ingest_bot_id, username="b")),
+    )
+
+    # The shared test database may hold other tests' chats, so the exit code is not this case's
+    # to judge — the chat's own line and the absence of the 👀 warning are.
+    output = capsys.readouterr().out
+    assert "👀 allowed" in output
+    assert "whose reactions do not include" not in output
+
+
+async def test_a_monitored_chat_whose_reactions_exclude_eyes_is_named_and_exits_non_zero(
+    ingest_session_factory: async_sessionmaker[AsyncSession],
+    ingest_bot_id: int,
+    ingest_chat_id: int,
+    ingest_cleanup: None,
+    ingest_chat_cleanup: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    await _monitored_admin_chat(ingest_session_factory, ingest_chat_id)
+
+    exit_code = await _run(
+        _settings(token="t"),
+        session_factory=ingest_session_factory,
+        client=_StubProvider(
+            identity=BotIdentity(bot_id=ingest_bot_id, username="b"),
+            available_reactions=[{"type": "emoji", "emoji": "👍"}],
+        ),
+    )
+
+    assert exit_code != 0
+    assert "👀 not allowed" in capsys.readouterr().out

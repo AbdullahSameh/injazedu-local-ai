@@ -20,7 +20,6 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.application.moderation.assignments import responsible_at
 from app.domain.moderation.incident import CATEGORIES, SEVERITIES
 from app.infrastructure.models_moderation import (
     moderation_incident_evidence,
@@ -51,10 +50,11 @@ async def insert_incident(
     transaction as its message, so neither can exist without the other having been decided.
     `rule_version` is set exactly when `source = 'rule'` (`ck_incident_rule_version`).
 
-    `opened_at` = the anchor's `sent_at`, `detected_at` = one `SELECT now()` on this session, and
-    `responsible_moderator_id` = `responsible_at(chat, detected_at)` (I5) — the owner at the
-    **flagging** moment, resolved via TG-M2's single definition so it reads the identical `now()`
-    value `detected_at` is stamped with (D-TG-48).
+    `opened_at` = the anchor's `sent_at` and `detected_at` = one `SELECT now()` on this session.
+    Nothing is assigned (TG-M2.1 G1, amending I5): the incident's assigned moderator is derived
+    from the first team member's evidence (`moderation_incident_assignee`), and the team that
+    counts its outcome is `team_at(chat, detected_at)` — `responsible_moderator_id` is no longer
+    written.
 
     `ON CONFLICT ON CONSTRAINT uq_incident_anchor DO NOTHING RETURNING id` (I2, R2, pipeline A3):
     opening the same anchor twice is not an error — the second attempt returns `None`. Raises
@@ -77,14 +77,8 @@ async def insert_incident(
         raise ValueError("cannot open an incident on a service message")
 
     # Read once, within this transaction: Postgres' `now()` is `transaction_timestamp()`
-    # (identical across every statement in one transaction), so the owner resolved below is
-    # the owner at the exact instant this incident is stamped as detected — never a second,
-    # separately-read clock value (mirrors `assignments.py`'s own rationale).
+    # (identical across every statement in one transaction).
     detected_at = (await session.execute(sa.select(sa.func.now()))).scalar_one()
-
-    responsible_moderator_id = await responsible_at(
-        session, telegram_chat_id=telegram_chat_id, t=detected_at
-    )
 
     insert_stmt = (
         pg_insert(moderation_incidents)
@@ -100,7 +94,6 @@ async def insert_incident(
             message_classification_id=message_classification_id,
             prompted_by_classification_id=prompted_by_classification_id,
             rule_version=rule_version,
-            responsible_moderator_id=responsible_moderator_id,
         )
         .on_conflict_do_nothing(constraint="uq_incident_anchor")
         .returning(moderation_incidents.c.id)

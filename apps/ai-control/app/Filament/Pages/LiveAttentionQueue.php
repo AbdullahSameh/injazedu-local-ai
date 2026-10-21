@@ -6,9 +6,9 @@ use App\Filament\Pages\Concerns\AttentionMetrics;
 use App\Filament\Pages\Concerns\ClassificationMetrics;
 use App\Filament\Resources\Incidents\Actions\OpenIncidentAction;
 use App\Filament\Support\ModelView;
+use App\Filament\Support\TeamAssignment;
 use App\Models\AttentionItem;
 use App\Models\Moderator;
-use App\Models\ModeratorGroupAssignment;
 use App\Models\TelegramChat;
 use App\Models\TelegramMessage;
 use App\Support\PanelLocale;
@@ -23,7 +23,9 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -50,6 +52,11 @@ use UnitEnum;
  * TG-M5.3 (`specs/011-tg-m5-3-attention-judgement/contracts/dismissal-reasons.md` K1-K4) makes it
  * three dismiss row actions: "Member discussion" sits between the two originals, on an item of any
  * source, and all three share one confirmation that states each reason's meaning (K2).
+ *
+ * TG-M2.1 (`specs/012-tg-m2-1-group-teams/contracts/group-teams.md` §5): "Responsible" becomes
+ * **Assigned** — read from `attention_item_assignee`, never computed here (S1) — and a **Mine**
+ * filter is on by default for a moderator's own account (S2). A dismissal by a linked account
+ * records its moderator (C1).
  */
 class LiveAttentionQueue extends Page implements HasTable
 {
@@ -116,6 +123,16 @@ class LiveAttentionQueue extends Page implements HasTable
      */
     private ?array $replyFacts = null;
 
+    /**
+     * TG-M2.1 S1: the page's assignee rows and its groups' current teams, filled once per page.
+     *
+     * @var array<int, object>|null
+     */
+    private ?array $assignees = null;
+
+    /** @var array<int, array<int, string>>|null */
+    private ?array $teams = null;
+
     public function table(Table $table): Table
     {
         return $table
@@ -137,11 +154,12 @@ class LiveAttentionQueue extends Page implements HasTable
                     )
                     ->limit(80)
                     ->extraAttributes(['dir' => 'auto']),
-                // Never blank, never omitted (A2): NULL is a real answer, surfaced as a badge so
-                // a coverage gap reads as a fact on the screen, not as missing data.
-                TextColumn::make('responsibleModerator.display_name')
-                    ->label(__('Responsible'))
-                    ->placeholder(__('Unassigned'))
+                // TG-M2.1 S1: who took it and how, else the team still to take it, else "No team"
+                // — never blank, so a coverage gap reads as a fact on the screen (A2).
+                TextColumn::make('assigned')
+                    ->label(__('Assigned'))
+                    ->getStateUsing(fn (AttentionItem $record): string => $this->assignedFor($record))
+                    ->color(fn (AttentionItem $record): string => $this->assignedColorFor($record))
                     ->badge(),
                 TextColumn::make('status')
                     ->label(__('Status'))
@@ -179,6 +197,20 @@ class LiveAttentionQueue extends Page implements HasTable
                 TextColumn::make('replies')
                     ->label(__('Replies'))
                     ->getStateUsing(fn (AttentionItem $record): string => $this->repliesFor($record)),
+            ])
+            ->filters([
+                // TG-M2.1 S2: a default, not access control — one click shows everything.
+                Filter::make('mine')
+                    ->label(__('Mine'))
+                    ->toggle()
+                    ->default(fn (): bool => TeamAssignment::linkedModeratorId(Auth::user()) !== null)
+                    ->query(function (Builder $query): Builder {
+                        $moderatorId = TeamAssignment::linkedModeratorId(Auth::user());
+
+                        return $moderatorId === null ? $query : TeamAssignment::applyMine(
+                            $query, 'attention_items', 'attention_item_assignee', 'attention_item_id', $moderatorId,
+                        );
+                    }),
             ])
             ->recordActions([
                 // Step 2 (2026-10-18): one dropdown per row keeps the table narrow. Each action
@@ -273,7 +305,8 @@ class LiveAttentionQueue extends Page implements HasTable
     /**
      * FR-051, FR-052: records who dismissed the item, when, and why, through the guarded write
      * every terminal transition uses (contract §4 C8). Zero rows updated — a second dismissal, a
-     * closed item — is the expected, harmless outcome, not an error.
+     * closed item — is the expected, harmless outcome, not an error. TG-M2.1 C1: the moderator
+     * linked to the account is recorded at write time, so the dismissal is their act.
      */
     private static function dismiss(AttentionItem $record, string $reason): void
     {
@@ -281,7 +314,45 @@ class LiveAttentionQueue extends Page implements HasTable
             'close_reason' => $reason,
             'closed_at' => now(),
             'closed_by_user_id' => Auth::id(),
+            'closed_by_moderator_id' => TeamAssignment::linkedModeratorId(Auth::user()),
         ]);
+    }
+
+    /**
+     * S1: the Assigned column's words, from the page's assignee rows and current teams.
+     */
+    private function assignedFor(AttentionItem $record): string
+    {
+        $this->loadAssignment();
+
+        return TeamAssignment::label(
+            $this->assignees[$record->id] ?? null,
+            $this->teams[$record->telegram_chat_id] ?? [],
+            $record->status === 'open',
+        );
+    }
+
+    private function assignedColorFor(AttentionItem $record): string
+    {
+        $this->loadAssignment();
+
+        return TeamAssignment::color(
+            $this->assignees[$record->id] ?? null,
+            $this->teams[$record->telegram_chat_id] ?? [],
+            $record->status === 'open',
+        );
+    }
+
+    private function loadAssignment(): void
+    {
+        if ($this->assignees !== null) {
+            return;
+        }
+
+        $records = $this->getTable()->getRecords();
+        $collection = method_exists($records, 'getCollection') ? $records->getCollection() : $records;
+        $this->assignees = TeamAssignment::forItems($collection->pluck('id')->all());
+        $this->teams = TeamAssignment::currentTeams($collection->pluck('telegram_chat_id')->all());
     }
 
     /**
@@ -390,19 +461,14 @@ class LiveAttentionQueue extends Page implements HasTable
 
     /**
      * FR-054: `source='operator'`, `rule_version=NULL`, `opened_at` from the chosen message's
-     * own `sent_at` — never `now()`. `responsible_moderator_id` is snapshotted the same way a
-     * rule-opened item's is (contract §5 A1), via TG-M2's own `responsibleAt` scope, not a
-     * second definition of it. The anchor message's `attention_item_id` is stamped so a direct
-     * reply to it resolves through the same matcher a rule-opened item's does (contract §4 (a)),
-     * and `attention_evaluated_at` so the sweep never revisits it.
+     * own `sent_at` — never `now()`. Assigned to nobody, like every new item (TG-M2.1 G1). The
+     * anchor message's `attention_item_id` is stamped so a direct reply to it resolves through the
+     * same matcher a rule-opened item's does (contract §4 (a)), and `attention_evaluated_at` so the
+     * sweep never revisits it.
      */
     private static function openByHand(int $telegramMessageId): void
     {
         $message = TelegramMessage::findOrFail($telegramMessageId);
-
-        $responsibleModeratorId = ModeratorGroupAssignment::query()
-            ->responsibleAt($message->telegram_chat_id, $message->sent_at)
-            ->value('moderator_id');
 
         $item = AttentionItem::create([
             'telegram_chat_id' => $message->telegram_chat_id,
@@ -411,7 +477,6 @@ class LiveAttentionQueue extends Page implements HasTable
             'opened_at' => $message->sent_at,
             'source' => 'operator',
             'rule_version' => null,
-            'responsible_moderator_id' => $responsibleModeratorId,
             'status' => 'open',
         ]);
 
@@ -494,33 +559,24 @@ class LiveAttentionQueue extends Page implements HasTable
     }
 
     /**
-     * T074: one row per moderator responsible for any item opened in the period — from
-     * `attention_items.responsible_moderator_id`, the snapshot taken when each item opened, so a
-     * later handover never moves a figure from the moderator who was actually responsible at the
-     * time (M-A4, contract §5 A4). A NULL `responsible_moderator_id` has no isolating figure in
-     * the contract (§2-§3's `:moderator` parameter means "no filter", not "filter for NULL"), so
-     * unassigned items are left out of this table rather than inventing an arithmetic the
-     * contract does not define.
+     * TG-M2.1 (`group-teams.md` §4): one row per moderator on a team or acting in the period.
+     * "My groups" is §2-§3 re-scoped to the items whose group had them on its team at `opened_at`
+     * (F1) — a miss counts once for every member, and once in the group's row above (F2) — and
+     * "My work" is what they themselves took and answered (F3).
      */
     public function figuresByModerator(): Collection
     {
         [$from, $to] = $this->periodBounds();
 
-        $moderatorIds = DB::table('attention_items')
-            ->where('opened_at', '>=', $from)
-            ->where('opened_at', '<', $to)
-            ->whereNotNull('responsible_moderator_id')
-            ->distinct()
-            ->pluck('responsible_moderator_id');
-
         return Moderator::query()
-            ->whereIn('id', $moderatorIds)
+            ->whereIn('id', TeamAssignment::moderatorsActiveIn($from, $to))
             ->orderBy('display_name')
             ->get()
             ->map(fn (Moderator $moderator): array => array_merge(
                 ['label' => $moderator->display_name],
                 $this->attentionFrtStats($from, $to, $moderator->id, null),
                 $this->attentionUnansweredStats($from, $to, $moderator->id, null),
+                ['work' => $this->attentionWorkStats($from, $to, $moderator->id)],
             ))
             ->values();
     }

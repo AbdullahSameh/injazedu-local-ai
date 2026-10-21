@@ -6,6 +6,7 @@ use App\Filament\Resources\Incidents\Pages\ListIncidents;
 use App\Filament\Resources\Incidents\Pages\ViewIncident;
 use App\Models\ModerationIncident;
 use App\Models\Moderator;
+use App\Models\ModeratorGroupAssignment;
 use App\Models\TelegramChat;
 use App\Models\TelegramMessage;
 use App\Models\TelegramUser;
@@ -118,46 +119,65 @@ class IncidentResourceTest extends TestCase
 
     public function test_the_list_filters_narrow_correctly(): void
     {
-        $this->actingAsPanelOperator();
+        $operator = $this->actingAsPanelOperator();
         $chatA = $this->makeChat(['title' => 'Group A']);
         $chatB = $this->makeChat(['title' => 'Group B']);
         $moderator = $this->makeModerator('Filter Moderator');
+        // TG-M2.1: "Assigned to" reads the assignee view — the moderator is on Group A's team and
+        // acknowledges the incidents that should carry their name (G3).
+        foreach ([$chatA, $chatB] as $chat) {
+            ModeratorGroupAssignment::create([
+                'telegram_chat_id' => $chat->id,
+                'moderator_id' => $moderator->id,
+                'assignment_role' => 'primary',
+                'valid_from' => now()->subDays(30)->format('Y-m-d H:i:s.u'),
+            ]);
+        }
+        $takenBy = function (ModerationIncident $incident) use ($operator, $moderator): ModerationIncident {
+            $this->insertAction([
+                'telegram_chat_id' => $incident->telegram_chat_id,
+                'action_type' => 'panel_acknowledge',
+                'action_strength' => 'acknowledgement',
+                'occurred_at' => $incident->detected_at->copy()->addMinute(),
+                'panel_user_id' => $operator->id,
+                'actor_moderator_id' => $moderator->id,
+                'moderation_incident_id' => $incident->id,
+            ]);
 
-        $matching = $this->makeIncident($chatA, $this->makeMessage($chatA, 1), [
+            return $incident;
+        };
+
+        $matching = $takenBy($this->makeIncident($chatA, $this->makeMessage($chatA, 1), [
             'category' => 'ABUSE',
             'severity' => 'high',
-            'responsible_moderator_id' => $moderator->id,
             'detected_at' => now()->subDays(2),
-        ]);
-        $otherCategory = $this->makeIncident($chatA, $this->makeMessage($chatA, 2), [
+        ]));
+        $otherCategory = $takenBy($this->makeIncident($chatA, $this->makeMessage($chatA, 2), [
             'category' => 'OTHER',
             'severity' => 'high',
-            'responsible_moderator_id' => $moderator->id,
             'detected_at' => now()->subDays(2),
-        ]);
-        $otherGroup = $this->makeIncident($chatB, $this->makeMessage($chatB, 1), [
+        ]));
+        $otherGroup = $takenBy($this->makeIncident($chatB, $this->makeMessage($chatB, 1), [
             'category' => 'ABUSE',
             'severity' => 'high',
-            'responsible_moderator_id' => $moderator->id,
             'detected_at' => now()->subDays(2),
-        ]);
+        ]));
         $otherModerator = $this->makeIncident($chatA, $this->makeMessage($chatA, 3), [
             'category' => 'ABUSE',
             'severity' => 'high',
             'detected_at' => now()->subDays(2),
         ]);
-        $outsideDateRange = $this->makeIncident($chatA, $this->makeMessage($chatA, 4), [
+        $outsideDateRange = $takenBy($this->makeIncident($chatA, $this->makeMessage($chatA, 4), [
             'category' => 'ABUSE',
             'severity' => 'high',
-            'responsible_moderator_id' => $moderator->id,
             'detected_at' => now()->subDays(20),
-        ]);
+        ]));
 
         Livewire::test(ListIncidents::class)
             ->filterTable('category', 'ABUSE')
             ->filterTable('severity', 'high')
             ->filterTable('telegram_chat_id', $chatA->id)
-            ->filterTable('responsible_moderator_id', $moderator->id)
+            ->filterTable('assigned_moderator_id', $moderator->id)
             ->filterTable('detected_at', [
                 'from' => now()->subDays(5)->toDateString(),
                 'until' => now()->toDateString(),
@@ -181,17 +201,16 @@ class IncidentResourceTest extends TestCase
             ->assertCanNotSeeTableRecords([$resolved]);
     }
 
-    public function test_unassigned_badge_when_no_responsible_moderator(): void
+    public function test_no_team_badge_when_the_group_has_nobody_on_its_team(): void
     {
         $this->actingAsPanelOperator();
         $chat = $this->makeChat();
-        $incident = $this->makeIncident($chat, $this->makeMessage($chat, 1), [
-            'responsible_moderator_id' => null,
-        ]);
+        $incident = $this->makeIncident($chat, $this->makeMessage($chat, 1));
 
+        // TG-M2.1 S1: never blank — "No team" is a coverage fact on the screen.
         Livewire::test(ListIncidents::class)
             ->assertCanSeeTableRecords([$incident])
-            ->assertSeeText('Unassigned');
+            ->assertTableColumnStateSet('assigned', __('No team'), $incident);
     }
 
     public function test_age_shows_a_human_duration_while_open(): void
@@ -282,6 +301,58 @@ class IncidentResourceTest extends TestCase
             ->assertSeeText("captured event #{$banUpdateId}");
 
         $test->assertDontSeeText('Expelled');
+    }
+
+    /**
+     * TG-M4.1: a moderator's 👀 is a confirmation — the page reads it as handled, names who
+     * resolved it (not the colleague who acknowledged first), and the panel's own acts are
+     * refused over it, exactly as over any resolution (H1-H2).
+     */
+    public function test_an_eyes_reaction_reads_as_handled_names_its_resolver_and_closes_the_panel_acts(): void
+    {
+        $operator = $this->actingAsPanelOperator();
+        $chat = $this->makeChat();
+        $message = $this->makeMessage($chat, 1, ['sent_at' => now()->subHours(3)]);
+        $incident = $this->makeIncident($chat, $message, ['detected_at' => now()->subHours(2)]);
+        $first = $this->makeModerator('Acknowledging Mod');
+        $resolver = $this->makeModerator('Eyes Mod');
+
+        $this->insertAction([
+            'telegram_chat_id' => $chat->id,
+            'action_type' => 'reaction',
+            'action_strength' => 'acknowledgement',
+            'occurred_at' => now()->subHour(),
+            'actor_telegram_user_id' => $first->telegram_user_id,
+            'actor_moderator_id' => $first->id,
+            'target_message_id' => $message->message_id,
+            'source_update_id' => $this->makeCapturedUpdate($chat, 'message_reaction'),
+            'detail' => json_encode(['added' => [['type' => 'emoji', 'emoji' => '👍']]]),
+        ]);
+        $this->insertAction([
+            'telegram_chat_id' => $chat->id,
+            'action_type' => 'reaction',
+            'action_strength' => 'confirmation',
+            'occurred_at' => now()->subMinutes(30),
+            'actor_telegram_user_id' => $resolver->telegram_user_id,
+            'actor_moderator_id' => $resolver->id,
+            'target_message_id' => $message->message_id,
+            'source_update_id' => $this->makeCapturedUpdate($chat, 'message_reaction'),
+            'detail' => json_encode(['added' => [['type' => 'emoji', 'emoji' => '👀']]]),
+        ]);
+
+        $this->assertSame('resolved', $incident->state()->status);
+        $this->assertSame($resolver->id, (int) $incident->state()->resolved_by_moderator_id);
+
+        Livewire::test(ViewIncident::class, ['record' => $incident->getKey()])
+            ->assertSeeText(__('Reaction 👀 — handled'))
+            ->assertSeeText(__('Resolved by'))
+            ->assertSeeText('Eyes Mod · '.__('Reaction 👀 — handled'));
+        Livewire::test(ListIncidents::class)
+            ->assertTableColumnStateSet('status', 'resolved', $incident);
+
+        $this->assertFalse($incident->closeAsFalsePositive($operator, 'not an advert'));
+        $this->assertFalse($incident->resolve($operator, 'handled'));
+        $this->assertSame('resolved', $incident->state()->status);
     }
 
     public function test_a_missing_timing_reads_no_evidence_never_zero(): void

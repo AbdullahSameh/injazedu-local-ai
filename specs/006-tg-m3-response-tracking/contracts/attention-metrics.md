@@ -48,6 +48,8 @@ FROM (
 ) s;
 ```
 
+> **Amended by TG-M2.1 (2026-10-19).** `:moderator` now selects "my groups" in §2 and §3 alike (F1): `EXISTS (SELECT 1 FROM moderation_team_intervals t WHERE t.telegram_chat_id = attention_items.telegram_chat_id AND t.moderator_id = :moderator AND t.valid_from <= attention_items.opened_at AND (t.valid_to IS NULL OR t.valid_to > attention_items.opened_at))`. A miss in an n-member team counts once per member (F2); "My work" is F3.
+
 **M4.** `percentile_cont` — interpolating, not nearest-rank.
 **M5.** `answered` is displayed **beside every percentile**, always.
 **M6.** `p90_frt` is **suppressed** below `MODERATION_PERCENTILE_MIN_SAMPLES` (default 10), with a

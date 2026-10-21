@@ -15,7 +15,10 @@ use Illuminate\Support\Facades\DB;
  * Every statement reads `moderation_incident_state` (lifecycle contract N6) and selects by
  * `detected_at` — the detection moment, never `opened_at` and never `created_at` (M1). Every
  * method takes its scoping (`$from`/`$to`, `$moderatorId`, `$chatId`) as an explicit argument,
- * mirroring `AttentionMetrics`'s own style.
+ * mirroring `AttentionMetrics`'s own style. *
+ * TG-M2.1 (`specs/012-tg-m2-1-group-teams/contracts/group-teams.md` §4): `$moderatorId` selects
+ * "my groups" — incidents whose group had the moderator on its team at `detected_at` (F1), never
+ * `responsible_moderator_id` (N6) — and `incidentWorkStats()` is "my work" (F4).
  */
 trait IncidentMetrics
 {
@@ -61,7 +64,12 @@ trait IncidentMetrics
             FROM moderation_incidents i
             JOIN moderation_incident_state s ON s.incident_id = i.id
             WHERE i.detected_at >= :period_from AND i.detected_at < :period_to
-              AND (:moderator_id1::bigint IS NULL OR i.responsible_moderator_id = :moderator_id2::bigint)
+              AND (:moderator_id1::bigint IS NULL OR EXISTS (
+                    SELECT 1 FROM moderation_team_intervals t
+                    WHERE t.telegram_chat_id = i.telegram_chat_id
+                      AND t.moderator_id     = :moderator_id2::bigint
+                      AND t.valid_from      <= i.detected_at
+                      AND (t.valid_to IS NULL OR t.valid_to > i.detected_at)))
               AND (:chat_id1::bigint      IS NULL OR i.telegram_chat_id        = :chat_id2::bigint)
             SQL,
             [
@@ -137,7 +145,12 @@ trait IncidentMetrics
               JOIN moderation_incident_state s ON s.incident_id = i.id
               WHERE s.status <> 'closed_false_positive'
                 AND i.detected_at >= :period_from AND i.detected_at < :period_to
-                AND (:moderator_id1::bigint IS NULL OR i.responsible_moderator_id = :moderator_id2::bigint)
+                AND (:moderator_id1::bigint IS NULL OR EXISTS (
+                      SELECT 1 FROM moderation_team_intervals t
+                      WHERE t.telegram_chat_id = i.telegram_chat_id
+                        AND t.moderator_id     = :moderator_id2::bigint
+                        AND t.valid_from      <= i.detected_at
+                        AND (t.valid_to IS NULL OR t.valid_to > i.detected_at)))
                 AND (:chat_id1::bigint      IS NULL OR i.telegram_chat_id        = :chat_id2::bigint)
             ) t
             SQL,
@@ -155,6 +168,93 @@ trait IncidentMetrics
             'acknowledgement' => $this->timingBlock($row, 'ack'),
             'confirmation' => $this->timingBlock($row, 'conf'),
             'enforcement' => $this->timingBlock($row, 'enf'),
+        ];
+    }
+
+    /**
+     * F4 — one moderator's incident work over incidents flagged in the period: `assigned`, split
+     * by current status and, in `via`, by the evidence kind that assigned it; the time from the
+     * flag to the assigning act as a §3-shaped timing block (acts before the flag only in
+     * `before_flagging`); and `outside`, incidents acted on while not on that group's team.
+     * Detection latency is never here (F5, M16).
+     *
+     * @return array<string, mixed>
+     */
+    private function incidentWorkStats(Carbon $from, Carbon $to, int $moderatorId): array
+    {
+        $params = ['period_from' => $from, 'period_to' => $to, 'moderator_id' => $moderatorId];
+
+        $row = DB::selectOne(
+            <<<'SQL'
+            WITH me AS (SELECT CAST(:moderator_id AS bigint) AS id)
+            SELECT
+              count(*) AS assigned,
+              count(*) FILTER (WHERE s.status = 'acknowledged') AS assigned_acknowledged,
+              count(*) FILTER (WHERE s.status = 'resolved') AS assigned_resolved,
+              count(*) FILTER (WHERE s.status = 'closed_false_positive') AS assigned_false_positive,
+              count(*) FILTER (WHERE take >= 0) AS take_samples,
+              count(*) FILTER (WHERE take <  0) AS take_before_flagging,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY take) FILTER (WHERE take >= 0) AS take_median,
+              percentile_cont(0.9) WITHIN GROUP (ORDER BY take) FILTER (WHERE take >= 0) AS take_p90,
+              max(take) FILTER (WHERE take >= 0) AS take_max
+            FROM (
+              SELECT s.status, extract(epoch FROM a.assigned_at - i.detected_at) AS take
+              FROM moderation_incidents i
+              JOIN moderation_incident_assignee a ON a.incident_id = i.id
+              JOIN moderation_incident_state s    ON s.incident_id = i.id
+              CROSS JOIN me
+              WHERE a.assigned_moderator_id = me.id
+                AND i.detected_at >= :period_from AND i.detected_at < :period_to
+            ) s
+
+            SQL,
+            $params,
+        );
+
+        $via = collect(DB::select(
+            <<<'SQL'
+            WITH me AS (SELECT CAST(:moderator_id AS bigint) AS id)
+            SELECT a.assigned_via, count(*) AS assigned
+            FROM moderation_incidents i
+            JOIN moderation_incident_assignee a ON a.incident_id = i.id
+            CROSS JOIN me
+            WHERE a.assigned_moderator_id = me.id
+              AND i.detected_at >= :period_from AND i.detected_at < :period_to
+            GROUP BY a.assigned_via
+
+            SQL,
+            $params,
+        ))->mapWithKeys(fn (object $r): array => [$r->assigned_via => (int) $r->assigned])->all();
+
+        $outside = DB::selectOne(
+            <<<'SQL'
+            WITH me AS (SELECT CAST(:moderator_id AS bigint) AS id)
+            SELECT count(DISTINCT i.id) AS outside
+            FROM moderation_incidents i
+            JOIN moderation_incident_evidence e ON e.incident_id = i.id
+            CROSS JOIN me
+            WHERE e.actor_moderator_id = me.id
+              AND e.kind <> 'reversal'
+              AND i.detected_at >= :period_from AND i.detected_at < :period_to
+              AND NOT EXISTS (
+                    SELECT 1 FROM moderation_team_intervals t
+                    WHERE t.telegram_chat_id = i.telegram_chat_id
+                      AND t.moderator_id     = me.id
+                      AND t.valid_from      <= e.occurred_at
+                      AND (t.valid_to IS NULL OR t.valid_to > e.occurred_at))
+
+            SQL,
+            $params,
+        );
+
+        return [
+            'assigned' => (int) $row->assigned,
+            'assigned_acknowledged' => (int) $row->assigned_acknowledged,
+            'assigned_resolved' => (int) $row->assigned_resolved,
+            'assigned_false_positive' => (int) $row->assigned_false_positive,
+            'via' => $via,
+            'take' => $this->timingBlock($row, 'take'),
+            'outside' => (int) $outside->outside,
         ];
     }
 

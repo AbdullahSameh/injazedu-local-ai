@@ -16,7 +16,7 @@ use InvalidArgumentException;
  * `moderation_incident_state` and never computed here** (lifecycle contract N6, research
  * Finding 3): there is no `status` column to read or write. `openOn()` (US1) and the three
  * guarded acts — `acknowledge()`, `resolve()`, `closeAsFalsePositive()` (US4) — mirror
- * `ModeratorGroupAssignment::handover()` and `ModelProfile::save()` so every invariant holds from
+ * `ModeratorGroupAssignment::replaceWith()` and `ModelProfile::save()` so every invariant holds from
  * `tinker` too, not only from a Filament action.
  */
 class ModerationIncident extends Model
@@ -27,8 +27,9 @@ class ModerationIncident extends Model
 
     /**
      * The insert fields only — `openOn()` (US1) is the one legitimate `create()` path. No status,
-     * no moment beyond `opened_at`/`detected_at`, no actor beyond `responsible_moderator_id`: the
-     * rest is evidence (`moderation_actions`), never a column here.
+     * no moment beyond `opened_at`/`detected_at`, no actor: the rest is evidence
+     * (`moderation_actions`), never a column here. `responsible_moderator_id` is frozen since
+     * TG-M2.1 (G1) — the assigned moderator is `moderation_incident_assignee`'s.
      */
     protected $fillable = [
         'telegram_chat_id',
@@ -41,7 +42,6 @@ class ModerationIncident extends Model
         'severity',
         'message_classification_id',
         'prompted_by_classification_id',
-        'responsible_moderator_id',
     ];
 
     protected function casts(): array
@@ -62,9 +62,9 @@ class ModerationIncident extends Model
      * Opens exactly one incident against a stored, non-service message
      * (`contracts/incident-lifecycle.md` I1-I7, `control-panel-incidents.md` §2 P9): `opened_at`
      * from the message's own `sent_at`, `detected_at` from one PHP `now()` value bound once
-     * (mirroring `ModeratorGroupAssignment::handover()`'s D-TG-47 rationale) and reused to
-     * resolve `responsible_moderator_id` via TG-M2's `responsibleAt` scope — the owner at the
-     * **flagging** moment, never a second definition of it. `uq_incident_anchor` is the
+     * (mirroring `ModeratorGroupAssignment::replaceWith()`'s D-TG-47 rationale). Assigned to
+     * nobody (TG-M2.1 G1): the first team member to act takes it, and the team that counts its
+     * outcome is the team at `detected_at`. `uq_incident_anchor` is the
      * backstop: a duplicate anchor returns `null` rather than raising, exactly like Python's
      * `open_incident` (I2, R2). Writes nothing else and touches no attention item (I6, I7).
      *
@@ -88,10 +88,6 @@ class ModerationIncident extends Model
 
         $detectedAt = now();
 
-        $responsibleModeratorId = ModeratorGroupAssignment::query()
-            ->responsibleAt($message->telegram_chat_id, $detectedAt)
-            ->value('moderator_id');
-
         $inserted = DB::table('moderation_incidents')->insertOrIgnore([
             'telegram_chat_id' => $message->telegram_chat_id,
             'telegram_message_id' => $message->message_id,
@@ -102,7 +98,6 @@ class ModerationIncident extends Model
             'category' => $category,
             'severity' => $severity,
             'prompted_by_classification_id' => $promptedByClassificationId,
-            'responsible_moderator_id' => $responsibleModeratorId,
         ]);
 
         if ($inserted === 0) {
@@ -148,6 +143,15 @@ class ModerationIncident extends Model
     }
 
     /**
+     * Still waiting for someone: the view's status is `open` or `acknowledged`. Reads the
+     * derived status, never recomputes it — the Assigned column's "Team: …" applies only here.
+     */
+    public function isLive(): bool
+    {
+        return in_array($this->state()?->status, ['open', 'acknowledged'], true);
+    }
+
+    /**
      * `SELECT * FROM moderation_incident_evidence WHERE incident_id = ?`, ordered
      * `(occurred_at, source_rank, evidence_id)` — D-TG-106's tie-break, the trail's own order.
      */
@@ -177,8 +181,9 @@ class ModerationIncident extends Model
      * that is what a double submission or a stale page looks like, not an error (H2, H5).
      *
      * Each act is itself the evidence — `panel_user_id` and `occurred_at` (the transaction's own
-     * `now()`) are what the trail and the view read back; no moderator is ever credited for a
-     * panel act (H7).
+     * `now()`) are what the trail and the view read back. Amended by TG-M2.1 C1 (H7): when the
+     * acting account is linked to a moderator, `actor_moderator_id` records that moderator at
+     * write time, so the act is theirs — it can assign the incident to them (G3).
      */
     public function acknowledge(User $by): bool
     {
@@ -239,6 +244,7 @@ class ModerationIncident extends Model
                 'action_strength' => $actionStrength,
                 'occurred_at' => now(),
                 'panel_user_id' => $by->id,
+                'actor_moderator_id' => $by->moderator?->id,
                 'moderation_incident_id' => $this->id,
                 'detail' => json_encode([]),
                 'note' => $note,

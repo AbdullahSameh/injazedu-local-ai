@@ -37,7 +37,6 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.moderation.assignments import responsible_at
 from app.application.moderation.locks import chat_lock
 from app.domain.moderation.attention import RULE_VERSION, evaluate, may_answer_by_group_message
 from app.domain.moderation.attention_judgement import judgement_proposes, vetoed
@@ -389,9 +388,9 @@ async def open_item(
                         source = "ai"
 
             if source is not None:
-                responsible_moderator_id = await responsible_at(
-                    session, telegram_chat_id=telegram_chat_id, t=opened_at
-                )
+                # TG-M2.1 G1: nothing is assigned at creation — the item's assigned moderator is
+                # derived later from the first team member's act (`attention_item_assignee`), and
+                # `responsible_moderator_id` is no longer written.
                 insert_stmt = (
                     pg_insert(attention_items)
                     .values(
@@ -402,7 +401,6 @@ async def open_item(
                         source=source,
                         rule_version=RULE_VERSION if source == "rule" else None,
                         attention_judgement_id=attention_judgement_id,
-                        responsible_moderator_id=responsible_moderator_id,
                     )
                     .on_conflict_do_nothing(constraint="uq_attention_anchor")
                     .returning(attention_items.c.id)
@@ -598,9 +596,10 @@ async def close_item(
     item, and a re-run over the same message all no-op here rather than raising (C8, FR-033,
     FR-035).
 
-    `first_response_moderator_id` is resolved from `message`'s sender — separate from
-    `responsible_moderator_id`, so a colleague covering shows as help, never as a transfer of
-    credit (C7).
+    `first_response_moderator_id` is resolved from `message`'s sender (C7). It is the reply act
+    TG-M2.1's `attention_item_assignee` reads: the item is assigned to that moderator only when they
+    were on the group's team at `first_response_at` (group-teams.md G2, G4) — a colleague from
+    outside the team still answers, and is credited as covering.
 
     Returns whether this call is the one that closed the item.
     """

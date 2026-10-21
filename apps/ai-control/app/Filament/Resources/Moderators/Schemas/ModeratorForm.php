@@ -72,7 +72,7 @@ class ModeratorForm
                     ->label(__('Active'))
                     ->default(true)
                     ->helperText(
-                        __('Deactivating changes only availability for new assignments — the record, the assignment history and every message flag already written stay exactly as they are (FR-030).')
+                        __('Deactivating ends this moderator\'s current team memberships and blocks new ones — the record, the assignment history and every message flag already written stay exactly as they are (FR-030).')
                     ),
                 TextInput::make('injaz_user_id')
                     ->label(__('Organisation user reference'))

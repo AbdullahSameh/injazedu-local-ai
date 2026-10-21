@@ -51,8 +51,9 @@ _INCIDENT_LOCK_NAME = "moderation:incidents"
 async def incident_lock(session: AsyncSession) -> AsyncIterator[None]:
     """Acquires the shared incident-lifecycle advisory lock for the rest of `session`'s
     transaction. Taken by every membership-change evidence insert (`derive_membership_evidence`)
-    before its `ON CONFLICT ... DO NOTHING` insert, so it never races a panel closure. Reaction
-    inserts do not take it (H4): two acknowledgements racing are two harmless rows.
+    and every confirming (👀) reaction insert (TG-M4.1 E4) before its `ON CONFLICT ... DO NOTHING`
+    insert, so neither races a panel closure. Acknowledging reaction inserts do not take it (H4):
+    two acknowledgements racing are two harmless rows.
 
     `session` must be the session the caller goes on to commit or roll back — transaction-scoped,
     like `chat_lock`, so a failing test releases it on rollback with no cleanup path to get wrong.

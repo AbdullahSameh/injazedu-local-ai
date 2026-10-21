@@ -119,7 +119,8 @@ async def test_confident_consistent_prediction_opens_one_incident_with_full_prov
     # the prediction's own `created_at` read the identical `now()` value (Postgres'
     # `transaction_timestamp()`).
     assert incident["detected_at"] == prediction["created_at"]
-    assert incident["responsible_moderator_id"] == moderator["moderator_id"]
+    # TG-M2.1 G1: assigned to nobody until a team member acts.
+    assert incident["responsible_moderator_id"] is None
 
 
 async def test_no_owner_at_detection_is_null_and_unmoved_by_a_later_handover(

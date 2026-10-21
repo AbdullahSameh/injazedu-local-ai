@@ -45,6 +45,8 @@ navigation group. Local AI classifies messages only after the deterministic spin
 | D‑TG‑12/13 | **No pgvector, no RAG** in this domain in v1                                                                                                                                                                                      | Classification of a 200-character message needs neither.                                                                                                |
 | D‑TG‑14    | **A new `role='moderation'` model profile**, added to the existing `model_profiles` table                                                                                                                                         | The table already supports it; only the `role` CHECK constraint widens. No new abstraction.                                                             |
 
+> **Amended by TG-M4.1 (2026-10-21, `docs/plan/telegram/tg-eyes-reaction-resolution-plan.md`).** D-TG-07's "moderator ✅ reactions" is now a moderator's **👀** reaction on the flagged message, recorded as a confirmation that resolves the incident. Any other reaction still acknowledges. ✅ is not in Telegram's reaction set, and a positive emoji on an advert could read as approval to members. The alert button stays "✅ Handled", because that is in the private moderators' group, not a student group.
+
 **Sequencing.** Eleven milestones, TG‑M0 … TG‑M10. The first vertical slice is TG‑M0 → TG‑M3:
 one group, one moderator, real events stored, a correct first-response time visible in Filament,
 **with no model involved**. AI arrives at TG‑M5.
@@ -757,6 +759,8 @@ column has been overwritten. It costs two columns and one partial unique index.
   `responsible_moderator_id = NULL`, and appears in Filament as **Unassigned** — a coverage problem
   the dashboard must surface rather than hide.
 
+> **Amended by TG-M2.1 (2026-10-19).** A group has a **team** (several current `primary` rows). Nothing is assigned at open; the first team member to act on an item or incident while it is live is its assigned moderator. Per-moderator figures count the groups a moderator was on the team of at `opened_at` / `detected_at`, and a miss counts for every member. Panel acts by a linked account are credited to its moderator. Plan of record `docs/plan/telegram/tg-group-teams-first-action-plan.md`; contract `specs/012-tg-m2-1-group-teams/contracts/group-teams.md`.
+
 **Bootstrapping** (there is no source of truth to import): the bot's `chat_member` history reveals who
 the chat's administrators are, and Filament proposes them as assignment candidates. The operator
 confirms. `telegram_user_id → moderator` mapping is a one-time manual step per person.
@@ -872,6 +876,18 @@ Only stronger evidence resolves an incident:
 
 Sets `status='resolved'`, `resolved_at`, `resolved_by_moderator_id`, `resolved_via`. An incident may
 go `OPEN → RESOLVED` directly (a ban with no prior reply).
+
+> **Amended by TG-M4.1 (2026-10-21, `docs/plan/telegram/tg-eyes-reaction-resolution-plan.md`).** One more signal, built now:
+
+| Signal | Source | Strength |
+| --- | --- | --- |
+| An active moderator reacts **👀** on the flagged message | `message_reaction` | `confirmation` |
+
+> - It resolves directly from Open when it is the first act.
+> - Removing or changing the 👀 never reverses the resolution.
+> - A deactivated moderator's 👀, or a custom emoji that looks like it, only acknowledges.
+> - §14.2's "a moderator reaction on it" now means any reaction except 👀.
+> - The bot still does nothing in the group: 👀 is the moderator's word that it was handled, not an observed deletion.
 
 **Nothing here is called a deletion.** The Bot API exposes no deletion update for groups and no way
 to learn who deleted a message; the platform therefore never records, displays, or implies that it
@@ -1674,6 +1690,35 @@ one alert (not two); press ✅ Handled; the incident resolves and the alert mess
 asserted by a test and verified by reading the group.
 **Non-goals.** No email/WhatsApp, no escalation chains, no auto-moderation.
 
+> **Operator decision (2026-10-21) — one shared alert group.** The operator will create one private Telegram group containing every moderator and the bot. TG-M6 sends **every** alert there, never as private messages to individual moderators. This answers §28 item 1. To account for when TG-M6 is planned; the detailed behaviour is finalised in that milestone.
+>
+> **Routing**
+> - One configured destination chat.
+> - It is never a monitored student group (the existing TG-M6 test), and it is excluded from measurement.
+> - Alerts from every source group go to it.
+> - Forum topics per source group can be considered if volume grows.
+>
+> **Content**
+> - Identifies the source group (its title), what it is (a question waiting or an incident flagged, with its category, severity and age), and links to the message and to the panel page.
+> - Whether any student text is copied into the alert is a privacy decision for TG-M6 (the §14.5 concern). The default is links and labels, not text.
+>
+> **Actions**
+> - "✅ Handled": a confirmation, through the same guard and lock as a panel act.
+> - "Not a violation".
+> - For questions, possibly "I'm on it", which takes a question without closing it.
+> - A press is recorded with `callback_query.from` mapped to a declared, active moderator. A press by anyone else is answered and records nothing.
+> - The alert message is edited when the incident resolves by **any** route: a ban, 👀, the panel or the button.
+>
+> **Attribution**
+> - The presser is the act's actor.
+> - TG-M2.1's first-action rule applies: a member of the source group's team at that instant takes it, and someone outside the team resolves it without being assigned (A4), exactly as with 👀.
+>
+> **Access**
+> - Everyone in the alert group sees every group's alerts. Membership of that Telegram group is the access control, so the operator manages it.
+> - Ending someone's team membership or deactivating them in the panel does not remove them from the Telegram group. That is an offboarding step.
+>
+> **Revision:** `0012` is taken by TG-M4.1, so TG-M6's tables take the next free number.
+
 ---
 
 ### TG-M7 — Performance dashboard *(~3 days)*
@@ -1904,6 +1949,8 @@ data is genuinely day one.
 7. **Alert language** — Arabic only, or bilingual?
 
 None blocks TG-M0–TG-M2. Items 1, 2 and 5 are needed before TG-M3's smoke test; item 6 before TG-M6.
+
+> **2026-10-21:** item 1 is answered: one shared private moderators' group with the bot (TG-M6's operator decision above).
 
 ---
 

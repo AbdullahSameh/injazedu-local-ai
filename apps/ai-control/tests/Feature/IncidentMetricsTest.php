@@ -9,6 +9,7 @@ use App\Models\MessageClassification;
 use App\Models\ModelProfile;
 use App\Models\ModerationIncident;
 use App\Models\Moderator;
+use App\Models\ModeratorGroupAssignment;
 use App\Models\TelegramChat;
 use App\Models\TelegramMessage;
 use App\Models\TelegramUser;
@@ -272,14 +273,23 @@ class IncidentMetricsTest extends TestCase
         $moderator = $this->makeModerator();
 
         $detectedAt = now()->subDays(1);
+        // TG-M2.1 F1: the row exists because the moderator was on the group's team at the flag.
+        ModeratorGroupAssignment::create([
+            'telegram_chat_id' => $chat->id,
+            'moderator_id' => $moderator->id,
+            'assignment_role' => 'primary',
+            'valid_from' => $detectedAt->copy()->subDay()->format('Y-m-d H:i:s.u'),
+        ]);
         $message = $this->makeMessage($chat, 1, $detectedAt);
-        $this->makeIncident($chat, $message, $detectedAt, $moderator->id);
+        $this->makeIncident($chat, $message, $detectedAt);
 
         $row = collect(Livewire::test(ListIncidents::class)->instance()->figuresByModerator())
             ->firstWhere('label', $moderator->display_name);
 
         $this->assertNotNull($row);
+        $this->assertSame(1, $row['flagged']);
         $this->assertArrayNotHasKey('latency', $row);
+        $this->assertArrayNotHasKey('latency', $row['work']);
     }
 
     /**

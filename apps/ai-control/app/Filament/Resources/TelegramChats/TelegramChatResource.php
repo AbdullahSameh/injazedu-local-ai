@@ -4,6 +4,7 @@ namespace App\Filament\Resources\TelegramChats;
 
 use App\Filament\Resources\TelegramChats\Pages\EditTelegramChat;
 use App\Filament\Resources\TelegramChats\Pages\ListTelegramChats;
+use App\Filament\Resources\TelegramChats\RelationManagers\TeamRelationManager;
 use App\Filament\Resources\TelegramChats\Schemas\TelegramChatForm;
 use App\Filament\Resources\TelegramChats\Tables\TelegramChatsTable;
 use App\Models\TelegramChat;
@@ -17,7 +18,8 @@ use UnitEnum;
 /**
  * List and edit only (`control-panel-moderation.md` §2). Groups are discovered by TG-M1's
  * capture, never typed in, and deleting one would orphan messages and assignments — so there is
- * no create page and no delete action anywhere on this resource (FR-046).
+ * no create page and no delete action anywhere on this resource (FR-046). TG-M2.1 S4: the edit
+ * page carries the group's Team.
  */
 class TelegramChatResource extends Resource
 {
@@ -53,7 +55,7 @@ class TelegramChatResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            TeamRelationManager::class,
         ];
     }
 

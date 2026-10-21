@@ -71,6 +71,11 @@ def _empty_schema(test_url: str) -> Iterator[None]:
                 # survive this cleanup as orphans with their FKs to now-gone tables silently
                 # dropped (probe: a bare `DROP TABLE telegram_messages CASCADE` does not remove
                 # `message_classifications`, it only detaches `fk_classification_message`).
+                # TG-M2.1's three views (revision 0011) read moderator_group_assignments,
+                # which drops plain below, so they go first.
+                conn.execute(text("DROP VIEW IF EXISTS moderation_incident_assignee CASCADE"))
+                conn.execute(text("DROP VIEW IF EXISTS attention_item_assignee CASCADE"))
+                conn.execute(text("DROP VIEW IF EXISTS moderation_team_intervals CASCADE"))
                 conn.execute(text("DROP VIEW IF EXISTS moderation_incident_state CASCADE"))
                 conn.execute(text("DROP VIEW IF EXISTS moderation_incident_evidence CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS moderation_actions CASCADE"))

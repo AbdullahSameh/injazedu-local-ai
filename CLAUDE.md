@@ -1,7 +1,55 @@
 <!-- SPECKIT START -->
-Active feature: **TG-M5.3 — A Separate Attention Judgement** (`specs/011-tg-m5-3-attention-judgement/`). It
+Active feature: **TG-M2.1 — Group Teams and First-Action Assignment** (`specs/012-tg-m2-1-group-teams/`,
+branch `m2.1/group-teams-first-action`). It amends TG-M2's ownership contract and TG-M3/TG-M4's
+attribution; everything below still holds except where 012 amends it (each amended clause carries a dated
+"Amended by TG-M2.1" note).
+
+> **Status (2026-10-19): implemented, awaiting the operator.** Tasks T401–T415 are done; T416 (development
+> smoke) and T417 (deploy, add the production group's second moderator, link panel accounts) are the
+> operator's (`quickstart.md`).
+
+> **TG-M4.1 (2026-10-21, same branch): 👀 resolves an incident.** Plan of record:
+> `docs/plan/telegram/tg-eyes-reaction-resolution-plan.md` (E1–E10).
+> - An **active** moderator's 👀 on the flagged message is recorded as a `reaction` with `confirmation`
+>   strength (revision `0012`, `ck_actions_reaction_confirmation`), decided once at write time by
+>   `domain.incident.reaction_strength`. Any other reaction still acknowledges.
+> - A confirming reaction takes the incidents lock (H4). Removing or changing 👀 never reverses a
+>   resolution. On a question, 👀 still only takes it.
+> - The panel reads "Reaction 👀 — handled" and shows **Resolved by**.
+> - The Assigned column says "Not taken by the team" once a row has ended untaken.
+> - `make tg-doctor` flags a monitored chat whose reactions exclude 👀.
+> - TG-M6 will send alerts to one shared private moderators' group (master plan, TG-M6 note). Not built.
+
+Read first for TG-M2.1:
+
+- `docs/plan/telegram/tg-group-teams-first-action-plan.md`: the plan of record (D1–D4, R1–R7), approved
+  2026-10-19.
+- `specs/012-tg-m2-1-group-teams/contracts/group-teams.md`: **the** contract — teams (T1–T7), acts and
+  assignment (G1–G7), crediting panel acts (C1–C2), figures (F1–F5), screens (S1–S5), never (N1–N6).
+- `specs/012-tg-m2-1-group-teams/data-model.md`: revision `0011` — the index swap, `closed_by_moderator_id`,
+  three views.
+- `specs/012-tg-m2-1-group-teams/research.md`: Findings 20–23, D-TG-201…210.
+
+TG-M2.1 in one line: **a group has a team; an item or incident belongs to the first team member who acts
+on it.**
+- A team is several current `primary` rows (`uq_assignment_one_current_membership`, one per moderator per
+  group). `team_at(chat, t)` — the view `moderation_team_intervals`, following a migration one hop — is the
+  one definition; `responsible_at` is gone.
+- Nothing is assigned at open. `attention_item_assignee` / `moderation_incident_assignee` derive the
+  assigned moderator from recorded acts (reply, dismissal, reaction; any non-reversal evidence) by a team
+  member at that instant, at or before the end. **Never stored, never updated.**
+- `responsible_moderator_id` is frozen: new rows NULL, no figure reads it.
+- A panel act by a linked account (`moderators.user_id`) records the moderator at write time
+  (`closed_by_moderator_id`, `actor_moderator_id`) — amends TG-M4 H7.
+- Figures: "My groups" is every old per-moderator statement with its predicate swapped for "on the team at
+  `opened_at` / `detected_at`" (a one-member team gives the old number; a miss counts for every member);
+  "My work" is what they took and answered. Python and PHP quote the same SQL.
+- Panel: Assigned column, Mine filter (default for a linked account; not access control), Groups › Team,
+  Add to group / End / Replace with…, deactivation ends memberships.
+
+Previous active feature: **TG-M5.3 — A Separate Attention Judgement** (`specs/011-tg-m5-3-attention-judgement/`). It
 builds on TG-M5.2 (stopped, history), TG-M5.1 (`specs/009-tg-m5-1-ai-attention/`) and TG-M5
-(`specs/008-tg-m5-ai-classification/`). Those are below and still hold, except where 011 amends them.
+(`specs/008-tg-m5-ai-classification/`). Those are below and still hold, except where 011 or 012 amends them.
 
 > **Status (2026-10-09): closed.** Every task is done or recorded (`tasks.md`, T001–T095; Phase 10 included).
 > - **Shipped and deployable: Story 1.** The "Member discussion" dismissal, per-reason breakdowns, "dismissed (any
@@ -136,7 +184,8 @@ TG-M5 puts **the first model** in front of the domain: each eligible message get
 (category, needs-response, needs-moderation, severity, self-reported confidence). A confident, coherent violation
 opens a TG-M4 incident (`source='ai'`); an uncertain or self-contradicting one is listed on **Possible
 Violations**; below the floor it waits for TG-M8. **The model opens no question and closes nothing** (TG-M5; since TG-M5.1 a live prediction may open a question the rules declined, through `open_item`, while `MODERATION_AI_ATTENTION_FROM` is set — it still closes nothing). Still no
-alert, no outbound message, no bot action. Alembic revision `0007` is consumed; `0008`–`0009` stay reserved.
+alert, no outbound message, no bot action. Alembic revision `0007` is consumed; `0008`–`0012` have since been taken (TG-M5.3, the panel account,
+the link rule, TG-M2.1, TG-M4.1).
 
 The rules that carry this milestone:
 

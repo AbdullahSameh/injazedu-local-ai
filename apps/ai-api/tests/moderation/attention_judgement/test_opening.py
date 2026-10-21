@@ -308,7 +308,7 @@ async def test_2_a_rule_declined_burst_opens_from_its_asking_member_on_the_burst
     assert item["message_classification_id"] is None
     assert item["telegram_message_id"] == 1  # the burst's earliest member (B2)
     assert item["opened_at"] == greeting_at
-    assert item["responsible_moderator_id"] == seeded["owner"]["moderator_id"]
+    assert item["responsible_moderator_id"] is None  # TG-M2.1 G1
     for message_id in (1, 2):
         message = await _message(
             classification_session_factory, chat_pk=seeded["chat_pk"], message_id=message_id

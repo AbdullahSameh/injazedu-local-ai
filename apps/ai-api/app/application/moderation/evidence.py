@@ -28,9 +28,11 @@ from app.domain.moderation.incident import (
     added_reactions,
     classify_membership_change,
     is_anonymous_performer,
+    reaction_strength,
 )
 from app.infrastructure.models_moderation import (
     moderation_actions,
+    moderators,
     telegram_chats,
     telegram_updates,
 )
@@ -69,10 +71,15 @@ async def derive_reaction_evidence(
     `actor_moderator_id` is resolved once, here, and — because a `moderation_actions` row is never
     updated (V14) — is never recomputed afterwards.
 
+    TG-M4.1 (`docs/plan/telegram/tg-eyes-reaction-resolution-plan.md` E1-E4): the strength is
+    decided here, once, by `domain.incident.reaction_strength` — `confirmation` when an active
+    moderator added 👀, `acknowledgement` otherwise — and never reinterpreted afterwards.
+
     `ON CONFLICT ON CONSTRAINT uq_moderation_actions_source_update DO NOTHING` (V13, R1): at most
-    one row per captured event, however often it is reprocessed. **No lock** (lifecycle contract
-    H4): two acknowledgements racing are two harmless rows. Logs `update_id` and `chat_id` only
-    (N8).
+    one row per captured event, however often it is reprocessed. An acknowledging reaction takes
+    **no lock** (lifecycle contract H4): two acknowledgements racing are two harmless rows. A
+    confirming one resolves, so it takes `incident_lock` before its insert, exactly as membership
+    evidence does, and never races a panel closure. Logs `update_id` and `chat_id` only (N8).
     """
     async with session_factory() as session:
         update_row = await _fetch_update(session, update_row_id)
@@ -108,12 +115,19 @@ async def derive_reaction_evidence(
             await session.commit()
             return None
 
+        moderator_is_active = (
+            await session.execute(
+                sa.select(moderators.c.is_active).where(moderators.c.id == actor_moderator_id)
+            )
+        ).scalar_one()
+        strength = reaction_strength(added, moderator_is_active=moderator_is_active)
+
         insert_stmt = (
             pg_insert(moderation_actions)
             .values(
                 telegram_chat_id=chat_pk,
                 action_type="reaction",
-                action_strength="acknowledgement",
+                action_strength=strength,
                 occurred_at=occurred_at,
                 actor_telegram_user_id=actor_telegram_user_id,
                 actor_moderator_id=actor_moderator_id,
@@ -124,7 +138,11 @@ async def derive_reaction_evidence(
             .on_conflict_do_nothing(constraint="uq_moderation_actions_source_update")
             .returning(moderation_actions.c.id)
         )
-        result = await session.execute(insert_stmt)
+        if strength == "confirmation":
+            async with incident_lock(session):
+                result = await session.execute(insert_stmt)
+        else:
+            result = await session.execute(insert_stmt)
         inserted_id = result.scalar_one_or_none()
         await session.commit()
 

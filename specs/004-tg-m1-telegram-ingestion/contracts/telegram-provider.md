@@ -74,6 +74,8 @@ class TelegramProvider(Protocol):
     async def get_chat_member(self, *, chat_id: int, user_id: int) -> ChatMemberStatus: ...
 ```
 
+> **Amended by TG-M4.1 (2026-10-21).** One more read-only method, `get_chat_available_reactions(*, chat_id) -> list[dict] | None`: a `getChat` keeping only `available_reactions` (`None` = every emoji reaction allowed), for `make tg-doctor`. Still no send, react, delete, ban or restrict method (§8).
+
 **`offset=None` means "omit the parameter"**, not "send zero". The distinction is load-bearing: it is
 how §5 recovers from a reset, and an implementation that coerces `None` to `0` happens to behave the
 same today but records an intent the caller did not express.

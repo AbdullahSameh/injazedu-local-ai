@@ -15,7 +15,7 @@ use Filament\Tables\Table;
  * No delete action, bulk or otherwise — a group's row is history (§4).
  *
  * Two coverage problems are distinguishable at a glance (FR-049), because both are silent by
- * nature: a measured group with no current primary owner, and a measured group whose bot is not
+ * nature: a measured group with nobody on its team (TG-M2.1), and a measured group whose bot is not
  * an administrator — the source plan calls the second the single most likely way the system
  * quietly stops working.
  */
@@ -43,17 +43,20 @@ class TelegramChatsTable
                 IconColumn::make('bot_can_delete')->label(__('Can delete'))->boolean(),
                 TextColumn::make('last_event_at')->label(__('Last event'))->dateTime()->since()->sortable(),
                 IconColumn::make('is_monitored')->label(__('Measured'))->boolean()->sortable(),
-                IconColumn::make('has_current_owner')
-                    ->label(__('Owner'))
-                    ->state(fn ($record): bool => ! $record->is_monitored
-                        || $record->currentPrimaryAssignment()->exists())
-                    ->boolean()
-                    ->trueColor('success')
-                    ->falseColor('danger')
-                    ->tooltip(fn ($record): ?string => ($record->is_monitored
-                        && ! $record->currentPrimaryAssignment()->exists())
-                        ? __('Measured with no current primary owner')
-                        : null),
+                // TG-M2.1 S4: the current team by name; a measured group with nobody on it is a
+                // coverage problem, shown as a red "Nobody" (FR-049).
+                TextColumn::make('team')
+                    ->label(__('Team'))
+                    ->getStateUsing(fn ($record): string => self::teamNames($record)
+                        ?: ($record->is_monitored ? __('Nobody') : '—'))
+                    ->badge()
+                    ->color(fn ($record): string => (self::teamNames($record) === '' && $record->is_monitored)
+                        ? 'danger'
+                        : 'gray')
+                    ->tooltip(fn ($record): ?string => ($record->is_monitored && self::teamNames($record) === '')
+                        ? __('Measured with nobody on its team')
+                        : null)
+                    ->extraAttributes(['dir' => 'auto']),
                 IconColumn::make('bot_is_admin')
                     ->label(__('Bot admin'))
                     ->state(fn ($record): bool => ! $record->is_monitored
@@ -72,5 +75,19 @@ class TelegramChatsTable
             ->defaultSort('chat_id')
             ->emptyStateHeading(__('No groups captured yet'))
             ->emptyStateDescription(__('Groups appear here once the bot observes an event in them.'));
+    }
+
+    /**
+     * The group's current team members' names, comma-separated, or `''` when nobody is on it.
+     */
+    private static function teamNames($record): string
+    {
+        return $record->currentMemberships()
+            ->with('moderator')
+            ->get()
+            ->map(fn ($membership): string => $membership->moderator?->display_name ?? '')
+            ->filter()
+            ->sort()
+            ->implode(', ');
     }
 }

@@ -8,7 +8,7 @@ tests build the rows they need directly instead of going through `derive_message
 `tests/moderation/actors/conftest.py`'s pattern rather than importing its fixtures (siblings
 under `tests/moderation/` do not inherit each other's `conftest.py`). TG-M2's chat, moderator and
 assignment factories (`insert_chat` here; `map_moderator`, `open_assignment`, `handover`,
-`responsible_at` imported directly from `app.application.moderation`) are reused rather than
+`team_at` imported directly from `app.application.moderation`) are reused rather than
 re-implemented, so an attention test builds ownership exactly as TG-M2's own tests do.
 
 Assumes `injaz_ai_test` is already migrated to head; `make test-db-reset` is the operator's step.

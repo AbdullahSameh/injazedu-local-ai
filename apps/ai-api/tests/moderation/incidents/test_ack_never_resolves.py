@@ -3,6 +3,9 @@
 mix — ever reads as `resolved`. `no acknowledgement kind carries a resolving strength`
 (`ck_actions_strength`) makes this true by construction; this test proves the *view* honours it
 for every combination up to four rows, and for twenty in a row.
+
+TG-M4.1 keeps this true: a moderator's 👀 is recorded as a *confirmation*, not an acknowledgement
+(`test_eyes_resolution.py`), so every `reaction` row here is any other reaction.
 """
 
 from __future__ import annotations

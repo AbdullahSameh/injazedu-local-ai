@@ -155,6 +155,8 @@ code:
 | Subscription set mismatched | names the missing kinds, exits non-zero. `chat_member` and `message_reaction` are the ones that matter — not delivered by default |
 | Bot not an administrator in a monitored chat | names the chats, exits non-zero |
 
+> **Amended by TG-M4.1 (2026-10-21).** One more state: for each monitored chat where the bot is an administrator, a read-only `getChat` reports whether 👀 is among its allowed reactions. A chat that excludes it is named and the command exits non-zero, since moderators could not resolve incidents there with a reaction. A failed read is reported as unknown, not guessed.
+
 **Never prints the credential**, not even truncated. Reports its *presence*, and which environment it
 appears to be, from configuration alone.
 
