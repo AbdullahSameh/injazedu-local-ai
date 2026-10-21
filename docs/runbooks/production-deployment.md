@@ -531,4 +531,5 @@ oldest entries, so archive first.
 | Slow answers | `docker stats` for CPU steal and saturation; §7's latency query. CPU inference is the limit, and §10 is the way out |
 | Certificate renewal fails | `sudo certbot renew --dry-run`. If the Cloudflare proxy was switched on, see §4 |
 | 409 conflicts in the `ai-telegram` logs | Another poller uses the token (§11) |
+| `ai-telegram` exited 0 with "another capture process already holds the poll lease" | A poller died without releasing `ai:tg:poll:lease` (killed, OOM). It lapses within 30 s (`redis-cli PTTL ai:tg:poll:lease` returns -2); then `scripts/prod/dc up -d ai-telegram`. Since 2026-10-21 a `docker stop` releases it, so deploys no longer cause this |
 | The `migrate` image runs old code | `deploy.sh` rebuilds it. When running by hand: `scripts/prod/dc --profile tools build migrate` |
