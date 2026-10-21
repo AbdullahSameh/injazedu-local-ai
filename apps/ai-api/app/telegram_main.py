@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+import signal
+from collections.abc import Awaitable, Callable, Coroutine
+from typing import Any
 
 import dramatiq
 from redis.asyncio import Redis
@@ -200,6 +202,28 @@ async def _run(settings: Settings) -> None:
         await engine.dispose()
 
 
+async def _stop_on_sigterm(run: Coroutine[Any, Any, None]) -> None:
+    """Runs `run` until it returns or SIGTERM arrives; SIGTERM cancels it, so every `finally`
+    on the way out runs — `hold_poll_lease` releasing `ai:tg:poll:lease` above all — and the
+    process exits 0.
+
+    Without a handler `docker stop` never reached them: the container runs Python as PID 1,
+    which ignores SIGTERM by default, so Docker waited out its grace period and killed it. The
+    lease then outlived the process by up to its TTL, and the replacement a deploy started at
+    once found it held and stood down (2026-10-21).
+    """
+    loop = asyncio.get_running_loop()
+    task = asyncio.current_task()
+    assert task is not None
+    loop.add_signal_handler(signal.SIGTERM, task.cancel)
+    try:
+        await run
+    except asyncio.CancelledError:
+        logger.info("stopped on SIGTERM")
+    finally:
+        loop.remove_signal_handler(signal.SIGTERM)
+
+
 def main() -> None:
     settings = load_settings()
     configure_logging(settings.log_level)
@@ -209,7 +233,7 @@ def main() -> None:
         logger.info("no TELEGRAM_BOT_TOKEN configured; ingestion not running")
         return
 
-    asyncio.run(_run(settings))
+    asyncio.run(_stop_on_sigterm(_run(settings)))
 
 
 if __name__ == "__main__":
