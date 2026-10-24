@@ -12,7 +12,9 @@ COPY vite.config.js ./
 COPY resources ./resources
 RUN npm run build
 
-FROM dunglas/frankenphp:1.12.7-php8.2-bookworm
+# PHP 8.2.35 fixes CVE-2026-109618 and CVE-2026-109619; no 1.12 tag carries it
+# (docs/plan/side/php-cve/contabo-php-cve-2026-security-audit.md, P0-5).
+FROM dunglas/frankenphp:1.13.3-php8.2.35-bookworm
 
 # The development image's extensions (pdo_pgsql pgsql zip intl), plus opcache.
 RUN install-php-extensions pdo_pgsql pgsql zip intl opcache \
