@@ -273,8 +273,8 @@ class ClassificationAccuracyPageTest extends TestCase
 
         $component = Livewire::test(ClassificationAccuracy::class)
             ->set('chatId', (string) $chat->id)
-            ->set('periodFrom', now()->subDays(2)->toDateString())
-            ->set('periodTo', now()->toDateString());
+            ->set('periodFrom', now('Asia/Riyadh')->subDays(2)->toDateString())
+            ->set('periodTo', now('Asia/Riyadh')->toDateString());
 
         $blocks = collect($component->instance()->blocks())->keyBy('model');
         $blockA = $blocks->get($modelA->name);
@@ -329,8 +329,8 @@ class ClassificationAccuracyPageTest extends TestCase
 
         Livewire::test(ClassificationAccuracy::class)
             ->set('chatId', (string) $scenario['chat']->id)
-            ->set('periodFrom', now()->subDays(2)->toDateString())
-            ->set('periodTo', now()->toDateString())
+            ->set('periodFrom', now('Asia/Riyadh')->subDays(2)->toDateString())
+            ->set('periodTo', now('Asia/Riyadh')->toDateString())
             ->assertSeeText($scenario['modelA']->name)
             ->assertSeeText($scenario['modelB']->name)
             ->assertSeeText('Estimates over the human labels available');
@@ -353,8 +353,8 @@ class ClassificationAccuracyPageTest extends TestCase
 
         $html = Livewire::test(ClassificationAccuracy::class)
             ->set('chatId', (string) $scenario['chat']->id)
-            ->set('periodFrom', now()->subDays(2)->toDateString())
-            ->set('periodTo', now()->toDateString())
+            ->set('periodFrom', now('Asia/Riyadh')->subDays(2)->toDateString())
+            ->set('periodTo', now('Asia/Riyadh')->toDateString())
             ->html();
 
         $this->assertStringNotContainsString('%', $html);
