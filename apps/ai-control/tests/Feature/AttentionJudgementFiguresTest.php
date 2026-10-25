@@ -157,8 +157,8 @@ class AttentionJudgementFiguresTest extends TestCase
 
         $component = Livewire::test(ClassificationAccuracy::class)
             ->set('chatId', (string) $chat->id)
-            ->set('periodFrom', now()->subDays(2)->toDateString())
-            ->set('periodTo', now()->toDateString());
+            ->set('periodFrom', now('Asia/Riyadh')->subDays(2)->toDateString())
+            ->set('periodTo', now('Asia/Riyadh')->toDateString());
         $page = $component->instance();
 
         // C10a (M26): the four outcomes partition the messages; exclusions by reason, failures by
@@ -205,8 +205,8 @@ class AttentionJudgementFiguresTest extends TestCase
 
         $component = Livewire::test(ClassificationAccuracy::class)
             ->set('chatId', (string) $chat->id)
-            ->set('periodFrom', now()->subDays(2)->toDateString())
-            ->set('periodTo', now()->toDateString());
+            ->set('periodFrom', now('Asia/Riyadh')->subDays(2)->toDateString())
+            ->set('periodTo', now('Asia/Riyadh')->toDateString());
         $page = $component->instance();
 
         // M22: a model with no judgements has no block; M27: unjudged messages read "not judged yet".
@@ -301,8 +301,8 @@ class AttentionJudgementFiguresTest extends TestCase
 
         $component = Livewire::test(ClassificationAccuracy::class)
             ->set('chatId', (string) $chat->id)
-            ->set('periodFrom', now()->subDays(2)->toDateString())
-            ->set('periodTo', now()->toDateString());
+            ->set('periodFrom', now('Asia/Riyadh')->subDays(2)->toDateString())
+            ->set('periodTo', now('Asia/Riyadh')->toDateString());
 
         $this->assertSame([
             ['anchor_status' => 'judged_asking', 'single' => 1, 'multi' => 1],
@@ -327,8 +327,8 @@ class AttentionJudgementFiguresTest extends TestCase
 
         $component = Livewire::test(ClassificationAccuracy::class)
             ->set('chatId', (string) $chat->id)
-            ->set('periodFrom', now()->subDays(2)->toDateString())
-            ->set('periodTo', now()->toDateString());
+            ->set('periodFrom', now('Asia/Riyadh')->subDays(2)->toDateString())
+            ->set('periodTo', now('Asia/Riyadh')->toDateString());
 
         $this->assertSame([], $component->instance()->attentionOperatorAdded());
         $this->assertStringContainsString('No operator-added items in this period.', $component->html());

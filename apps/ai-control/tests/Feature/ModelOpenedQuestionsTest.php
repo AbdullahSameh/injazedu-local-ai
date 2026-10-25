@@ -164,8 +164,8 @@ class ModelOpenedQuestionsTest extends TestCase
 
         $component = Livewire::test(ClassificationAccuracy::class)
             ->set('chatId', (string) $chat->id)
-            ->set('periodFrom', now()->subDays(2)->toDateString())
-            ->set('periodTo', now()->toDateString());
+            ->set('periodFrom', now('Asia/Riyadh')->subDays(2)->toDateString())
+            ->set('periodTo', now('Asia/Riyadh')->toDateString());
 
         $block = collect($component->instance()->blocks())->firstWhere('model', $profile->name);
         $this->assertNotNull($block);
@@ -216,8 +216,8 @@ class ModelOpenedQuestionsTest extends TestCase
 
         $component = Livewire::test(ClassificationAccuracy::class)
             ->set('chatId', (string) $chat->id)
-            ->set('periodFrom', now()->subDays(2)->toDateString())
-            ->set('periodTo', now()->toDateString());
+            ->set('periodFrom', now('Asia/Riyadh')->subDays(2)->toDateString())
+            ->set('periodTo', now('Asia/Riyadh')->toDateString());
         $page = $component->instance();
 
         $classificationBlock = collect($page->blocks())->firstWhere('model', $moderation->name);
