@@ -16,7 +16,7 @@ Nothing here calls a language model. If you are looking for the AI, it starts at
 | Ollama | running natively (not in Docker), reachable on `:11434` | — |
 | Ollama environment | 4 variables set (see below) | `launchctl setenv`, then quit and relaunch Ollama |
 | `uv` | any recent version | — |
-| PHP | ≥ 8.2 | — |
+| PHP | ≥ 8.4 | `brew install php@8.4`, first on `PATH` in this repo |
 | Python | 3.12 for the local gate | `uv python install 3.12` |
 
 **Why Docker's memory matters**: the budget is Ollama ~6.5 GB + containers ≤5 GB + macOS ~4 GB on a

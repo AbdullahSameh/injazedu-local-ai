@@ -137,6 +137,11 @@ echo "== restoring the test schema for the PHP feature test =="
 
 echo
 echo "== PHP feature test =="
+# The panel runs PHP 8.4 (Dockerfile, Dockerfile.prod); testing it on an older local PHP proves nothing.
+if ! php -r 'exit(PHP_VERSION_ID >= 80400 ? 0 : 1);'; then
+  echo "The panel needs PHP 8.4 or newer; \`php\` here is $(php -r 'echo PHP_VERSION;'). Put php@8.4 first on PATH." >&2
+  exit 1
+fi
 (cd apps/ai-control && vendor/bin/phpunit --testsuite=Feature)
 
 echo
