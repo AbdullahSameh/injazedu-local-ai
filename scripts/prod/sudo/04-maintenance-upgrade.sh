@@ -19,7 +19,7 @@
 #   - Every locally modified configuration file is kept (--force-confold, UCF_FORCE_CONFFOLD).
 #   - needrestart only lists what would need a restart (NEEDRESTART_MODE=l) because a reboot follows.
 #     The packages' own scripts still restart their daemons: docker (every container stops and
-#     starts; restart policies bring them back, about a minute) and php8.2-fpm (a few seconds).
+#     starts; restart policies bring them back, about a minute) and php8.4-fpm (a few seconds).
 #   - The whole output goes to /var/log/injazedu-maintenance-<UTC time>.log.
 # It never reboots and never edits a configuration file. Step 2 is `sudo reboot`, run separately.
 set -euo pipefail
@@ -86,10 +86,10 @@ echo "== what would change"
 plan="$(apt-get "${apt_opts[@]}" -s --with-new-pkgs upgrade)"
 printf '%s\n' "$plan" | awk '/^Inst /{print $2}' | sort | paste -sd' ' - | fold -s -w 100 | sed 's/^/  /'
 printf '%s\n' "$plan" | grep -E '^[0-9]+ upgraded' || true
-printf '%s\n' "$plan" | awk '/^Inst /{print $2}' | grep -E '^(docker-ce|containerd\.io|php8\.2-fpm|nginx|mysql-server|openssh-server|linux-image|libc6)' \
+printf '%s\n' "$plan" | awk '/^Inst /{print $2}' | grep -E '^(docker-ce|containerd\.io|php8\.4-fpm|nginx|mysql-server|openssh-server|linux-image|libc6)' \
   | sed 's/^/  restarts or needs the reboot: /' || true
 
-read -rp "Upgrade these packages now? Docker restarts every container, php8.2-fpm restarts. [y/N] " answer
+read -rp "Upgrade these packages now? Docker restarts every container, php8.4-fpm restarts. [y/N] " answer
 [ "$answer" = y ] || { echo "nothing changed"; exit 0; }
 
 echo "== upgrade"
@@ -104,7 +104,7 @@ dpkg --audit && echo "dpkg: consistent"
 echo "still upgradable (phased or kept back): $(apt list --upgradable 2>/dev/null | tail -n +2 | wc -l)"
 sleep 20
 docker version -f 'docker {{.Server.Version}}' || echo "docker: not answering yet"
-for unit in nginx mysql php8.2-fpm docker ssh.socket; do printf '%s=%s ' "$unit" "$(systemctl is-active "$unit")"; done; echo
+for unit in nginx mysql php8.4-fpm docker ssh.socket; do printf '%s=%s ' "$unit" "$(systemctl is-active "$unit")"; done; echo
 docker ps -a --format '{{.Names}}\t{{.Status}}' || true
 [ -f /var/run/reboot-required ] && echo "REBOOT REQUIRED: tell Claude, who checks the sites first; then sudo reboot"
 echo "log: $log"

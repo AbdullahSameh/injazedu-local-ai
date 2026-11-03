@@ -498,7 +498,7 @@ scripts/prod/dc --profile tools run --rm migrate python -m app.scripts.attention
 | Package | Upgrade | Effect |
 |---|---|---|
 | `docker-ce` / `containerd` | `apt upgrade` | Restarts dockerd, so **every container**, including the clinic stack, stops and starts. Restart policies bring them back |
-| `php8.2-fpm` | `apt upgrade` | Restarts it: kunooz.ai and arch.kunooz.ai blip |
+| `php8.4-fpm` | `apt upgrade` | Restarts it: kunooz.ai and phpMyAdmin blip |
 | A new kernel or libc | Needs a reboot | Every site is down for 1–3 minutes. The Contabo VNC console is the fallback |
 
 **Order:**
@@ -514,7 +514,7 @@ scripts/prod/dc --profile tools run --rm migrate python -m app.scripts.attention
    - `scripts/prod/dc ps` shows everything up (`ai-telegram` stays exited while its token is blank);
    - `curl -s http://127.0.0.1:18000/health`;
    - `https://ai-control.injazedu.co/admin` loads;
-   - the other sites load: kunooz.ai 302, amin.kunooz.ai 200, arch.kunooz.ai 401.
+   - the other sites load: kunooz.ai 302, amin.kunooz.ai 200, and phpMyAdmin on the server's 127.0.0.1:8088 401.
 
 **The journal** is already capped by journald at 4 GiB on this host. Lowering the cap deletes the
 oldest entries, so archive first.

@@ -1,7 +1,6 @@
 # PHP 8.2 → 8.4 Migration Plan (ai-control and kunooz.ai)
 
-> Written 2026-10-25. **Plan only: nothing has been changed**, locally or on the server. Every check below was
-> read-only, and apt was run only in dry-run mode.
+> Written 2026-10-25. **Completed 2026-11-02**: every phase is done; the progress log is the record.
 > Deadline: **2026-12-31**, when PHP 8.2's security support ends.
 > Follows `docs/plan/side/php-cve/contabo-php-cve-2026-security-audit.md` (P2-4).
 
@@ -122,6 +121,154 @@ PHP 8.4 gets security fixes until **2028-12-31**.
 - The local development stack's `ai-control` container still runs the old 8.2 image. It moves to 8.4 at
   its next rebuild (`docker compose build ai-control`).
 
+**2026-10-25 — Phase B deployed** (`745b329` → `be0af04`, PR #20; log `~/deploy-be0af04.log`).
+- **Before the deploy,** the old 8.2 image was tagged `injazedu-local-ai-ai-control:pre-php84-20261025`.
+- **The deploy:** no migrations were pending (`0012 (head)`). Only `ai-control` was recreated; the Python
+  services kept running.
+- **The live container:**
+  - FrankenPHP 1.13.3 / PHP 8.4.27;
+  - upload progress 0, OPcache on;
+  - `composer audit` clean, running as `panel`.
+- **Endpoints:**
+  - `/admin/login` answers 200 from the server and from outside;
+  - `ai.injazedu.co/health/live` answers 200;
+  - a multipart POST still gets 415;
+  - no errors or deprecations in the log.
+- **Rollback:** `scripts/prod/deploy.sh 745b329e0d42e618c2d8d42addb58e5890ba0bf5`.
+- **Next:** Phase C (kunooz.ai and phpMyAdmin onto host 8.4).
+- **Add to the 2026-11-01 cleanup:** the `pre-php84-20261025` image.
+
+**2026-10-25 — Phase C prepared:** `~/p84-host-fpm.sh` is on the server (not run yet).
+- **Run it:** `ssh -t sambo@84.46.248.13 sudo bash ~/p84-host-fpm.sh`.
+- **Report:** `~/p84-host-fpm-report.txt`. **Backups:** `/root/php84-backup/<ts>/`.
+- **What it does, in order:**
+  1. Re-runs the apt dry run and stops if it would install anything beyond the three packages or remove
+     anything.
+  2. Installs them, with needrestart only listing.
+  3. Copies `99-security.ini` and checks FPM 8.4. It stops if FPM 8.4 lacks any module FPM 8.2 loads
+     (49), if upload progress isn't off, or if the socket is missing.
+  4. Runs the canary on `127.0.0.1:8089`, which mirrors the live vhost plus `HTTPS on`:
+     - `/en` and `/ar/waiting-list` and `/login`: expect 200;
+     - `/log-viewer`: expect 403;
+     - `POST /register`: expect 405.
+     It removes the canary either way.
+  5. Switches both vhosts with `sed`, then runs `nginx -t` and a reload.
+  6. Runs the same checks live, plus phpMyAdmin's 401. If they fail, it restores the vhosts from the backup
+     and reloads.
+  7. Sets `update-alternatives --set php /usr/bin/php8.4`.
+- `php8.2-fpm` stays running.
+
+**2026-10-25 18:31Z — Phase C done** (report `~/p84-host-fpm-report.txt`; backups in
+`/root/php84-backup/20261025T183129Z/`).
+- **The first attempt didn't reach the server.** No session was recorded and nothing changed. The second
+  run worked.
+- **Installed:** exactly `php8.4-fpm`, `php8.4-xml` and `php8.4-bcmath` (8.4.27, Sury), as the dry run
+  showed.
+- **FPM 8.4:**
+  - `php-fpm8.4 -t` passes;
+  - it loads every module FPM 8.2 loaded;
+  - upload progress Off, `post_max_size` 8M, `upload_max_filesize` 2M, `display_errors` and `expose_php`
+    Off;
+  - the pool is the package default (`www-data`, 5 children).
+- **The canary on 8.4:** `/en` and `/ar/waiting-list` 200, `/login` 200, `/log-viewer` 403, `POST /register`
+  405.
+- **Live:**
+  - both vhosts are on `php8.4-fpm.sock` (per `nginx -T`), and the same answers come back;
+  - phpMyAdmin answers 401, its password prompt;
+  - from outside: the same 200s and the 405.
+- **The host's `php`** is now 8.4.27. `php artisan` (Laravel 12.70.1) and `composer` run on 8.4 without a
+  suffix.
+- `php8.2-fpm` is still active and unused, for rollback until Phase E.
+- **The `locale: Cannot set LC_*` lines** in the report come from the Mac's SSH `SendEnv LC_*`. They are
+  harmless.
+- **Still open:**
+  - the operator logs in to phpMyAdmin once through the tunnel (D3);
+  - then Phase D;
+  - Phase E no earlier than 2026-11-01.
+
+**2026-10-25 — Phase D prepared locally** (k-wating-list, not committed).
+- **The changes:**
+  - `composer.json` → `"php": "^8.4"`;
+  - `composer update --lock` on 8.4.27 changed only the lock's platform entry and hash; no package changed.
+- **Checks:**
+  - `composer validate` passes;
+  - `check-platform-reqs --lock --no-dev`: nothing missing;
+  - tests on 8.4: the same 16 passed / 19 failed (the unrelated starter-kit set) as on 8.2.
+- **Deploy:** `git pull --ff-only`, then `composer install --no-dev --no-interaction --optimize-autoloader`.
+  The host's `composer` runs on 8.4 since Phase C.
+
+**2026-10-25 — Phase D deployed** (k-wating-list `19b5778` → `fddec6b`).
+- The pull also brought the earlier `.DS_Store` cleanup (`d819263`).
+- `composer install --no-dev` ran on PHP 8.4.27. It had nothing to install and regenerated the autoloader.
+- `composer audit`: none.
+- **Checks:** `/en` and `/ar/waiting-list` and `/login` 200, `/log-viewer` 403, `POST /register` 405; from
+  outside, 200.
+- **D3 checked:** the operator logged in to phpMyAdmin on 8.4 through the tunnel, and it works.
+  - It shows "The phpMyAdmin configuration storage is not completely configured". That is phpMyAdmin's
+    optional `phpmyadmin` database (bookmarks, query history, designer, relations), not PHP 8.4. It can be
+    ignored.
+- **Phases A–D are done.** Only Phase E is left: retire PHP 8.2 on the host, no earlier than 2026-11-01,
+  with the CVE cleanup.
+
+**2026-11-01 — the CVE cleanup (no sudo part) done; Phase E prepared.**
+- **Removed on the server:**
+  - the images `injazedu-local-ai-ai-control:pre-cve-20261025`, `clinic-app:pre-cve-20261025`,
+    `evidence/ai-control:20261025` and `injazedu-local-ai-ai-control:pre-php84-20261025`. No container used
+    them. The Phase B rollback image is gone with them, so a rollback to PHP 8.2 means rebuilding `745b329`;
+  - `~/p0-*`, `~/p1-*`, `~/p1-3-backup/`, `~/p84-host-fpm.sh` and its report, `~/deploy-745b329.log` and
+    `~/deploy-be0af04.log`.
+  - Kept: `/var/www/injazedu-ai/evidence/` (the P0-1 logs and session file, about 100 KB),
+    `/var/www/injazedu-ai/dumps/` (including the 2026-10-24 dump) and the older `~/deploy-*.log` files.
+- **Found before Phase E:**
+  - nginx sends nothing to PHP 8.2: both PHP vhosts use `php8.4-fpm.sock`. The `php-fpm.sock` alternative
+    still points at the 8.2 socket, but nothing uses it.
+  - `libapache2-mod-php8.2` and `libapache2-mod-php` are **not installed**, so they are out of the purge.
+  - The dry run, run unprivileged, removes exactly 20 packages: 13 `php8.2*`, 6 `php8.5*` and `php-mcrypt`.
+    `phpmyadmin` stays, because `php8.4-cli` and `php8.4-xml` provide its `php-cli` and `php-xml`. `libmcrypt4`
+    becomes autoremovable and is left alone.
+  - No cron, systemd or supervisor entry and nothing in `/var/www/k-wating-list` names `php8.2`.
+- **The script** is `~/p84-retire-82.sh`, run as `ssh -t sambo@84.46.248.13 sudo bash ~/p84-retire-82.sh`.
+  Its report is `~/p84-retire-82-report.txt`. It does this:
+  1. checks the preconditions and the sites;
+  2. stops and disables php8.2-fpm and checks the sites again; if they fail, it starts 8.2 again and stops;
+  3. checks the dry run against the 20 packages, and stops on any difference;
+  4. purges, removes the leftover `/etc/php/8.2` and `/etc/php/8.5`, then checks:
+     - `php` is 8.4 and only the 8.4 socket is left;
+     - FPM 8.4 loads the same modules as before;
+     - phpMyAdmin is still installed;
+     - the sites answer;
+  5. only if every check passed, removes `/root/php-cve-backup/` and `/root/php84-backup/`.
+  - The site checks are kunooz.ai's waiting-list pages and `/login` (200), `/log-viewer` (403) and `POST /register` (405);
+    phpMyAdmin (401); ai-control `/up` (200); and amin.kunooz.ai `/admin/login` (200). All of them passed
+    unprivileged before the run.
+- **The repo follow-up is done locally (not committed):**
+  - `scripts/prod/sudo/04-maintenance-upgrade.sh`: `php8.2-fpm` becomes `php8.4-fpm` in four places,
+    including the restart-list regex;
+  - `docs/runbooks/production-deployment.md`: line 501, and line 517, where `arch.kunooz.ai`, retired in
+    P1-2, became phpMyAdmin on `127.0.0.1:8088`.
+
+**2026-11-02 — Phase E done** (the operator ran `~/p84-retire-82.sh`, 16:21–16:23 UTC). **The PHP 8.4 move is complete.**
+- php8.2-fpm was stopped and disabled, and every site still answered. The dry run matched the 20 packages, and
+  they were purged.
+- `update-alternatives` moved `phar`, `phar.phar` and `phpdbg` to 8.4 on its own.
+- The only leftover was `/etc/php/8.2/fpm/conf.d/99-security.ini`, and the script removed it. `/etc/php` now holds
+  only 8.4.
+- **Checks:**
+  - `php` and FPM are 8.4.27;
+  - `/run/php` holds only `php8.4-fpm.sock`, plus the dangling `php-fpm.sock` symlink. It is on tmpfs, unused,
+    and gone at the next boot;
+  - FPM 8.4 loads the same 50 modules as before;
+  - `phpmyadmin` is still installed;
+  - all eight site checks answered as before and after; from outside, kunooz.ai, ai-control and amin.kunooz.ai
+    answer 200.
+- The only PHP packages left are `php8.4-*` and the 8.4 metapackages. The only systemd PHP units are
+  `php8.4-fpm` and `phpsessionclean`.
+- **The CVE cleanup is finished too:** `/root/php-cve-backup/` and `/root/php84-backup/` were removed (vhost and
+  `.htpasswd` copies, 56 KB), and the script and its report were deleted afterwards.
+- **Rollback** (emergencies only: 8.2 gets no security fixes after 2026-12-31): `apt-get install php8.2-fpm` from Sury,
+  then point the vhosts' `fastcgi_pass` back and reload nginx. There are no backup copies any more; the
+  edit is one line per vhost.
+
 ---
 
 ## The steps
@@ -220,16 +367,16 @@ nginx`. It takes seconds.
 1. Run `systemctl disable --now php8.2-fpm`. Then check that kunooz.ai and phpMyAdmin still answer.
 2. Show an `apt-get -s purge` dry run, and only then purge:
    - `php8.2*`;
-   - `libapache2-mod-php8.2` and `libapache2-mod-php`, the mod_php that Apache, which is not installed,
-     would load;
    - the unused `php8.5*` CLI packages, which also removes the `php-mcrypt` metapackage.
+   - (`libapache2-mod-php8.2` and `libapache2-mod-php` were listed here, but on 2026-11-01 neither was
+     installed.)
    - It removes nothing else: no autoremove without review. phpMyAdmin must stay installed.
 3. **Checks:**
    - `php -v` shows 8.4;
    - kunooz.ai and phpMyAdmin answer;
    - `ls /run/php/` shows only the 8.4 socket.
 4. **Repo follow-up** (injazedu): `php8.2-fpm` becomes `php8.4-fpm` in:
-   - `scripts/prod/sudo/04-maintenance-upgrade.sh` (three places);
+   - `scripts/prod/sudo/04-maintenance-upgrade.sh` (four places, with the restart-list regex);
    - `docs/runbooks/production-deployment.md`, line 501.
 
 **Rollback:** reinstall `php8.2-fpm` (Sury) and switch the sockets back. Once 8.2 is past its end of life,
@@ -271,9 +418,9 @@ B and C don't depend on each other. C first is also fine: it has no downtime and
 
 ## Checklist
 
-- [ ] Decisions D1–D4 confirmed
-- [ ] A — `php@8.4` on the Mac; `make check` green on 8.4
-- [ ] B — PR: both Dockerfiles, `composer.json`/lock, the `check.sh` guard, the runbook line → local image checks → deploy → login checked
-- [ ] C — `~/p84-host-fpm.sh`: install, canary, switch, alternatives → phpMyAdmin checked through the tunnel
-- [ ] D — PR: k-wating-list `composer.json`/lock → pull + install → checks
-- [ ] E — (≥ 1 week after C) disable and purge 8.2 and the stray 8.5 → PR: maintenance script + runbook lines
+- [x] Decisions D1–D4 confirmed
+- [x] A — `php@8.4` on the Mac; `make check` green on 8.4
+- [x] B — PR: both Dockerfiles, `composer.json`/lock, the `check.sh` guard, the runbook line → local image checks → deploy → login checked
+- [x] C — `~/p84-host-fpm.sh`: install, canary, switch, alternatives → phpMyAdmin checked through the tunnel
+- [x] D — PR: k-wating-list `composer.json`/lock → pull + install → checks
+- [x] E — (≥ 1 week after C) disable and purge 8.2 and the stray 8.5 → PR: maintenance script + runbook lines
