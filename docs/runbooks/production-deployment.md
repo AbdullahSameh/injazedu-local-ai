@@ -183,6 +183,11 @@ scripts/prod/deploy.sh <commit-sha>
 - recreates the changed services and health-gates them;
 - prints the rollback command.
 
+**When the postgres service's settings change** (e.g. `jit=off`, 2026-11-11), its `up -d postgres`
+step recreates the container. The database is unreachable for a few seconds, and the volume is kept.
+The panel and the workers reconnect on their own. Afterwards,
+`scripts/prod/dc exec -T postgres psql -U postgres -d injaz_ai -Atc 'show jit'` prints `off`.
+
 **Before answering `yes`, read the pending migrations.** If one drops or rewrites existing data, stop
 and decide first.
 
