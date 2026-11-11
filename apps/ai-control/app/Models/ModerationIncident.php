@@ -137,9 +137,49 @@ class ModerationIncident extends Model
      */
     public function state(): ?object
     {
+        if ($this->statePreloaded) {
+            return $this->preloadedState;
+        }
+
         return DB::table('moderation_incident_state')
             ->where('incident_id', $this->id)
             ->first();
+    }
+
+    /**
+     * The view row `preloadStates()` read for this instance's page, read again by every column and
+     * action on the row. Not an attribute: never saved, never serialised.
+     */
+    private ?object $preloadedState = null;
+
+    private bool $statePreloaded = false;
+
+    /**
+     * One `moderation_incident_state` read for a whole page of incidents, so `state()` asks the
+     * database nothing more for them (the Incidents list, 2026-11-11: the view takes ~23 ms to plan,
+     * and a row read it seven times). The view stays the only definition of status — this only
+     * reuses the row it returned. Shaped for `Builder::afterQuery()`.
+     *
+     * @param  Collection<int, self>  $incidents
+     * @return Collection<int, self>
+     */
+    public static function preloadStates(Collection $incidents): Collection
+    {
+        if ($incidents->isEmpty()) {
+            return $incidents;
+        }
+
+        $states = DB::table('moderation_incident_state')
+            ->whereIn('incident_id', $incidents->pluck('id')->all())
+            ->get()
+            ->keyBy('incident_id');
+
+        foreach ($incidents as $incident) {
+            $incident->preloadedState = $states[$incident->id] ?? null;
+            $incident->statePreloaded = true;
+        }
+
+        return $incidents;
     }
 
     /**
@@ -227,6 +267,10 @@ class ModerationIncident extends Model
         ?string $actionStrength,
         ?string $note = null,
     ): bool {
+        // An act may change the status: this instance reads the view again from here on.
+        $this->statePreloaded = false;
+        $this->preloadedState = null;
+
         return DB::transaction(function () use ($allowedFrom, $by, $actionType, $actionStrength, $note): bool {
             DB::select('SELECT pg_advisory_xact_lock(hashtext(?))', [self::LOCK_KEY]);
 

@@ -3,6 +3,10 @@ name: injazedu-local-ai
 services:
   postgres:
     image: pgvector/pgvector:pg16
+    # JIT off (2026-11-11): at this data size compiling a query costs far more than running it.
+    # Measured on production, the panel's "My work" figures took 480-770 ms with JIT and 33-78 ms
+    # without. Development and production share this line (the prod override keeps it).
+    command: ["postgres", "-c", "jit=off"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}

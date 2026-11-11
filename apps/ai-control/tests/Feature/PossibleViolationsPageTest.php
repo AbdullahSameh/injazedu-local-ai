@@ -10,6 +10,7 @@ use App\Models\TelegramChat;
 use App\Models\TelegramMessage;
 use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -179,6 +180,37 @@ class PossibleViolationsPageTest extends TestCase
             ->assertCanSeeTableRecords([$newer, $older], inOrder: true)
             ->sortTable('posted', 'asc')
             ->assertCanSeeTableRecords([$older, $newer], inOrder: true);
+    }
+
+    /**
+     * 2026-11-11: production lists 363 rows, so the list is paged: 10 to a page by default, the
+     * newest posting first across pages, and oldest first is the same pages in reverse.
+     */
+    public function test_rows_are_paged_newest_first_across_pages(): void
+    {
+        $this->actingAsPanelOperator();
+        $chat = $this->makeChat();
+
+        $rows = collect(range(1, 12))->map(fn (int $i): MessageClassification => $this->makeClassification(
+            $chat,
+            $this->makeMessage($chat, $i, ['sent_at' => now()->subHours(13 - $i)]),
+        ));
+        $newestFirst = $rows->reverse()->values();
+
+        $page = Livewire::test(PossibleViolations::class);
+        $records = $page->instance()->getTableRecords();
+        $this->assertInstanceOf(LengthAwarePaginator::class, $records);
+        $this->assertSame(12, $records->total());
+
+        $page->assertCanSeeTableRecords($newestFirst->take(10)->all(), inOrder: true)
+            ->assertCanNotSeeTableRecords($newestFirst->slice(10)->all())
+            ->call('gotoPage', 2)
+            ->assertCanSeeTableRecords($newestFirst->slice(10)->all(), inOrder: true)
+            ->assertCanNotSeeTableRecords($newestFirst->take(10)->all())
+            ->sortTable('posted', 'asc')
+            ->call('gotoPage', 1)
+            ->assertCanSeeTableRecords($rows->take(10)->all(), inOrder: true)
+            ->assertCanNotSeeTableRecords($rows->slice(10)->all());
     }
 
     public function test_why_listed_reads_uncertain_or_inconsistent_from_route_reason(): void

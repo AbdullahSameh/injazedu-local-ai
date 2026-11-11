@@ -8,6 +8,7 @@ use App\Filament\Resources\Incidents\Actions\OpenIncidentAction;
 use App\Filament\Resources\Incidents\Actions\ResolveIncidentAction;
 use App\Filament\Resources\Incidents\IncidentResource;
 use App\Filament\Resources\Incidents\Support\IncidentDisplay;
+use App\Filament\Resources\Incidents\Support\IncidentRows;
 use App\Filament\Support\TeamAssignment;
 use App\Models\ModerationIncident;
 use App\Models\Moderator;
@@ -19,6 +20,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 
 /**
@@ -56,7 +58,10 @@ class IncidentsTable
     public static function configure(Table $table): Table
     {
         return $table
-            ->query(ModerationIncident::query())
+            // Each page's states, assignees and teams in one read apiece, not per row (IncidentRows).
+            ->query(ModerationIncident::query()->afterQuery(
+                fn (Collection $incidents): Collection => IncidentRows::preload($incidents)
+            ))
             ->recordUrl(
                 fn (ModerationIncident $record): string => IncidentResource::getUrl('view', ['record' => $record])
             )
@@ -96,16 +101,8 @@ class IncidentsTable
                     ->badge(),
                 TextColumn::make('assigned')
                     ->label(__('Assigned'))
-                    ->getStateUsing(fn (ModerationIncident $record): string => TeamAssignment::label(
-                        TeamAssignment::forIncidents([$record->id])[$record->id] ?? null,
-                        TeamAssignment::currentTeams([$record->telegram_chat_id])[$record->telegram_chat_id] ?? [],
-                        $record->isLive(),
-                    ))
-                    ->color(fn (ModerationIncident $record): string => TeamAssignment::color(
-                        TeamAssignment::forIncidents([$record->id])[$record->id] ?? null,
-                        TeamAssignment::currentTeams([$record->telegram_chat_id])[$record->telegram_chat_id] ?? [],
-                        $record->isLive(),
-                    ))
+                    ->getStateUsing(fn (ModerationIncident $record): string => IncidentRows::assignedLabel($record))
+                    ->color(fn (ModerationIncident $record): string => IncidentRows::assignedColor($record))
                     ->badge(),
                 TextColumn::make('opened_at')->label(__('Posted'))->dateTime()->sortable(),
                 TextColumn::make('detected_at')->label(__('Flagged'))->dateTime()->sortable(),

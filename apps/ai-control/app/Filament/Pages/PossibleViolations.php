@@ -17,6 +17,7 @@ use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use UnitEnum;
@@ -70,7 +71,7 @@ class PossibleViolations extends Page implements HasTable
         }
 
         return $table
-            ->records(function (array $filters, ?string $sortDirection): Collection {
+            ->records(function (array $filters, ?string $sortDirection, int|string $page, int|string $recordsPerPage): LengthAwarePaginator {
                 $chatId = $filters['group']['value'] ?? null;
                 [$from, $to] = $this->periodBounds($filters['posted'] ?? []);
 
@@ -79,7 +80,18 @@ class PossibleViolations extends Page implements HasTable
 
                 // C4 already orders newest posting first (V1); "Posted" is the only sortable
                 // column, so oldest first is that same order reversed — never a second query.
-                return $sortDirection === 'asc' ? $rows->reverse()->values() : $rows;
+                $rows = $sortDirection === 'asc' ? $rows->reverse()->values() : $rows;
+
+                // Paged over C4's own rows (2026-11-11: production lists hundreds), so the order
+                // above holds across pages and C4's SQL stays exactly as quoted.
+                $perPage = $recordsPerPage === 'all' ? max($rows->count(), 1) : (int) $recordsPerPage;
+
+                return new LengthAwarePaginator(
+                    $rows->forPage((int) $page, $perPage),
+                    total: $rows->count(),
+                    perPage: $perPage,
+                    currentPage: (int) $page,
+                );
             })
             ->columns([
                 TextColumn::make('group')
