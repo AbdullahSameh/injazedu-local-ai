@@ -24,6 +24,8 @@ proof).
 **Normative.** An event of a kind not interpreted here MUST still be marked handled, with no error and
 no derived state. Declining to interpret is not a failure to process.
 
+> **Amended by TG-M6 (2026-11-15, `specs/013-tg-m6-alerts/contracts/alerting.md` §5).** `callback_query` is now interpreted, by `process_update`'s callback branch. A press on an alert's button in the alert group derives at most one `moderation_actions` row (`alert_handled`, `alert_false_positive` or `alert_take`) and enqueues the press's answer (B1–B8). A press that fails the gate (B1) or comes from someone who is not a declared, active moderator (B2) derives nothing and is still answered. The row is marked handled either way. The alert group is never monitored (D2), so §6 keeps every message there out of derivation.
+
 TG-M1 already *requests* all six kinds, which was the decision that could not be deferred: two of them
 are not delivered unless explicitly named and require the bot to be an administrator, and discovering
 at TG-M4 that months of them were never requested would be unrecoverable. Interpreting them is not

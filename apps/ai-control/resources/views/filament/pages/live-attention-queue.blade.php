@@ -117,7 +117,7 @@
 
         <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-6">{{ __('By moderator: my work') }}</h3>
         <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {{ __('Assigned: questions this moderator took first, by reply, dismissal or reaction, and how each ended. Answered: questions they answered themselves, whoever had taken them.') }}
+            {{ __('Assigned: questions this moderator took first, by reply, dismissal, reaction or alert, and how each ended. Answered: questions they answered themselves, whoever had taken them.') }}
         </p>
         <div class="overflow-x-auto mt-2">
             <table class="w-full text-sm text-start">
@@ -125,7 +125,7 @@
                     <tr class="text-xs text-gray-500 dark:text-gray-400">
                         <th class="py-1 pe-4">{{ __('Moderator') }}</th>
                         <th class="py-1 pe-4">{{ __('Assigned') }}</th>
-                        <th class="py-1 pe-4">{{ __('Taken by reply / dismissal / reaction') }}</th>
+                        <th class="py-1 pe-4">{{ __('Taken by reply / dismissal / reaction / alert') }}</th>
                         <th class="py-1 pe-4">{{ __('Answered / dismissed / open / expired') }}</th>
                         <th class="py-1 pe-4">{{ __('Answered by them') }}</th>
                         <th class="py-1 pe-4">{{ __('Median') }}</th>
@@ -139,7 +139,7 @@
                         <tr class="border-t border-gray-100 dark:border-white/5">
                             <td class="py-1.5 pe-4" dir="auto">{{ $row['label'] }}</td>
                             <td class="py-1.5 pe-4">{{ $work['assigned'] }}</td>
-                            <td class="py-1.5 pe-4">{{ $work['via_reply'] }} / {{ $work['via_dismissal'] }} / {{ $work['via_reaction'] }}</td>
+                            <td class="py-1.5 pe-4">{{ $work['via_reply'] }} / {{ $work['via_dismissal'] }} / {{ $work['via_reaction'] }} / {{ $work['via_alert'] }}</td>
                             <td class="py-1.5 pe-4">{{ $work['assigned_answered'] }} / {{ $work['assigned_dismissed'] }} / {{ $work['assigned_open'] }} / {{ $work['assigned_expired'] }}</td>
                             <td class="py-1.5 pe-4">{{ $work['answered_by_me']['answered'] }}</td>
                             <td class="py-1.5 pe-4">{{ $this->humanDuration($work['answered_by_me']['median_frt']) }}</td>

@@ -68,6 +68,10 @@ def _empty_schema(test_url: str) -> Iterator[None]:
                 # constraint, not the table, so they must be named here too.
                 # TG-M2.1's three views (revision 0011) read moderator_group_assignments,
                 # which drops plain below, so they go first.
+                # TG-M6's alerts/alert_rules (revision 0013) reference telegram_chats and are
+                # referenced by moderation_actions, so they go first.
+                conn.execute(text("DROP TABLE IF EXISTS alerts CASCADE"))
+                conn.execute(text("DROP TABLE IF EXISTS alert_rules CASCADE"))
                 conn.execute(text("DROP VIEW IF EXISTS moderation_incident_assignee CASCADE"))
                 conn.execute(text("DROP VIEW IF EXISTS attention_item_assignee CASCADE"))
                 conn.execute(text("DROP VIEW IF EXISTS moderation_team_intervals CASCADE"))

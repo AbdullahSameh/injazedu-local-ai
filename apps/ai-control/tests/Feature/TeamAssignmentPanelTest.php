@@ -332,4 +332,58 @@ class TeamAssignmentPanelTest extends TestCase
         $this->assertSame(1, $rows['Zainab']['work']['via_reaction']);
         $this->assertSame(1, $rows['Zainab']['work']['assigned_expired']);
     }
+
+    /**
+     * TG-M6 M1 (`alerting.md` §8): a take from a question's alert reads "via alert" in the
+     * Assigned column and counts in `via_alert`; the four "via" counts sum to `assigned`.
+     */
+    public function test_a_take_from_an_alert_reads_via_alert_and_the_split_sums_to_assigned(): void
+    {
+        $this->signInAs(null);
+        $chat = $this->makeChat();
+        $zainab = $this->makeMember('Zainab', $chat);
+        $taken = $this->makeItem($chat, 1);
+        $this->makeItem($chat, 2);
+        $this->react($zainab, $chat, 2);
+        $ruleId = DB::table('alert_rules')->insertGetId([
+            'trigger' => 'question_waiting',
+            'telegram_chat_id' => $chat->id,
+            'threshold_s' => 600,
+            'is_enabled' => false,
+        ]);
+        $alertId = DB::table('alerts')->insertGetId([
+            'alert_rule_id' => $ruleId,
+            'trigger' => 'question_waiting',
+            'telegram_chat_id' => $chat->id,
+            'subject_type' => 'attention_item',
+            'subject_id' => $taken->id,
+            'repeat_index' => 0,
+            'dedupe_key' => $ruleId.':attention_item:'.$taken->id.':0',
+            'rule_values' => json_encode([]),
+            'qualified_at' => now()->subMinutes(5),
+        ]);
+        DB::table('moderation_actions')->insert([
+            'telegram_chat_id' => $chat->id,
+            'action_type' => 'alert_take',
+            'occurred_at' => now()->subMinutes(4),
+            'actor_telegram_user_id' => $zainab->telegram_user_id,
+            'actor_moderator_id' => $zainab->id,
+            'alert_id' => $alertId,
+            'source_update_id' => $this->makeUpdate($chat, 'callback_query'),
+            'detail' => json_encode([]),
+        ]);
+
+        Livewire::test(LiveAttentionQueue::class)
+            ->assertTableColumnStateSet('assigned', 'Zainab · '.__('via alert'), $taken);
+        $work = collect(Livewire::test(LiveAttentionQueue::class)->instance()->figuresByModerator())
+            ->keyBy('label')['Zainab']['work'];
+
+        $this->assertSame(2, $work['assigned']);
+        $this->assertSame(1, $work['via_alert']);
+        $this->assertSame(1, $work['via_reaction']);
+        $this->assertSame(
+            $work['assigned'],
+            $work['via_reply'] + $work['via_dismissal'] + $work['via_reaction'] + $work['via_alert'],
+        );
+    }
 }

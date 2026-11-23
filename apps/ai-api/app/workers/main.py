@@ -14,10 +14,19 @@ dramatiq.set_broker(make_broker(settings))
 
 from app.workers.tasks import diagnostics as _diagnostics  # noqa: E402,F401
 from app.workers.tasks.moderation import (  # noqa: E402,F401
+    answer_alert_press as _answer_alert_press,
+)
+from app.workers.tasks.moderation import (  # noqa: E402,F401
     classify_message as _classify_message,
 )
 from app.workers.tasks.moderation import (  # noqa: E402,F401
+    deliver_alert as _deliver_alert,
+)
+from app.workers.tasks.moderation import (  # noqa: E402,F401
     drain_pending_updates as _drain_pending_updates,
+)
+from app.workers.tasks.moderation import (  # noqa: E402,F401
+    evaluate_alert_rules as _evaluate_alert_rules,
 )
 from app.workers.tasks.moderation import (  # noqa: E402,F401
     evaluate_attention as _evaluate_attention,
@@ -32,6 +41,7 @@ from app.workers.tasks.moderation import (  # noqa: E402,F401
     match_response as _match_response,
 )
 from app.workers.tasks.moderation import process_update as _process_update  # noqa: E402,F401
+from app.workers.tasks.moderation import refresh_alert as _refresh_alert  # noqa: E402,F401
 from app.workers.tasks.moderation import (  # noqa: E402,F401
     sweep_unjudged_bursts as _sweep_unjudged_bursts,
 )

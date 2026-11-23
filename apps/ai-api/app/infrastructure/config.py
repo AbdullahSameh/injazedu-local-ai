@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 from datetime import datetime
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, ValidationError, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -135,6 +136,14 @@ class Settings(BaseSettings):
         default=None, alias="MODERATION_ATTENTION_PROMPT_VERSION"
     )
 
+    # --- Alerts (TG-M6, optional) ---
+    # The panel's public base URL, for an alert's "open in the panel" link (D-TG-224, data-model
+    # §7). Blank = alerts carry no panel link. Deployment configuration, not a threshold or a
+    # destination: those are operator data (`alert_rules`, `telegram_chats.is_alert_destination`).
+    moderation_panel_base_url: str | None = Field(
+        default=None, alias="MODERATION_PANEL_BASE_URL"
+    )
+
     @field_validator("telegram_bot_token", mode="before")
     @classmethod
     def _empty_telegram_bot_token_is_absent(cls, value: object) -> object:
@@ -152,6 +161,7 @@ class Settings(BaseSettings):
         "moderation_ai_attention_from",
         "moderation_attention_prompt_version",
         "moderation_group_answer_window_s",
+        "moderation_panel_base_url",
         mode="before",
     )
     @classmethod
@@ -179,6 +189,21 @@ class Settings(BaseSettings):
                 f"instructions ({allowed}); got {value!r}"
             )
         return value
+
+    @field_validator("moderation_panel_base_url", mode="after")
+    @classmethod
+    def _panel_base_url_is_http(cls, value: str | None) -> str | None:
+        # A malformed value would put a broken link in every alert, so it fails at startup. No
+        # trailing slash is kept: alert paths are appended as "/admin/...".
+        if value is None:
+            return None
+        parsed = urlsplit(value.strip())
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError(
+                "MODERATION_PANEL_BASE_URL must be blank or an http(s) URL such as "
+                "https://panel.example.org"
+            )
+        return value.strip().rstrip("/")
 
     @model_validator(mode="after")
     def _moderation_ai_attention_from_is_timezone_aware(self) -> Settings:

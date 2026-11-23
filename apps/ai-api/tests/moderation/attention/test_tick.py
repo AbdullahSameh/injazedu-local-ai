@@ -1,8 +1,8 @@
 """T062 (US5): the tick lease admits exactly one caller per interval — across a loop of ten
 calls within one interval, and across `_poll_once`'s own wiring (T066, D-TG-86, research
-Finding 4). The poll loop **enqueues**, never computes: `expire_stale_items` and
-`sweep_unjudged_bursts` are sent, not called inline — no derived state is written by
-`app.telegram_main` itself (§7.3's boundary preserved).
+Finding 4). The poll loop **enqueues**, never computes: `expire_stale_items`,
+`sweep_unjudged_bursts` and TG-M6's `evaluate_alert_rules` (T518) are sent, not called inline — no
+derived state is written by `app.telegram_main` itself (§7.3's boundary preserved).
 
 `_poll_once` lives in ingest-land, not this package, but its tick wiring is TG-M3's own — this
 file imports `FakeTelegramTransport` directly from `tests.moderation.ingest.conftest` (a plain
@@ -24,6 +24,7 @@ from app.application.moderation.ingest import tick_lease
 from app.infrastructure.config import Settings
 from app.providers.telegram.client import TelegramClient
 from app.telegram_main import _poll_once
+from app.workers.tasks.moderation import evaluate_alert_rules as evaluate_alert_rules_module
 from app.workers.tasks.moderation import expire_stale_items as expire_stale_items_module
 from app.workers.tasks.moderation import sweep_unjudged_bursts as sweep_unjudged_bursts_module
 from redis.asyncio import Redis
@@ -80,6 +81,7 @@ async def test_the_poll_loop_enqueues_rather_than_computes(
 ) -> None:
     expire_calls: list[None] = []
     sweep_calls: list[None] = []
+    alert_calls: list[None] = []
     monkeypatch.setattr(
         expire_stale_items_module.expire_stale_items,
         "send",
@@ -89,6 +91,11 @@ async def test_the_poll_loop_enqueues_rather_than_computes(
         sweep_unjudged_bursts_module.sweep_unjudged_bursts,
         "send",
         lambda: sweep_calls.append(None),
+    )
+    monkeypatch.setattr(
+        evaluate_alert_rules_module.evaluate_alert_rules,
+        "send",
+        lambda: alert_calls.append(None),
     )
 
     fake_transport = FakeTelegramTransport()
@@ -109,6 +116,7 @@ async def test_the_poll_loop_enqueues_rather_than_computes(
 
     assert len(expire_calls) == 1  # enqueued, not computed here
     assert len(sweep_calls) == 1
+    assert len(alert_calls) == 1
 
     # A second iteration within the same interval: the lease is already held, so nothing more
     # is enqueued.
@@ -124,3 +132,4 @@ async def test_the_poll_loop_enqueues_rather_than_computes(
 
     assert len(expire_calls) == 1
     assert len(sweep_calls) == 1
+    assert len(alert_calls) == 1  # only the lease winner evaluates alert rules

@@ -54,9 +54,9 @@ so nothing stalls mid-implementation.
 | Decide | Needed by | What it blocks if undecided |
 |---|---|---|
 | Which Telegram group is the **pilot**, and who is its moderator | TG-M3 | The first vertical slice has no subject |
-| Does a **private moderators' group** exist, or do you create one | TG-M6 | It is the alert destination chat id |
-| **Quiet hours** — any window where no alert should fire | TG-M6 | Decides whether overnight items count as unanswered |
-| **Alert language** — Arabic only, or bilingual | TG-M6 | Message templates |
+| Does a **private moderators' group** exist, or do you create one | TG-M6 | *Answered 2026-10-21: one shared private supergroup with every moderator and the bot. It is designated in the panel (Telegram Groups → **Use as alert destination**); no chat id is configured anywhere* |
+| **Quiet hours** — any window where no alert should fire | TG-M6 | *Answered 2026-11-12: set per rule in the panel, in `Asia/Riyadh`. An alert inside a window is recorded as suppressed and never sent. Quiet hours silence alerts only; an overnight item still counts as unanswered* |
+| **Alert language** — Arabic only, or bilingual | TG-M6 | *Answered 2026-11-12: Arabic only. The panel stays bilingual* |
 | Grant the bot `can_delete_messages`? | TG-M1 | v1 never deletes; granting now avoids re-promoting later |
 | **Tell the moderation team what is measured** | before the pilot | The "assistance, not surveillance" framing only works if it is said out loud |
 | Pull `pg_dump` encryption forward? | later | This domain adds student PII to the database |
@@ -136,7 +136,7 @@ Never in a spec, a commit, or a database column. TG-M0 adds the token's shape to
 | **TG-M5** | Ollama running. Write down 5–10 real Arabic messages whose correct label you already know, one JSON object per line, in a file **outside this repository** | `FIXTURES=<path> make smoke-moderation ARGS="--profile ollama-gemma4-e2b-moderation"` classifies your fixtures correctly — **before** activating the profile. Then switch it on: Model Profiles → `ollama-gemma4-e2b-moderation` → Active |
 | **TG-M5.1** | Ollama running; `classify_v2` smoked. Write down 20–30 real or sanitised messages labelled `needs_response` true/false — implicit questions **and** near-miss statements — one JSON object per line in `~/Projects/injaz-m5-fixtures/real-attention.jsonl`, **outside this repository** | `FIXTURES=<path> make smoke-attention ARGS="--prompt classify_v2"` — read the false positives and "model-opened on expected-false" before anything else. Then set `MODERATION_AI_ATTENTION_FROM=<now, with offset>` and recreate `ai-worker` and `ai-classifier` (`specs/009-tg-m5-1-ai-attention/quickstart.md`) — *superseded by TG-M5.3 (2026-10-09): opening reads a separate attention judgement and needs both `MODERATION_AI_ATTENTION_FROM` and `MODERATION_ATTENTION_PROMPT_VERSION`; see the next row* |
 | **TG-M5.3** | Ollama running; both attention profiles seeded inactive (rebuild the `migrate` tool image before `make migrate` / `make seed-profiles` when it may be stale). **In order:** confirm the labelling policy (Policy D, amended to D′ on 2026-10-09: outside institutions are not the team's); annotate the real attention sets with `intent` and `label_class` under it; then write the fresh sample, 20–30 real messages labelled before any run, outside this repository (`~/Projects/injaz-m5-fixtures/fresh-attention.jsonl`) | `make qualify TASK=attention PROFILE=<attention profile> PROMPT=<frozen version> FIXTURES_DIR=~/Projects/injaz-m5-fixtures REPEAT=2` must print `QUALIFIED`, and `make qualify TASK=moderation …` must keep T002's per-line results. **Shadow:** Model Profiles → activate the attention profile; set `MODERATION_ATTENTION_PROMPT_VERSION=<version>`; recreate `ai-worker` and `ai-classifier`; read SC-306 on Classification Accuracy. **Switch and pilot:** set `MODERATION_AI_ATTENTION_FROM=<now, with offset>`, recreate both, and blank it if dismissed (any reason) ÷ opened exceeds 10% of the first 30 or more model-opened items (`specs/011-tg-m5-3-attention-judgement/quickstart.md` §5–§8). *2026-10-09: no attention instruction is qualified under D′ (the second cycle stopped, W-7′), so both settings stay blank and opening is rules-only* |
-| **TG-M6** | **Create the private moderators' group**, add the bot as admin, record its chat id. Agree thresholds and quiet hours with management | Set "question waiting > 2 min", leave one unanswered → **one** alert (not two), press ✅ Handled, incident resolves. **Then read the student group and confirm the bot posted nothing** |
+| **TG-M6** | **Create the private moderators' group as a supergroup** (visible chat history, before anyone joins), with every moderator and the bot; the bot needs no admin right there. Panel → Telegram Groups → **Use as alert destination**, then `make tg-doctor` shows "alert destination designated — …; bot can post; not monitored". Agree thresholds and per-rule quiet hours with management, and create them in the panel (Alert Rules): nothing is seeded. Alerts are Arabic only (`specs/013-tg-m6-alerts/quickstart.md` §1) | A rule "Question waiting", all groups, 2 minutes; leave one question unanswered → **one** alert (not two), press 🙋 أتولّاه, then answer it → the alert is edited. Flag an incident → press ✅ تمت المعالجة → it resolves. **Then read the student group and confirm the bot posted nothing** (quickstart §2) |
 | **TG-M7** | Nothing | Check a week's numbers against a hand-computed spreadsheet |
 | **TG-M8** | Budget an hour reviewing real classifications | Correct a wrong label; confirm the original prediction, model and confidence are still visible |
 | **TG-M9** | Generate an `N8N_ENCRYPTION_KEY` | `make automation-up`, import the workflow, trigger the digest manually |
@@ -154,8 +154,8 @@ Pick one:
 1. **`caffeinate -s`** the machine and keep it awake and plugged in — fine for a two-week pilot.
 2. **Move only the `ai-telegram` container to an always-on host** — it needs Postgres and Redis, not
    Ollama, because it makes no model calls. This is the answer before anyone acts on the numbers.
-3. **Accept nightly gaps explicitly** and set `alert_rules.quiet_hours` to match, so overnight items
-   are not counted as unanswered.
+3. **Accept nightly gaps explicitly.** Since TG-M6 a rule's quiet hours can stop alerts overnight,
+   but they change no figure: an overnight item still counts as unanswered.
 
 ---
 
@@ -172,8 +172,10 @@ change — going live is a token, a host, and a set of `is_monitored` flags.
 [ ] dev poller STOPPED before the live poller starts        ← otherwise both get 409
 [ ] telegram_chats.is_monitored enabled per group, deliberately, one at a time
 [ ] moderators mapped and assignments opened with a real valid_from
-[ ] alert destination = the private moderators' group; verify no rule resolves to a student chat
-[ ] alert thresholds reviewed with management (they are data, not code)
+[ ] alert destination designated in the panel (Telegram Groups → Use as alert destination);
+    make tg-doctor → alert destination designated · bot can post · not monitored
+[ ] alert rules created in the panel (Alert Rules) with management's thresholds and quiet hours
+    (they are data, not code; nothing is seeded); the student groups read: the bot posted nothing
 [ ] MODERATION_TEXT_RETENTION_DAYS confirmed; purge job scheduled
 [ ] host stays awake / always-on decision made (§D)
 [ ] the moderation team has been told what is measured

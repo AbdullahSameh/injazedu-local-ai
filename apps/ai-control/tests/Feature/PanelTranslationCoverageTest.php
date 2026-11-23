@@ -7,6 +7,8 @@ use App\Filament\Resources\Incidents\Actions\OpenIncidentAction;
 use App\Filament\Resources\Incidents\Support\IncidentDisplay;
 use App\Filament\Resources\Incidents\Tables\IncidentsTable;
 use App\Filament\Support\ModelView;
+use App\Models\Alert;
+use App\Models\AlertRule;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use ReflectionClass;
@@ -35,6 +37,10 @@ class PanelTranslationCoverageTest extends TestCase
         [OpenIncidentAction::class, 'CATEGORIES'],
         [OpenIncidentAction::class, 'SEVERITIES'],
         [LiveAttentionQueue::class, 'DISMISS_CONFIRMATION'],
+        // TG-M6 (T542)
+        [AlertRule::class, 'TRIGGERS'],
+        [Alert::class, 'STATUSES'],
+        [Alert::class, 'NOT_SENT_REASONS'],
     ];
 
     /**

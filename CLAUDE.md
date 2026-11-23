@@ -1,5 +1,43 @@
 <!-- SPECKIT START -->
-Active feature: **TG-M2.1 — Group Teams and First-Action Assignment** (`specs/012-tg-m2-1-group-teams/`,
+Active feature: **TG-M6 — Alerts** (`specs/013-tg-m6-alerts/`). The suggested branch is `m6/alerts`, created
+by the operator.
+
+> **Status (2026-11-23): verified in development, awaiting production.** Tasks T501–T552 are done, including
+> the development probes and smoke (`research.md` §0b). T553, the production go-live, is the operator's
+> (`quickstart.md` §4). Rule guide: `docs/runbooks/tg-alert-rules.md`.
+> - **The panel:** Alert Rules (no delete), Alerts (read-only, paged at 10), "Use as alert destination" and
+>   "Stop using" on Telegram Groups, and an "Alerts" section on the incident page.
+> - **`make tg-doctor`:** reports the destination (D5).
+> - **Rollback:** reading the panel at `79e7898` needs no downgrade first (`quickstart.md` §5).
+
+Read first for TG-M6:
+- `specs/013-tg-m6-alerts/spec.md`: FR-501…FR-580 and SC-501…SC-510. Clarified 2026-11-12:
+  - quiet hours per rule, suppressed and never sent;
+  - a redacted 100-character excerpt;
+  - Arabic only.
+- `specs/013-tg-m6-alerts/contracts/alerting.md`: **the** contract.
+  - Sections: destination (D1–D5), rules (R1–R8), firing (F1–F8), delivery (V1–V7), presses (B1–B8),
+    updates (U1–U6), panel (S1–S7), figures (M1–M3), never (N1–N10), limitations (L1–L7).
+- `specs/013-tg-m6-alerts/contracts/alert-messages.md`: every Arabic string the bot sends.
+- `specs/013-tg-m6-alerts/research.md` (Findings 24–34, D-TG-211…228) and `data-model.md` (revision `0013`).
+
+TG-M6 in one line: **the system speaks in one place, the alert group, once per rule, subject and repeat; a
+button press there is an act like a panel act.**
+- **The destination:** one chat, `telegram_chats.is_alert_destination`. The database refuses a monitored
+  destination, in both directions.
+- **Firing:** rules are operator data, with no threshold in code. The tick enqueues `evaluate_alert_rules`
+  (five triggers, set-based over the views, `uq_alerts_dedupe`). `deliver_alert` posts at most once and never
+  retries an unknown outcome.
+- **Buttons:**
+  - the act kinds are `alert_handled` (a confirmation), `alert_false_positive` and `alert_take`, each in
+    `moderation_actions` with `alert_id` and the callback's update;
+  - the state view's false-positive lateral reads both closure kinds;
+  - `attention_item_assignee` gains a take branch.
+- **Edits:** driven by the tick from the derived state, never by the panel, which cannot call Telegram.
+- **Silence:** `send_message`, `edit_message_text` and `answer_callback_query` are called only from
+  `alert_delivery.py`, behind a runtime guard. There is still no ban, restrict, delete, react or pin method.
+
+Previous active feature: **TG-M2.1 — Group Teams and First-Action Assignment** (`specs/012-tg-m2-1-group-teams/`,
 branch `m2.1/group-teams-first-action`). It amends TG-M2's ownership contract and TG-M3/TG-M4's
 attribution; everything below still holds except where 012 amends it (each amended clause carries a dated
 "Amended by TG-M2.1" note).
@@ -184,8 +222,8 @@ TG-M5 puts **the first model** in front of the domain: each eligible message get
 (category, needs-response, needs-moderation, severity, self-reported confidence). A confident, coherent violation
 opens a TG-M4 incident (`source='ai'`); an uncertain or self-contradicting one is listed on **Possible
 Violations**; below the floor it waits for TG-M8. **The model opens no question and closes nothing** (TG-M5; since TG-M5.1 a live prediction may open a question the rules declined, through `open_item`, while `MODERATION_AI_ATTENTION_FROM` is set — it still closes nothing). Still no
-alert, no outbound message, no bot action. Alembic revision `0007` is consumed; `0008`–`0012` have since been taken (TG-M5.3, the panel account,
-the link rule, TG-M2.1, TG-M4.1).
+alert, no outbound message, no bot action. Alembic revision `0007` is consumed; `0008`–`0013` have since been taken (TG-M5.3, the panel account,
+the link rule, TG-M2.1, TG-M4.1, TG-M6).
 
 The rules that carry this milestone:
 

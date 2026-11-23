@@ -61,9 +61,10 @@ async def _poll_once(
 
     TG-M3 (T066, D-TG-86, research Finding 4): once per iteration, unconditionally, `tick_lease`
     admits at most one caller per `MODERATION_TICK_INTERVAL_S` — across however many capture
-    processes are running — and only the winner enqueues `expire_stale_items` and
-    `sweep_unjudged_bursts`. **Enqueue only**: this container writes no derived state itself,
-    exactly as it already only sends `drain_pending_updates` (§7.3's boundary preserved).
+    processes are running — and only the winner enqueues `expire_stale_items`,
+    `sweep_unjudged_bursts` and, since TG-M6 (T518), `evaluate_alert_rules`. **Enqueue only**:
+    this container writes no derived state itself, exactly as it already only sends
+    `drain_pending_updates` (§7.3's boundary preserved).
     """
     from app.application.moderation.ingest import (
         apply_chat_migration_if_any,
@@ -77,12 +78,14 @@ async def _poll_once(
         tick_lease,
         upsert_chats_from_batch,
     )
+    from app.workers.tasks.moderation.evaluate_alert_rules import evaluate_alert_rules
     from app.workers.tasks.moderation.expire_stale_items import expire_stale_items
     from app.workers.tasks.moderation.sweep_unjudged_bursts import sweep_unjudged_bursts
 
     if await tick_lease(redis, ttl_s=settings.moderation_tick_interval_s):
         expire_stale_items.send()
         sweep_unjudged_bursts.send()
+        evaluate_alert_rules.send()
 
     try:
         resynced = await resync_after_stall(

@@ -5,8 +5,11 @@ namespace App\Filament\Resources\Incidents\Schemas;
 use App\Filament\Resources\Incidents\Support\IncidentDisplay;
 use App\Filament\Support\ModelView;
 use App\Filament\Support\TeamAssignment;
+use App\Models\Alert;
+use App\Models\AlertRule;
 use App\Models\MessageClassification;
 use App\Models\ModerationIncident;
+use App\Models\Moderator;
 use App\Models\User;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
@@ -14,6 +17,7 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 /**
  * The six questions of `control-panel-incidents.md` §1.2, on one page: what was posted, when,
@@ -189,6 +193,12 @@ class IncidentInfolist
                         ->getStateUsing(fn (ModerationIncident $record): string => self::correctedText($record)),
                 ]),
 
+            // TG-M6 S4: the alerts fired for this incident, each with its status and presses. Read
+            // from `alerts`, which the panel never writes (S6).
+            Section::make(__('Alerts'))
+                ->visible(fn (ModerationIncident $record): bool => self::alertsOf($record)->isNotEmpty())
+                ->schema([self::alertList()]),
+
             TextEntry::make('outcome')
                 ->label(__('Outcome'))
                 ->getStateUsing(function (ModerationIncident $record): string {
@@ -249,6 +259,52 @@ class IncidentInfolist
                 TextEntry::make('moment')->label(__('Moment')),
                 TextEntry::make('source')->label(__('Source')),
                 TextEntry::make('note')->label(__('Note'))->extraAttributes(['dir' => 'auto']),
+            ]);
+    }
+
+    /** @return Collection<int, Alert> the incident's alerts, oldest first */
+    private static function alertsOf(ModerationIncident $record): Collection
+    {
+        return Alert::query()
+            ->where('subject_type', 'incident')
+            ->where('subject_id', $record->getKey())
+            ->withCount('acts')
+            ->orderBy('fired_at')
+            ->orderBy('id')
+            ->get();
+    }
+
+    private static function alertList(): RepeatableEntry
+    {
+        return RepeatableEntry::make('alerts')
+            ->hiddenLabel()
+            ->getStateUsing(
+                fn (ModerationIncident $record): array => self::alertsOf($record)
+                    ->map(fn (Alert $alert): array => [
+                        'trigger' => AlertRule::triggerLabel($alert->trigger),
+                        'repeat' => $alert->repeatText(),
+                        'status' => $alert->statusText(),
+                        'fired' => self::formatMoment($alert->fired_at),
+                        'delivered' => $alert->delivered_at !== null ? self::formatMoment($alert->delivered_at) : '—',
+                        'presses' => (string) $alert->acts_count,
+                    ])
+                    ->all()
+            )
+            ->table([
+                TableColumn::make(__('Trigger')),
+                TableColumn::make(__('Repeat')),
+                TableColumn::make(__('Status')),
+                TableColumn::make(__('Fired')),
+                TableColumn::make(__('Delivered')),
+                TableColumn::make(__('Presses')),
+            ])
+            ->schema([
+                TextEntry::make('trigger')->label(__('Trigger')),
+                TextEntry::make('repeat')->label(__('Repeat')),
+                TextEntry::make('status')->label(__('Status')),
+                TextEntry::make('fired')->label(__('Fired')),
+                TextEntry::make('delivered')->label(__('Delivered')),
+                TextEntry::make('presses')->label(__('Presses')),
             ]);
     }
 
@@ -339,6 +395,10 @@ class IncidentInfolist
      * "not closed as a false positive" when it never was; otherwise when, by whom and the
      * operator's own reason (`control-panel-incidents.md` §1.2's "Corrected?"). Label review
      * arrives with TG-M8.
+     *
+     * TG-M6 (`alerting.md` S4): a closure from the alert group has no panel account
+     * (`closed_by_user_id` is NULL) and no note; it names its moderator
+     * (`closed_by_moderator_id`) and reads its kind in place of the reason.
      */
     private static function correctedText(ModerationIncident $record): string
     {
@@ -348,12 +408,18 @@ class IncidentInfolist
             return __('not closed as a false positive');
         }
 
-        $closedBy = User::find($state->closed_by_user_id)?->name ?? __('a panel account');
+        $closedBy = $state->closed_by_user_id === null && ($state->closed_by_moderator_id ?? null) !== null
+            ? (Moderator::find($state->closed_by_moderator_id)?->display_name ?? __('Moderator'))
+            : (User::find($state->closed_by_user_id)?->name ?? __('a panel account'));
+        $reason = $state->close_reason
+            ?? (($state->close_kind ?? null) === 'alert_false_positive'
+                ? IncidentDisplay::kindLabel('alert_false_positive')
+                : '—');
 
         return __(':moment, by :user — :reason', [
             'moment' => self::formatMoment(self::instant($state->closed_at)),
             'user' => $closedBy,
-            'reason' => $state->close_reason ?? '—',
+            'reason' => $reason,
         ]);
     }
 

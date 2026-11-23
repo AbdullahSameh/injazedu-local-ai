@@ -8,6 +8,7 @@ use App\Filament\Resources\Incidents\Pages\ListIncidents;
 use App\Filament\Resources\Incidents\Pages\ViewIncident;
 use App\Models\ModerationIncident;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Tests\Feature\Concerns\BuildsIncidentWordingFixtures;
 use Tests\TestCase;
@@ -109,6 +110,45 @@ class IncidentWordingArabicTest extends TestCase
         $html = Livewire::test(ViewIncident::class, ['record' => $incident->getKey()])->html();
 
         $this->assertStringContainsString(__('Text removed'), $html);
+        $this->assertDoesNotMatchRegularExpression(self::DELETION_WORDS, $this->cleaned($html));
+    }
+
+    public function test_no_deletion_word_remains_on_a_view_page_with_its_alerts(): void
+    {
+        // TG-M6 (T542): the Alerts section's trigger, status and reason words.
+        $this->actingAsPanelOperator();
+        $incident = $this->makeIncidentWithEveryEvidenceKind();
+        $ruleId = DB::table('alert_rules')->insertGetId([
+            'trigger' => 'incident_unhandled',
+            'telegram_chat_id' => $incident->telegram_chat_id,
+            'threshold_s' => 600,
+            'quiet_hours' => '[]',
+            'is_enabled' => false,
+        ]);
+        foreach ([
+            ['delivery_status' => 'not_sent', 'not_sent_reason' => 'subject_ended'],
+            ['delivery_status' => 'not_sent', 'not_sent_reason' => 'no_destination'],
+            ['delivery_status' => 'failed', 'last_error_category' => 'telegram_5xx'],
+            ['delivery_status' => 'suppressed'],
+            ['delivery_status' => 'pending'],
+        ] as $index => $status) {
+            DB::table('alerts')->insert($status + [
+                'alert_rule_id' => $ruleId,
+                'trigger' => 'incident_unhandled',
+                'telegram_chat_id' => $incident->telegram_chat_id,
+                'subject_type' => 'incident',
+                'subject_id' => $incident->id,
+                'repeat_index' => $index,
+                'dedupe_key' => "{$ruleId}:incident:{$incident->id}:{$index}",
+                'rule_values' => json_encode(['max_repeats' => 4]),
+                'qualified_at' => now(),
+            ]);
+        }
+
+        $html = Livewire::test(ViewIncident::class, ['record' => $incident->getKey()])->html();
+
+        $this->assertStringContainsString(__('Ended before sending'), $html);
+        $this->assertStringContainsString(__('Incident unhandled'), $html);
         $this->assertDoesNotMatchRegularExpression(self::DELETION_WORDS, $this->cleaned($html));
     }
 

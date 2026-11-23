@@ -6,7 +6,7 @@ Mirrors `app/application/gateway/errors.py`'s shape exactly: retry logic branche
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 
 class TelegramError(Exception):
@@ -59,7 +59,50 @@ class TelegramAuthError(TelegramError):
 
 
 class TelegramRejectedError(TelegramError):
-    """HTTP 400 — a bad request shape."""
+    """HTTP 400 — a bad request shape.
+
+    TG-M6 (D-TG-215): carries Telegram's `description` and `parameters`, because an outbound call
+    must tell a migrated destination (`parameters.migrate_to_chat_id`, T8) from any other refusal.
+    """
 
     retryable = False
     category = "telegram_rejected"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        description: str | None = None,
+        parameters: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.description = description
+        self.parameters: dict[str, Any] = parameters or {}
+
+    @property
+    def migrate_to_chat_id(self) -> int | None:
+        value = self.parameters.get("migrate_to_chat_id")
+        return int(value) if value is not None else None
+
+
+class TelegramMessageGoneError(TelegramRejectedError):
+    """TG-M6 (U3): an edit of a message that no longer exists — someone deleted the
+    alert in Telegram. The alert is final and its excerpt is gone."""
+
+    category = "telegram_message_gone"
+
+
+class TelegramCallbackExpiredError(TelegramRejectedError):
+    """TG-M6 (B7, T3): an answer to a press too old to answer. Logged by category and
+    ignored: the act, if any, is already recorded."""
+
+    category = "telegram_callback_expired"
+
+
+class TelegramOutcomeUnknownError(TelegramError):
+    """TG-M6 (D-TG-215, Finding 33): an outbound request was written, then the connection broke or
+    timed out before the answer. Telegram may have acted on it. Never retried: a second send could
+    post the alert twice, and a lost alert is covered by its next repeat and the history."""
+
+    retryable = False
+    category = "telegram_outcome_unknown"
