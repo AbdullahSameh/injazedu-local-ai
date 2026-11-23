@@ -472,6 +472,8 @@ _ATTENTION_WORK_SQL = sa.text(
       count(*) FILTER (WHERE a.assigned_moderator_id = me.id
                          AND a.assigned_via = 'reaction') AS via_reaction,
       count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                         AND a.assigned_via = 'alert') AS via_alert,
+      count(*) FILTER (WHERE a.assigned_moderator_id = me.id
                          AND i.status = 'answered') AS assigned_answered,
       count(*) FILTER (WHERE a.assigned_moderator_id = me.id
                          AND i.status = 'dismissed') AS assigned_dismissed,
@@ -588,11 +590,12 @@ async def attention_work_stats(
     """F3: one moderator's attention work over items opened in `[period_from, period_to)`.
 
     `assigned` splits two ways, each summing to it: by `assigned_via` (`via_reply`,
-    `via_dismissal`, `via_reaction`) and by status (`assigned_answered`, `_dismissed`, `_open`,
-    `_expired`). An item taken with a reaction and then left to expire counts here as
-    `assigned_expired` — and stays unanswered in every member's F1 figures too (D-TG-205).
-    `answered_by_me` is the first-response time over items this moderator answered, under the same
-    small-sample rule as §2. `outside` counts answers given while not on that group's team.
+    `via_dismissal`, `via_reaction`, and TG-M6's `via_alert`, `alerting.md` M1) and by status
+    (`assigned_answered`, `_dismissed`, `_open`, `_expired`). An item taken with a reaction and
+    then left to expire counts here as `assigned_expired` — and stays unanswered in every member's
+    F1 figures too (D-TG-205). `answered_by_me` is the first-response time over items this
+    moderator answered, under the same small-sample rule as §2. `outside` counts answers given
+    while not on that group's team.
     """
     params = {"period_from": period_from, "period_to": period_to, "moderator_id": moderator_id}
     work = (await session.execute(_ATTENTION_WORK_SQL, params)).mappings().one()

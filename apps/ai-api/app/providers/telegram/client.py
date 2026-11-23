@@ -8,6 +8,18 @@ D-TG-19.
 sleeping exactly `parameters.retry_after` and retrying, so no caller ever implements its own
 backoff for a rate limit. Every other failure maps structurally, from the exception type or the
 HTTP status code, never from message text (probe 5).
+
+TG-M6 (D-TG-215, D-TG-227) adds three outbound methods — `send_message`, `edit_message_text`,
+`answer_callback_query` — called only from `app/application/moderation/alert_delivery.py`. Two
+things change for them alone:
+- a transport failure after the request was written is `TelegramOutcomeUnknownError`, never a
+  retryable error, because Telegram may already have acted on it;
+- a `429` is waited out at most `_OUTBOUND_RATE_LIMIT_WAITS` times, then raised, so a delivery never
+  holds a worker thread indefinitely.
+
+Three Bot API refusals have no structured form and are read from Telegram's `description` (T5):
+"message is not modified" (success), "message to edit not found" and "query is too old". No ban,
+restrict, delete, react or pin method exists here (N2).
 """
 
 from __future__ import annotations
@@ -19,8 +31,11 @@ from typing import Any, Protocol
 import httpx
 from app.providers.telegram.errors import (
     TelegramAuthError,
+    TelegramCallbackExpiredError,
     TelegramConflictError,
     TelegramError,
+    TelegramMessageGoneError,
+    TelegramOutcomeUnknownError,
     TelegramRateLimitedError,
     TelegramRejectedError,
     TelegramTimeoutError,
@@ -31,6 +46,29 @@ from app.providers.telegram.models import BotIdentity, ChatMemberStatus, Telegra
 # probe 5: connect=5s, read=35s — the read timeout must exceed the 30s server-side long poll
 # (D-TG-39), or the client aborts every poll at the moment Telegram is legitimately holding it.
 DEFAULT_TIMEOUT = httpx.Timeout(5.0, read=35.0)
+
+# TG-M6 (D-TG-215): failures that can only happen after the request left this process. For an
+# outbound call they mean "Telegram may have acted" — never retried. `ConnectError`,
+# `ConnectTimeout` and `PoolTimeout` happen before anything is written, so they keep their
+# retryable mapping.
+_AFTER_WRITE_FAILURES: tuple[type[Exception], ...] = (
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.ReadError,
+    httpx.WriteError,
+    httpx.RemoteProtocolError,
+)
+
+# A `429` on an outbound call is waited out at most this many times, then raised (V5's "exhausted
+# 429 wait"): the next delivery attempt backs off from there.
+_OUTBOUND_RATE_LIMIT_WAITS = 3
+
+# T3: an answer is at most 200 characters.
+_ANSWER_MAX_CHARS = 200
+
+_NOT_MODIFIED = "message is not modified"
+_MESSAGE_GONE = ("message to edit not found", "message can't be edited")
+_CALLBACK_EXPIRED = ("query is too old", "query id is invalid")
 
 _KNOWN_KINDS = (
     "message",
@@ -75,11 +113,24 @@ def parse_update(raw: dict[str, Any]) -> TelegramUpdate:
     )
 
 
-def _retry_after(response: httpx.Response) -> float:
+def _error_body(response: httpx.Response) -> tuple[str | None, dict[str, Any]]:
+    """Telegram's `description` and `parameters`, or `(None, {})` for a non-JSON body."""
     try:
-        parameters = response.json().get("parameters") or {}
+        body = response.json()
     except ValueError:
-        parameters = {}
+        return None, {}
+    if not isinstance(body, dict):
+        return None, {}
+    description = body.get("description")
+    parameters = body.get("parameters")
+    return (
+        description if isinstance(description, str) else None,
+        parameters if isinstance(parameters, dict) else {},
+    )
+
+
+def _retry_after(response: httpx.Response) -> float:
+    _description, parameters = _error_body(response)
     value = parameters.get("retry_after")
     return float(value) if value is not None else 1.0
 
@@ -93,11 +144,10 @@ def error_for_response(response: httpx.Response) -> TelegramError:
         return TelegramConflictError(response.text)
     if response.status_code in (401, 404):
         return TelegramAuthError(response.text)
-    if response.status_code == 400:
-        return TelegramRejectedError(response.text)
     if response.status_code >= 500:
         return TelegramUnreachableError(response.text)
-    return TelegramRejectedError(response.text)
+    description, parameters = _error_body(response)
+    return TelegramRejectedError(response.text, description=description, parameters=parameters)
 
 
 class TelegramProvider(Protocol):
@@ -122,6 +172,22 @@ class TelegramProvider(Protocol):
         self, *, chat_id: int
     ) -> list[dict[str, Any]] | None: ...
 
+    # TG-M6: the only outbound methods. Called from `alert_delivery.py` alone (D-TG-227).
+    async def send_message(
+        self, *, chat_id: int, text: str, reply_markup: dict[str, Any] | None = None
+    ) -> int: ...
+
+    async def edit_message_text(
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> None: ...
+
+    async def answer_callback_query(self, *, callback_query_id: str, text: str) -> None: ...
+
 
 class TelegramClient:
     """Satisfies `TelegramProvider` against the real Bot API (or a scripted `httpx` transport)."""
@@ -140,13 +206,23 @@ class TelegramClient:
         self._transport = transport
         self._sleep = sleep
 
-    async def _request(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def _request(
+        self, method: str, params: dict[str, Any] | None = None, *, outbound: bool = False
+    ) -> Any:
+        rate_limit_waits = 0
         while True:
             try:
                 async with httpx.AsyncClient(
                     base_url=self._base_url, transport=self._transport, timeout=self._timeout
                 ) as client:
                     response = await client.post(f"/{method}", json=params or {})
+            except _AFTER_WRITE_FAILURES as exc:
+                if outbound:
+                    # The exception text is httpx's, never the request body.
+                    raise TelegramOutcomeUnknownError(type(exc).__name__) from exc
+                if isinstance(exc, httpx.TimeoutException):
+                    raise TelegramTimeoutError(str(exc)) from exc
+                raise TelegramUnreachableError(str(exc)) from exc
             except httpx.TimeoutException as exc:
                 raise TelegramTimeoutError(str(exc)) from exc
             except httpx.TransportError as exc:
@@ -157,6 +233,9 @@ class TelegramClient:
 
             error = error_for_response(response)
             if isinstance(error, TelegramRateLimitedError):
+                if outbound and rate_limit_waits >= _OUTBOUND_RATE_LIMIT_WAITS:
+                    raise error
+                rate_limit_waits += 1
                 await self._sleep(error.retry_after)
                 continue
             raise error
@@ -210,3 +289,66 @@ class TelegramClient:
         result = await self._request("getChat", {"chat_id": chat_id})
         reactions = result.get("available_reactions")
         return None if reactions is None else list(reactions)
+
+    # --- TG-M6: outbound, to the alert group only (D-TG-215, D-TG-227) ---
+
+    async def send_message(
+        self, *, chat_id: int, text: str, reply_markup: dict[str, Any] | None = None
+    ) -> int:
+        """Posts one HTML message with link previews off and returns its `message_id`."""
+        params: dict[str, Any] = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "link_preview_options": {"is_disabled": True},
+        }
+        if reply_markup is not None:
+            params["reply_markup"] = reply_markup
+        result = await self._request("sendMessage", params, outbound=True)
+        return int(result["message_id"])
+
+    async def edit_message_text(
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> None:
+        """Replaces the text of the bot's own message. With `reply_markup` None the inline keyboard
+        is removed. Identical content is success (T5); a deleted message is
+        `TelegramMessageGoneError` (U3)."""
+        params: dict[str, Any] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "link_preview_options": {"is_disabled": True},
+        }
+        if reply_markup is not None:
+            params["reply_markup"] = reply_markup
+        try:
+            await self._request("editMessageText", params, outbound=True)
+        except TelegramRejectedError as exc:
+            description = (exc.description or "").lower()
+            if _NOT_MODIFIED in description:
+                return
+            if any(marker in description for marker in _MESSAGE_GONE):
+                raise TelegramMessageGoneError(
+                    str(exc), description=exc.description, parameters=exc.parameters
+                ) from exc
+            raise
+
+    async def answer_callback_query(self, *, callback_query_id: str, text: str) -> None:
+        """Answers a button press with a short notice (T3: at most 200 characters, cut here). A
+        press too old to answer is `TelegramCallbackExpiredError`."""
+        params = {"callback_query_id": callback_query_id, "text": text[:_ANSWER_MAX_CHARS]}
+        try:
+            await self._request("answerCallbackQuery", params, outbound=True)
+        except TelegramRejectedError as exc:
+            description = (exc.description or "").lower()
+            if any(marker in description for marker in _CALLBACK_EXPIRED):
+                raise TelegramCallbackExpiredError(
+                    str(exc), description=exc.description, parameters=exc.parameters
+                ) from exc
+            raise

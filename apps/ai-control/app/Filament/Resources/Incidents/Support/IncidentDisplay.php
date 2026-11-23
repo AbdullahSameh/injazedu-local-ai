@@ -29,6 +29,9 @@ class IncidentDisplay
         'panel_acknowledge' => 'Acknowledged (panel)',
         'panel_resolve' => 'Resolved (panel)',
         'panel_false_positive' => 'Not a violation (panel)',
+        // TG-M6 (`alerting.md` S4): a moderator's button on the incident's alert.
+        'alert_handled' => 'Resolved (alert)',
+        'alert_false_positive' => 'Not a violation (alert)',
     ];
 
     private const STRENGTH_LABELS = [

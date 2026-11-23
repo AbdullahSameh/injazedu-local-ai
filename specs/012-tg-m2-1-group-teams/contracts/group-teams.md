@@ -46,6 +46,8 @@ alert names), TG-M7 (every per-moderator figure).
 
 > **Amended by TG-M4.1 (2026-10-21, `docs/plan/telegram/tg-eyes-reaction-resolution-plan.md`).** A moderator's 👀 on a flagged message is recorded as a `reaction` with `confirmation` strength, so it is still a G3 act (it assigns when it is the first qualifying one) and it now also resolves the incident. The resolver is read from `moderation_incident_state`, so a colleague who acted first stays assigned. On a question, 👀 is a G2 reaction like any other: it takes the item and never closes it. This feature's examples of "I'm on it" use 👍, so 👀 keeps one meaning for moderators: *handled*.
 
+> **Amended by TG-M6 (2026-11-15, `specs/013-tg-m6-alerts/contracts/alerting.md` §5, `data-model.md` §5.2).** G1 holds: firing an alert assigns nobody; only a press is an act. G2 gains a fourth attention act, rank 4: an `alert_take` row ("I'm on it" in the alert group) whose alert is about the item, by the pressing moderator, at its `occurred_at`. G4's team and live-bound checks and G5's order apply to it unchanged, so on a tied instant a take ranks after a reaction. G6's `assigned_via` gains `alert` for items. For incidents, `alert_handled` and `alert_false_positive` are G3 acts like any other evidence kind with a moderator, and the panel reads all three as "via alert".
+
 ---
 
 ## §3 — Crediting panel acts (C) — amends TG-M4 H7

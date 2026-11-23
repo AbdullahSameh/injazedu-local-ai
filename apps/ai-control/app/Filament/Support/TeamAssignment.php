@@ -129,6 +129,8 @@ final class TeamAssignment
             'reply' => __('via reply'),
             'dismissal' => __('via dismissal'),
             'reaction' => __('via reaction'),
+            // TG-M6 (S5): a take on a question's alert, and the two incident buttons.
+            'alert', 'alert_handled', 'alert_false_positive' => __('via alert'),
             'ban', 'expulsion', 'restriction' => __('via a ban or restriction'),
             'panel_acknowledge' => __('via panel acknowledge'),
             'panel_resolve' => __('via panel resolve'),

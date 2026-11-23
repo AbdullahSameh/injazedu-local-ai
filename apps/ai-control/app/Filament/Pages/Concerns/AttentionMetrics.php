@@ -176,6 +176,8 @@ trait AttentionMetrics
               count(*) FILTER (WHERE a.assigned_moderator_id = me.id
                                  AND a.assigned_via = 'reaction') AS via_reaction,
               count(*) FILTER (WHERE a.assigned_moderator_id = me.id
+                                 AND a.assigned_via = 'alert') AS via_alert,
+              count(*) FILTER (WHERE a.assigned_moderator_id = me.id
                                  AND i.status = 'answered') AS assigned_answered,
               count(*) FILTER (WHERE a.assigned_moderator_id = me.id
                                  AND i.status = 'dismissed') AS assigned_dismissed,

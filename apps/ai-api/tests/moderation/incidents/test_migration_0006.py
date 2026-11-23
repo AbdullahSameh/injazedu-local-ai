@@ -94,6 +94,10 @@ def _empty_schema(test_url: str) -> Iterator[None]:
         engine = create_engine(test_url)
         try:
             with engine.begin() as conn:
+                # TG-M6's alerts/alert_rules (revision 0013) hold FKs into telegram_chats, never
+                # the other way, so a CASCADE from telegram_chats would leave them behind.
+                conn.execute(text("DROP TABLE IF EXISTS alerts CASCADE"))
+                conn.execute(text("DROP TABLE IF EXISTS alert_rules CASCADE"))
                 for view in _NEW_VIEWS:
                     conn.execute(text(f"DROP VIEW IF EXISTS {view} CASCADE"))
                 for table in (*_LATER_TABLES, *_NEW_TABLES, *_PRIOR_TABLES):

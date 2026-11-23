@@ -19,6 +19,7 @@ _MODERATION_VARS = (
     "MODERATION_ITEM_MAX_AGE_S",
     "MODERATION_GROUP_ANSWER_WINDOW_S",
     "MODERATION_TEXT_RETENTION_DAYS",
+    "MODERATION_PANEL_BASE_URL",
 )
 
 
@@ -133,3 +134,52 @@ def test_the_group_answer_window_defaults_to_thirty_minutes_blank_included(
     assert load_settings().moderation_group_answer_window_s == 1800
     monkeypatch.setenv("MODERATION_GROUP_ANSWER_WINDOW_S", "")
     assert load_settings().moderation_group_answer_window_s == 1800
+
+
+# --- TG-M6: MODERATION_PANEL_BASE_URL (data-model §7, D-TG-224) ---
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_the_panel_base_url_absent_or_blank_means_no_panel_link(
+    monkeypatch: pytest.MonkeyPatch, value: str | None
+) -> None:
+    _clear_ai_api_env(monkeypatch)
+    if value is not None:
+        monkeypatch.setenv("MODERATION_PANEL_BASE_URL", value)
+
+    assert load_settings().moderation_panel_base_url is None
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("https://panel.example.org", "https://panel.example.org"),
+        ("https://panel.example.org/", "https://panel.example.org"),
+        ("http://localhost:8080", "http://localhost:8080"),
+    ],
+)
+def test_the_panel_base_url_is_kept_without_a_trailing_slash(
+    monkeypatch: pytest.MonkeyPatch, value: str, expected: str
+) -> None:
+    _clear_ai_api_env(monkeypatch)
+    monkeypatch.setenv("MODERATION_PANEL_BASE_URL", value)
+
+    assert load_settings().moderation_panel_base_url == expected
+
+
+@pytest.mark.parametrize(
+    "value", ["panel.example.org", "ftp://panel.example.org", "https://", "javascript:alert(1)"]
+)
+def test_a_malformed_panel_base_url_is_refused(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], value: str
+) -> None:
+    _clear_ai_api_env(monkeypatch)
+    monkeypatch.setenv("MODERATION_PANEL_BASE_URL", value)
+
+    with pytest.raises(SystemExit) as exc_info:
+        load_settings()
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert "MODERATION_PANEL_BASE_URL" in err
+    assert "Traceback" not in err

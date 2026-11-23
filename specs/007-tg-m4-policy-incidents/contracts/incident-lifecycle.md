@@ -108,6 +108,8 @@ Evidence is recognised inside `process_update`, from the captured event, for mea
   `telegram_messages` (`is_from_moderator`, written once at insert by TG-M2).
 - **V12.** A panel act is recorded only through §5.
 
+> **Amended by TG-M6 (2026-11-15, `specs/013-tg-m6-alerts/contracts/alerting.md` §5, `data-model.md` §4).** A second human route records evidence: a press on an incident alert's button in the alert group. ✅ records `alert_handled` (strength `confirmation`) and 🚫 records `alert_false_positive`. Each row carries `moderation_incident_id`, `alert_id`, the callback's `source_update_id`, and the pressing moderator as `actor_moderator_id` and `actor_telegram_user_id`, at `occurred_at` = the press's arrival (B3). It is recorded only through §5's guard. V13–V15 hold unchanged.
+
 ### §2.4 For every row
 
 - **V13.** At most one row per captured event (`uq_moderation_actions_source_update`), inserted with
@@ -187,6 +189,8 @@ language re-states it.
   moderator.
 
 > **Amended by TG-M2.1 (2026-10-19).** H7: a panel act by an account linked to a moderator (`moderators.user_id`) now also records `actor_moderator_id`, at write time (C1), so the act is that moderator's and can assign the incident to them. `panel_user_id` is still written; an unlinked account still credits nobody.
+
+> **Amended by TG-M6 (2026-11-15, `specs/013-tg-m6-alerts/contracts/alerting.md` B2, B4, N7).** H1 gains two acts made from the alert group: ✅ Handled (`alert_handled`, a confirmation, no note) and 🚫 Not a violation (`alert_false_positive`, no reason). Both are allowed from `open` and `acknowledged`. H2–H4 apply as written, in Python (`app/application/moderation/alert_press.py`): take the lock, read `moderation_incident_state`, and insert only if H1 allows; a press on an ended incident records nothing. Only a declared, active moderator, declared before the press, records an act (N7). `moderation_incident_state`'s false-positive lateral reads both closure kinds, and appends `close_kind` and `closed_by_moderator_id`.
 
 ---
 

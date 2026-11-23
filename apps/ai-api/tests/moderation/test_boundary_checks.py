@@ -26,6 +26,7 @@ DOMAIN_CLASSIFICATION = (
 DOMAIN_ATTENTION_JUDGEMENT = (
     REPO_ROOT / "apps" / "ai-api" / "app" / "domain" / "moderation" / "attention_judgement.py"
 )
+DOMAIN_ALERTING = REPO_ROOT / "apps" / "ai-api" / "app" / "domain" / "moderation" / "alerting.py"
 EVIDENCE_MODULE = (
     REPO_ROOT / "apps" / "ai-api" / "app" / "application" / "moderation" / "evidence.py"
 )
@@ -264,3 +265,15 @@ def test_domain_attention_judgement_imports_nothing_but_the_standard_library_and
     assert offenders == [], (
         f"non-stdlib, non-domain-moderation import(s) in {DOMAIN_ATTENTION_JUDGEMENT}: {offenders}"
     )
+
+
+def test_domain_alerting_imports_nothing_but_the_standard_library() -> None:
+    """TG-M6 (T510): `app/domain/moderation/alerting.py` is pure — the standard library only
+    (`zoneinfo` included), no I/O, no clock, no session. It holds the one definition of quiet
+    hours, the repeat index, the dedupe key and callback data, which the evaluator, delivery and
+    the press gate all read."""
+    offenders = _non_stdlib_imports(DOMAIN_ALERTING)
+    assert offenders == [], f"non-stdlib import(s) in {DOMAIN_ALERTING}: {offenders}"
+    source = DOMAIN_ALERTING.read_text(encoding="utf-8")
+    for clock in ("datetime.now", "time.time(", "date.today", "time.monotonic"):
+        assert clock not in source, f"{DOMAIN_ALERTING} reads a clock ({clock})"

@@ -699,6 +699,15 @@ code** — the seed inserts defaults as *data*, exactly as `make seed-profiles` 
 `uq_alerts_dedupe UNIQUE (dedupe_key)` — **Postgres, not a Redis TTL, is what makes alerting
 idempotent.** `dedupe_key = "{rule_id}:{subject_type}:{subject_id}:{repeat_index}"`.
 
+> **Amended by TG-M6 (2026-11-15, `specs/013-tg-m6-alerts/data-model.md`).** Built as revision **`0013`** (`0009` was taken), slimmed down (D-TG-212):
+> - `alert_rules` has no `name`, `scope`, `destination` or `destination_chat_id`. The scope is `telegram_chat_id` (NULL means all groups).
+> - The five triggers are `question_waiting`, `incident_flagged`, `incident_unhandled`, `group_silent` and `bot_not_admin`.
+> - The filters are `min_severity`, `categories` and `openers`, and `enabled_at` is stamped on every enable.
+> - **Nothing is seeded:** the operator creates every rule (supersedes "the seed inserts defaults").
+> - The destination is one flag, `telegram_chats.is_alert_destination`. The database refuses a monitored destination in both directions.
+> - `alerts` gains `episode_at` (health alerts), `rule_values`, `qualified_at`, the `sending` and `not_sent` statuses with `not_sent_reason`, `last_error_category` (never a message text), `rendered_state`, `excerpt_shown`, `final_at` and the edit columns. The dedupe key carries the episode for health alerts.
+> - `moderation_actions` gains `alert_id` and the kinds `alert_handled`, `alert_false_positive` and `alert_take`.
+
 ---
 
 ## 11. Message / Conversation / Attention Model
@@ -1095,6 +1104,17 @@ no SLA number appears in code. Dedupe is a Postgres unique index, not a Redis TT
 `quiet_hours` bound alert fatigue. Delivery failure never blocks incident state. And the student
 group is never a destination — `destination` has no value that resolves to a monitored chat, and a
 test asserts it.
+
+> **Amended by TG-M6 (2026-11-15, `specs/013-tg-m6-alerts/contracts/alerting.md`, `alert-messages.md`).** As built:
+> - **Firing:** one set-based statement per trigger, each subject qualifying only from the rule's `enabled_at` (FR-515). At most one alert per subject per run.
+> - **Quiet hours:** decided at firing. An alert inside a window is inserted `suppressed` and never sent, and figures are unaffected.
+> - **Delivery:** at most once per alert. An unknown outcome is never retried, and a missing destination or an ended subject is recorded as `not_sent`.
+> - **The message:** Arabic only. It carries a redacted excerpt of at most 100 characters (links, phones and handles replaced), never student names, and the excerpt is edited out at the text-retention age.
+> - **The buttons:** `[✅ تمت المعالجة] [🚫 ليست مخالفة]` on incidents, `[🙋 أتولّاه]` on questions, and a panel link.
+> - **Presses:** a press is an act only by a declared, active moderator, under the same guard and lock as the panel.
+> - **Edits:** every alert is edited when its subject ends by any route, driven by the tick.
+> - **What the bot calls:** `send_message`, `edit_message_text` and `answer_callback_query`, only from `alert_delivery.py`, never toward a monitored chat.
+> - **Thresholds** are data the operator creates; none is seeded.
 
 ---
 
@@ -1718,6 +1738,15 @@ asserted by a test and verified by reading the group.
 > - Ending someone's team membership or deactivating them in the panel does not remove them from the Telegram group. That is an offboarding step.
 >
 > **Revision:** `0012` is taken by TG-M4.1, so TG-M6's tables take the next free number.
+>
+> **Amended by TG-M6 (2026-11-15).** Specified, planned and implemented as `specs/013-tg-m6-alerts/`, revision `0013`.
+> - **Content:** the operator chose a short redacted excerpt (2026-11-12), not links and labels only, and the alerts name no student.
+> - **"I'm on it"** was built: it takes a question without closing it.
+> - **Repo areas, as built:**
+>   - `app/application/moderation/{alerting,alert_render,alert_delivery,alert_press}.py`;
+>   - `app/workers/tasks/moderation/{evaluate_alert_rules,deliver_alert,refresh_alert,answer_alert_press}.py`;
+>   - the panel's Alert Rules resource, Alerts page, destination actions and incident "Alerts" section.
+> - **Status:** awaiting the operator's probes, smoke and go-live (`specs/013-tg-m6-alerts/tasks.md` T551–T553).
 
 ---
 
@@ -1951,6 +1980,10 @@ data is genuinely day one.
 None blocks TG-M0–TG-M2. Items 1, 2 and 5 are needed before TG-M3's smoke test; item 6 before TG-M6.
 
 > **2026-10-21:** item 1 is answered: one shared private moderators' group with the bot (TG-M6's operator decision above).
+>
+> **2026-11-12:** items 6 and 7 are answered (TG-M6 clarifications, `specs/013-tg-m6-alerts/spec.md`).
+> - **Item 6:** quiet hours are set per rule, in `Asia/Riyadh`. An alert inside a window is recorded as suppressed and never sent. Quiet hours silence alerts only, so an item waiting overnight still counts in every figure exactly as before.
+> - **Item 7:** alerts are in Arabic only. The panel stays bilingual.
 
 ---
 

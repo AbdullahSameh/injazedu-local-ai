@@ -5,6 +5,11 @@ Composition root, exempt from the reverse boundary check by directory — may re
 tables and call the provider directly, mirroring `make doctor`'s shape: prose, non-zero on a
 real problem, useful with no credential present. Never prints the credential (FR-039); reports
 only its presence.
+
+TG-M6 D5 (`specs/013-tg-m6-alerts/contracts/alerting.md` §1): the alert destination — whether one is
+designated, the bot's standing there (read-only `getChatMember`: it must be a member or an
+administrator to post), and that it is not monitored. With no destination, alerts are recorded
+as not sent (D4); that is a problem only while a rule is enabled.
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.domain.moderation.incident import RESOLVING_REACTION, allows_resolving_reaction
 from app.infrastructure.config import Settings, load_settings
 from app.infrastructure.db import make_engine, make_session_factory
-from app.infrastructure.models_moderation import ingestion_state, telegram_chats
+from app.infrastructure.models_moderation import alert_rules, ingestion_state, telegram_chats
 from app.providers.telegram.client import TelegramClient, TelegramProvider
 from app.providers.telegram.errors import TelegramError
 
@@ -127,7 +132,71 @@ async def _run(
         print("  A moderator cannot resolve an incident there with a reaction (TG-M4.1).")
         exit_code = 1
 
+    if not await _destination_ok(active_client, session_factory, bot_id=identity.bot_id):
+        exit_code = 1
+
     return exit_code
+
+
+# D5: the bot can post in the destination as a member or an administrator.
+_POSTING_STANDINGS = ("member", "administrator")
+
+
+async def _destination_ok(
+    client: TelegramProvider,
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    bot_id: int,
+) -> bool:
+    """TG-M6 D5, one line: designated or not, the bot's standing there, and not monitored."""
+    async with session_factory() as session:
+        destination = (
+            await session.execute(
+                sa.select(
+                    telegram_chats.c.chat_id,
+                    telegram_chats.c.title,
+                    telegram_chats.c.is_monitored,
+                ).where(telegram_chats.c.is_alert_destination.is_(True))
+            )
+        ).one_or_none()
+        enabled_rules = (
+            await session.execute(
+                sa.select(sa.func.count()).select_from(alert_rules).where(
+                    alert_rules.c.is_enabled.is_(True)
+                )
+            )
+        ).scalar_one()
+
+    if destination is None:
+        if enabled_rules:
+            print(
+                f"  alert destination     NONE — {enabled_rules} enabled rule(s); "
+                "every alert is recorded as not sent"
+            )
+            return False
+        print("  alert destination     none designated (no rule is enabled)")
+        return True
+
+    title = destination.title or "(untitled)"
+    problems: list[str] = []
+    try:
+        member = await client.get_chat_member(chat_id=destination.chat_id, user_id=bot_id)
+        standing = member.status
+        if standing in _POSTING_STANDINGS:
+            posting = f"bot can post ({standing})"
+        else:
+            posting = f"bot CANNOT post ({standing})"
+            problems.append("bot cannot post")
+    except TelegramError as exc:
+        posting = f"bot standing unknown — {exc.category}"
+        problems.append("bot standing unknown")
+    monitored = "MONITORED" if destination.is_monitored else "not monitored"
+    if destination.is_monitored:
+        problems.append("monitored")
+
+    flag = "   ⚠" if problems else ""
+    print(f"  alert destination     designated — {title}; {posting}; {monitored}{flag}")
+    return not problems
 
 
 async def _eyes_flag(client: TelegramProvider, *, chat_id: int) -> str:

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\TelegramChats\Schemas;
 
+use App\Models\TelegramChat;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -23,7 +24,9 @@ class TelegramChatForm
                 Toggle::make('is_monitored')
                     ->label(__('Measured'))
                     ->helperText(
-                        __('Turning this on starts nothing by itself — no job, no bulk derivation. To bring in events captured before this was switched on, the operator runs `python -m app.scripts.rederive_chat --chat <chat_id>`.')
+                        fn (?TelegramChat $record): string => $record?->is_alert_destination
+                            ? __('This chat is the alert destination, which is never measured. Stop using it as the destination first.')
+                            : __('Turning this on starts nothing by itself — no job, no bulk derivation. To bring in events captured before this was switched on, the operator runs `python -m app.scripts.rederive_chat --chat <chat_id>`.')
                     ),
                 TextInput::make('injaz_course_id')
                     ->label(__('Course reference'))

@@ -67,6 +67,7 @@ changes against the base file.
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | blank | See §5 |
 | `TELEGRAM_BOT_TOKEN` | blank | See §11 |
 | `MODERATION_AI_ATTENTION_FROM` / `MODERATION_ATTENTION_PROMPT_VERSION` | blank | No attention instruction is qualified |
+| `MODERATION_PANEL_BASE_URL` | `https://ai-control.injazedu.co` | TG-M6: an alert's "open in the panel" link. Blank means alerts carry none. Read by `ai-worker` and `ai-telegram`; recreate both after a change |
 
 **Commands:**
 - `scripts/prod/dc <compose args>` is `docker compose` with both files and `.env`.
@@ -452,6 +453,20 @@ code change is needed.
 
 **Roll back:** blank the token, then `scripts/prod/dc up -d ai-telegram ai-api`. The poller exits 0,
 and captured data stays.
+
+**Alerts (TG-M6, migration `0013`).** The full steps are `specs/013-tg-m6-alerts/quickstart.md` §4.
+1. Take a `pg_dump`, then deploy as in §6.
+2. Set `MODERATION_PANEL_BASE_URL` (§2), then recreate `ai-worker` and `ai-telegram`.
+3. In the panel, open Telegram Chats → the moderators' supergroup → **Use as alert destination**.
+4. Run `tg_doctor` as in step 2 above. Its `alert destination` line must read `designated — <title>;
+   bot can post (member)` (or `administrator`) and `not monitored`, with no ⚠. With no destination
+   it reads `none designated`; while a rule is enabled that is a failure, because every alert would
+   be recorded as not sent.
+5. Create the first rules in the panel (Alert Rules); none is seeded.
+6. The next day, read every student group: the bot must have posted nothing.
+
+**Stop alerts at once:** clear the destination with **Stop using**. Each alert fired meanwhile is
+recorded as not sent. Disabling the rules stops firing too.
 
 **The link rule (migration `0010`, 2026-10-18).** A link from anyone who is not a **declared moderator**
 opens a "Link rule" incident, in text, a caption, a forward or an edit. Anonymous administrators and

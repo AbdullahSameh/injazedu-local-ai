@@ -191,3 +191,5 @@ the fake.
 4. **Hold business state.** It is stateless; the position lives in Postgres.
 5. **Log message text.** Enforced by the gate's check 4.
 6. **Contain a threshold** (§6).
+
+> **Amended by TG-M6 (2026-11-15, `specs/013-tg-m6-alerts/contracts/alerting.md` §4–§6, §9; D-TG-215, D-TG-227).** Item 1: the provider gains exactly three outbound methods, `send_message`, `edit_message_text` and `answer_callback_query`, and nothing else. They are called only from `app/application/moderation/alert_delivery.py`, behind a runtime guard read in the same transaction: a send goes only to the designated alert destination, an edit only to the alert's own posted chat, an answer only to a press whose message is in no monitored chat. Nothing is ever addressed to a monitored chat (N1), and a send whose outcome is unknown is never retried. There is still no react, delete, ban, restrict or pin method (N2). `tg-doctor` also reads `getChatMember` for the bot in the alert destination (D5).

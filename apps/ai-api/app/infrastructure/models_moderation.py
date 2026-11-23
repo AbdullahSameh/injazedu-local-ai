@@ -119,10 +119,26 @@ telegram_chats = sa.Table(
     sa.Column(
         "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     ),
+    # TG-M6 (revision 0013, D-TG-211): the one chat alerts are posted to. Set and cleared only by
+    # the panel; never monitored, in either order (`ck_chat_destination_not_monitored`).
+    sa.Column(
+        "is_alert_destination", sa.Boolean(), nullable=False, server_default=sa.false()
+    ),
     sa.UniqueConstraint("chat_id", name="uq_telegram_chats_chat_id"),
     sa.CheckConstraint(
         "bot_status IN ('member', 'administrator', 'left', 'kicked', 'restricted', 'unknown')",
         name="ck_telegram_chats_bot_status",
+    ),
+    sa.CheckConstraint(
+        "NOT (is_alert_destination AND is_monitored)",
+        name="ck_chat_destination_not_monitored",
+    ),
+    # At most one destination (FR-501).
+    sa.Index(
+        "uq_chat_one_alert_destination",
+        sa.text("(true)"),
+        unique=True,
+        postgresql_where=sa.text("is_alert_destination"),
     ),
 )
 
@@ -674,6 +690,14 @@ moderation_actions = sa.Table(
     sa.Column(
         "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     ),
+    # TG-M6 (revision 0013, D-TG-217): the alert a button act was pressed on. Set on `alert_*`
+    # kinds only (`ck_actions_alert_link`).
+    sa.Column(
+        "alert_id",
+        sa.BigInteger(),
+        sa.ForeignKey("alerts.id", name="fk_actions_alert", ondelete="RESTRICT"),
+        nullable=True,
+    ),
     # One captured event, at most one row, however often it is re-interpreted (V13). NULLs
     # (panel acts) are distinct, so panel acts never collide here.
     sa.UniqueConstraint(
@@ -681,7 +705,8 @@ moderation_actions = sa.Table(
     ),
     sa.CheckConstraint(
         "action_type IN ('reaction', 'ban', 'expulsion', 'restriction', 'reversal', "
-        "'panel_acknowledge', 'panel_resolve', 'panel_false_positive')",
+        "'panel_acknowledge', 'panel_resolve', 'panel_false_positive', "
+        "'alert_handled', 'alert_false_positive', 'alert_take')",
         name="ck_actions_type",
     ),
     # The kind table of data-model.md §2, as one boolean expression: a reversal or a closure can
@@ -694,12 +719,17 @@ moderation_actions = sa.Table(
         "(action_type = 'reversal' AND action_strength IS NULL) OR "
         "(action_type = 'panel_acknowledge' AND action_strength = 'acknowledgement') OR "
         "(action_type = 'panel_resolve' AND action_strength = 'confirmation') OR "
-        "(action_type = 'panel_false_positive' AND action_strength IS NULL)",
+        "(action_type = 'panel_false_positive' AND action_strength IS NULL) OR "
+        "(action_type = 'alert_handled' AND action_strength = 'confirmation') OR "
+        "(action_type IN ('alert_false_positive', 'alert_take') AND action_strength IS NULL)",
         name="ck_actions_strength",
     ),
-    # Panel acts name their incident; captured acts never do.
+    # Panel acts and the two incident button acts name their incident; captured acts and a take
+    # never do (TG-M6: a take reaches its item through its alert).
     sa.CheckConstraint(
-        r"(action_type LIKE 'panel\_%') = (moderation_incident_id IS NOT NULL)",
+        r"(action_type LIKE 'panel\_%' "
+        r"OR action_type IN ('alert_handled', 'alert_false_positive')) "
+        r"= (moderation_incident_id IS NOT NULL)",
         name="ck_actions_panel_link",
     ),
     # Every row says where it came from.
@@ -731,6 +761,18 @@ moderation_actions = sa.Table(
         "detail -> 'added' @> '[{\"type\": \"emoji\", \"emoji\": \"👀\"}]'::jsonb",
         name="ck_actions_reaction_confirmation",
     ),
+    # TG-M6: a button act names its alert, and only a button act does.
+    sa.CheckConstraint(
+        r"(action_type LIKE 'alert\_%') = (alert_id IS NOT NULL)",
+        name="ck_actions_alert_link",
+    ),
+    # TG-M6: a button act is always a declared moderator's, through their Telegram identity.
+    sa.CheckConstraint(
+        r"action_type NOT LIKE 'alert\_%' OR "
+        r"(actor_moderator_id IS NOT NULL AND actor_telegram_user_id IS NOT NULL "
+        r"AND panel_user_id IS NULL)",
+        name="ck_actions_alert_actor",
+    ),
 )
 
 sa.Index(
@@ -749,6 +791,11 @@ sa.Index(
     "ix_actions_incident",
     moderation_actions.c.moderation_incident_id,
     postgresql_where=moderation_actions.c.moderation_incident_id.is_not(None),
+)
+sa.Index(
+    "ix_actions_alert",
+    moderation_actions.c.alert_id,
+    postgresql_where=moderation_actions.c.alert_id.is_not(None),
 )
 
 # TG-M5's own link, deferred here since `attention_items` (revision 0005) predates
@@ -1085,6 +1132,181 @@ attention_items.append_constraint(
     )
 )
 
+# --- TG-M6: Alerts (`specs/013-tg-m6-alerts/data-model.md` §2-§3, revision 0013) ---
+
+# Operator data (D-TG-212): nothing is seeded and no threshold exists in code. The rule in force for
+# (chat, trigger) is the chat's row, enabled or not, else the global row (R5).
+alert_rules = sa.Table(
+    "alert_rules",
+    metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+    sa.Column("trigger", sa.String(length=30), nullable=False),
+    sa.Column(
+        "telegram_chat_id",
+        sa.BigInteger(),
+        sa.ForeignKey("telegram_chats.id", name="fk_alert_rules_chat"),
+        nullable=True,
+    ),
+    sa.Column("threshold_s", sa.Integer(), nullable=True),
+    sa.Column("min_severity", sa.String(length=10), nullable=True),
+    sa.Column("categories", JSONB(), nullable=True),
+    sa.Column("openers", JSONB(), nullable=True),
+    sa.Column("repeat_every_s", sa.Integer(), nullable=True),
+    sa.Column("max_repeats", sa.SmallInteger(), nullable=True),
+    sa.Column("quiet_hours", JSONB(), nullable=False, server_default=sa.text("'[]'::jsonb")),
+    sa.Column("is_enabled", sa.Boolean(), nullable=False, server_default=sa.false()),
+    sa.Column("enabled_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("updated_by_user_id", sa.BigInteger(), nullable=True),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
+    sa.Column(
+        "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
+    sa.CheckConstraint(
+        "trigger IN ('question_waiting', 'incident_flagged', 'incident_unhandled', "
+        "'group_silent', 'bot_not_admin')",
+        name="ck_alert_rule_trigger",
+    ),
+    sa.CheckConstraint(
+        "(trigger IN ('question_waiting', 'incident_unhandled', 'group_silent')) "
+        "= (threshold_s IS NOT NULL) AND (threshold_s IS NULL OR threshold_s > 0)",
+        name="ck_alert_rule_threshold",
+    ),
+    sa.CheckConstraint(
+        "trigger IN ('incident_flagged', 'incident_unhandled') OR "
+        "(min_severity IS NULL AND categories IS NULL AND openers IS NULL)",
+        name="ck_alert_rule_filters",
+    ),
+    sa.CheckConstraint(
+        "min_severity IS NULL OR min_severity IN ('low', 'medium', 'high')",
+        name="ck_alert_rule_severity",
+    ),
+    sa.CheckConstraint(
+        "(repeat_every_s IS NULL) = (max_repeats IS NULL) AND "
+        "(repeat_every_s IS NULL OR (repeat_every_s > 0 AND max_repeats > 0))",
+        name="ck_alert_rule_repeats",
+    ),
+    sa.CheckConstraint("jsonb_typeof(quiet_hours) = 'array'", name="ck_alert_rule_quiet_hours"),
+    sa.CheckConstraint(
+        "NOT is_enabled OR enabled_at IS NOT NULL", name="ck_alert_rule_enabled_at"
+    ),
+)
+
+sa.Index(
+    "uq_alert_rule_global",
+    alert_rules.c.trigger,
+    unique=True,
+    postgresql_where=alert_rules.c.telegram_chat_id.is_(None),
+)
+sa.Index(
+    "uq_alert_rule_chat",
+    alert_rules.c.trigger,
+    alert_rules.c.telegram_chat_id,
+    unique=True,
+    postgresql_where=alert_rules.c.telegram_chat_id.is_not(None),
+)
+
+# One row per rule, subject, episode and repeat (`uq_alerts_dedupe`, FR-522). Never a message text:
+# `rendered_state` holds the inputs of the last rendered text (D-TG-216), and the excerpt is built
+# at render time only (D-TG-221).
+alerts = sa.Table(
+    "alerts",
+    metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+    sa.Column(
+        "alert_rule_id",
+        sa.BigInteger(),
+        sa.ForeignKey("alert_rules.id", name="fk_alerts_rule", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    sa.Column("trigger", sa.String(length=30), nullable=False),
+    # The source group: where the subject lives, never the alert group.
+    sa.Column(
+        "telegram_chat_id",
+        sa.BigInteger(),
+        sa.ForeignKey("telegram_chats.id", name="fk_alerts_chat"),
+        nullable=False,
+    ),
+    sa.Column("subject_type", sa.String(length=20), nullable=False),
+    sa.Column("subject_id", sa.BigInteger(), nullable=False),
+    sa.Column("episode_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("repeat_index", sa.SmallInteger(), nullable=False),
+    sa.Column("dedupe_key", sa.String(length=160), nullable=False),
+    sa.Column("rule_values", JSONB(), nullable=False),
+    sa.Column("qualified_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column(
+        "fired_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
+    sa.Column(
+        "delivery_status",
+        sa.String(length=12),
+        nullable=False,
+        server_default=sa.text("'pending'"),
+    ),
+    sa.Column("not_sent_reason", sa.String(length=20), nullable=True),
+    sa.Column("attempts", sa.SmallInteger(), nullable=False, server_default=sa.text("0")),
+    sa.Column("last_error_category", sa.String(length=40), nullable=True),
+    sa.Column("last_error_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("delivered_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("sent_chat_id", sa.BigInteger(), nullable=True),
+    sa.Column("sent_message_id", sa.BigInteger(), nullable=True),
+    sa.Column("rendered_state", JSONB(), nullable=True),
+    sa.Column("excerpt_shown", sa.Boolean(), nullable=False, server_default=sa.false()),
+    sa.Column("final_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("last_edit_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("edit_attempts", sa.SmallInteger(), nullable=False, server_default=sa.text("0")),
+    sa.Column("last_edit_error_category", sa.String(length=40), nullable=True),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    ),
+    sa.UniqueConstraint("dedupe_key", name="uq_alerts_dedupe"),
+    sa.CheckConstraint(
+        "subject_type IN ('attention_item', 'incident', 'chat')", name="ck_alerts_subject_type"
+    ),
+    sa.CheckConstraint(
+        "(subject_type = 'chat') = (episode_at IS NOT NULL)", name="ck_alerts_episode"
+    ),
+    sa.CheckConstraint("repeat_index >= 0", name="ck_alerts_repeat"),
+    sa.CheckConstraint(
+        "delivery_status IN ('pending', 'sending', 'sent', 'failed', 'suppressed', "
+        "'not_sent')",
+        name="ck_alerts_status",
+    ),
+    sa.CheckConstraint(
+        "(delivery_status = 'not_sent') = (not_sent_reason IS NOT NULL)",
+        name="ck_alerts_not_sent",
+    ),
+    sa.CheckConstraint(
+        "(delivery_status = 'sent') = "
+        "(sent_message_id IS NOT NULL AND sent_chat_id IS NOT NULL)",
+        name="ck_alerts_posted",
+    ),
+)
+
+# A press finds its alert by where it was posted (D-TG-219).
+sa.Index(
+    "uq_alerts_posted",
+    alerts.c.sent_chat_id,
+    alerts.c.sent_message_id,
+    unique=True,
+    postgresql_where=alerts.c.sent_message_id.is_not(None),
+)
+sa.Index(
+    "ix_alerts_subject",
+    alerts.c.alert_rule_id,
+    alerts.c.subject_type,
+    alerts.c.subject_id,
+    alerts.c.episode_at,
+)
+sa.Index(
+    "ix_alerts_live",
+    alerts.c.id,
+    postgresql_where=sa.and_(alerts.c.delivery_status == "sent", alerts.c.final_at.is_(None)),
+)
+sa.Index("ix_alerts_excerpt", alerts.c.id, postgresql_where=alerts.c.excerpt_shown)
+sa.Index("ix_alerts_fired", alerts.c.fired_at.desc())
+
 # The two views (data-model.md §3) — the only definitions of linkage and derived state (lifecycle
 # contract N6). Declared as lightweight `sa.table()` clauses, **not** `sa.Table(..., metadata)`, so
 # `metadata.create_all()` can never create a table named like a view; only alembic revision
@@ -1129,6 +1351,9 @@ moderation_incident_state = sa.table(
     sa.column("closed_at"),
     sa.column("closed_by_user_id"),
     sa.column("close_reason"),
+    # TG-M6 (revision 0013, D-TG-218): appended, so every column above keeps its position.
+    sa.column("close_kind"),
+    sa.column("closed_by_moderator_id"),
 )
 
 # TG-M2.1's three views (revision 0011, `specs/012-tg-m2-1-group-teams/data-model.md` §3-§5) —

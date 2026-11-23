@@ -777,6 +777,115 @@ async def test_my_work_splits_what_i_took_from_what_i_answered(
     assert unanswered_a["unanswered"] == 1
 
 
+async def test_a_take_from_an_alert_counts_as_via_alert_and_the_split_sums_to_assigned(
+    incident_session_factory: async_sessionmaker[AsyncSession],
+    insert_chat: Any,
+    insert_moderator: Any,
+    insert_assignment: Any,
+    insert_message: Any,
+    insert_item: Any,
+    react: Any,
+    captured_update: Any,
+) -> None:
+    """TG-M6 M1 (`alerting.md` §8): A takes item 1 from its alert, item 2 by 👀 and answers item 3
+    directly; `via_reply + via_dismissal + via_reaction + via_alert = assigned`. The alert act,
+    its alert and its rule are removed afterwards: revision 0013's downgrade refuses while any
+    alert act exists."""
+    chat_pk, team = await _group(insert_chat, insert_moderator, insert_assignment, ("A",))
+    a = team["A"]
+    for message_id, minute in ((1, 0), (2, 1), (3, 2), (13, 6)):
+        await insert_message(
+            telegram_chat_id=chat_pk, message_id=message_id, sent_at=_T0 + timedelta(minutes=minute)
+        )
+    taken = await insert_item(telegram_chat_id=chat_pk, telegram_message_id=1, opened_at=_T0)
+    await insert_item(
+        telegram_chat_id=chat_pk, telegram_message_id=2, opened_at=_T0 + timedelta(minutes=1)
+    )
+    await insert_item(
+        telegram_chat_id=chat_pk,
+        telegram_message_id=3,
+        opened_at=_T0 + timedelta(minutes=2),
+        status="answered",
+        first_response_moderator_id=a["moderator_id"],
+        first_response_at=_T0 + timedelta(minutes=6),
+        first_response_message_id=13,
+    )
+    await react(
+        telegram_chat_id=chat_pk, target_message_id=2, moderator=a, at=_T0 + timedelta(minutes=3)
+    )
+    update_id = await captured_update("callback_query", {}, chat_id=None)
+    async with incident_session_factory() as session:
+        rule_id = (
+            await session.execute(
+                sa.text(
+                    "INSERT INTO alert_rules (trigger, telegram_chat_id, threshold_s) "
+                    "VALUES ('question_waiting', :chat, 600) RETURNING id"
+                ),
+                {"chat": chat_pk},
+            )
+        ).scalar_one()
+        alert_id = (
+            await session.execute(
+                sa.text(
+                    "INSERT INTO alerts (alert_rule_id, trigger, telegram_chat_id, subject_type, "
+                    "  subject_id, repeat_index, dedupe_key, rule_values, qualified_at) "
+                    "VALUES (:rule, 'question_waiting', :chat, 'attention_item', :item, 0, "
+                    "  :key, '{}'::jsonb, :at) RETURNING id"
+                ),
+                {
+                    "rule": rule_id,
+                    "chat": chat_pk,
+                    "item": taken,
+                    "key": f"{rule_id}:attention_item:{taken}:0",
+                    "at": _T0 + timedelta(minutes=10),
+                },
+            )
+        ).scalar_one()
+        await session.execute(
+            sa.text(
+                "INSERT INTO moderation_actions (telegram_chat_id, action_type, occurred_at, "
+                "  actor_telegram_user_id, actor_moderator_id, source_update_id, alert_id) "
+                "VALUES (:chat, 'alert_take', :at, :tu, :mod, :update, :alert)"
+            ),
+            {
+                "chat": chat_pk,
+                "at": _T0 + timedelta(minutes=11),
+                "tu": a["telegram_user_id"],
+                "mod": a["moderator_id"],
+                "update": update_id,
+                "alert": alert_id,
+            },
+        )
+        await session.commit()
+    try:
+        async with incident_session_factory() as session:
+            work = await attention_work_stats(
+                session,
+                period_from=_PERIOD[0],
+                period_to=_PERIOD[1],
+                min_samples=10,
+                moderator_id=a["moderator_id"],
+            )
+    finally:
+        async with incident_session_factory() as session:
+            await session.execute(
+                sa.text("DELETE FROM moderation_actions WHERE alert_id = :id"), {"id": alert_id}
+            )
+            await session.execute(sa.text("DELETE FROM alerts WHERE id = :id"), {"id": alert_id})
+            await session.execute(
+                sa.text("DELETE FROM alert_rules WHERE id = :id"), {"id": rule_id}
+            )
+            await session.commit()
+
+    assert work["assigned"] == 3
+    assert (work["via_alert"], work["via_reaction"], work["via_reply"]) == (1, 1, 1)
+    assert (
+        work["via_reply"] + work["via_dismissal"] + work["via_reaction"] + work["via_alert"]
+        == work["assigned"]
+    )
+    assert work["assigned_open"] == 2  # a take does not close the item
+
+
 async def test_my_incident_work_counts_what_i_took_and_how_fast(
     incident_session_factory: async_sessionmaker[AsyncSession],
     insert_chat: Any,
